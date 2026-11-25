@@ -111,6 +111,29 @@ describe('what counts as a run-time operand of a growing scale', () => {
     expect(isProduct(scaledBy(arms(f64Param('a')), 4))).toBe(true);
   });
 
+  it('a scalar parameter or local is not proven, since a local bound to a literal becomes the literal', () => {
+    const pair = (w: Expr): Expr => call('f64FromParts', f64T, w, lit(f32T, 0));
+    expect(isProduct(scaledBy(pair(param('w', f32T)), 4, [['w', f32T]]))).toBe(true);
+    const local: ModuleDecl = {
+      ...rawModule([], lit(f64T, 0)),
+      funcs: [
+        {
+          name: 'k',
+          params: [],
+          ret: f64T,
+          body: [
+            { s: 'let', name: 'w', expr: lit(f32T, 1e38) },
+            {
+              s: 'return',
+              expr: times(pair({ op: 'varref', type: f32T, name: 'w' }), lit(f64T, 4)),
+            },
+          ],
+        },
+      ],
+    };
+    expect(isProduct(returned(local))).toBe(true);
+  });
+
   it('a binding of a scalar type does', () => {
     const binding = { group: 0, binding: 0, name: 'g', space: 'uniform' as const, type: f64T };
     const operand: Expr = { op: 'varref', type: f64T, name: 'g' };

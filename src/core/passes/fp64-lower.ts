@@ -756,9 +756,9 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         isVec64(e.args[0]!.type)
       ) {
         const n = (e.args[0]!.type as Extract<ShaderType, { kind: 'vec64' }>).n;
-        // Why: every lane spells the lowered vector in its hi and its lo swizzle, so a call inside the
-        // operand runs 2n times wherever CSE does not merge the copies, and that is wrong for a call
-        // that writes. The lowering is fixed for dot, length and distance until the swizzle goes.
+        // Why: df64_sqr takes a lane once where df64_mul(li, li) took it twice, but every lane still spells
+        // the lowered vector in its hi and its lo swizzle, so a call inside it runs 2n times unless CSE
+        // merges the copies, which is wrong for a call that writes. That predates the square; not fixed here.
         const sumSquares = (laneAt: (i: number) => Expr): Expr => {
           let acc: Expr | undefined;
           for (let i = 0; i < n; i++) {
@@ -1465,9 +1465,9 @@ function injectGuard(bindings: BindingDecl[]): void {
       binding: slot,
       name: FP64_GUARD_NAME,
       space: 'uniform',
-      // Why: the guard is a texture because a driver specializes a pipeline on the value of a uniform
-      // and then folds the guard away (seen on Windows with NVIDIA).
+      // Why: a texture, since a driver (Windows, NVIDIA) specializes a pipeline on a uniform's value and folds the guard away.
       type: FP64_GUARD_TYPE,
+      // Why: GLSL ES 3.00 gives `sampler2D` a default precision of lowp in both stages.
       precision: 'highp',
     });
   }

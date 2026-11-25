@@ -283,3 +283,36 @@ describe('a resource under using', () => {
     expect(() => buffer.at(0)).toThrow(TypeError);
   });
 });
+
+interface Cells {
+  at(index: number): { readonly a: { set(v: unknown): void; get(): unknown } };
+  set(data: unknown): void;
+  read(): Promise<unknown[]>;
+  needsUpdate: boolean;
+}
+
+describe('set(data) with an element that does not fit', () => {
+  it('keeps the old range, its bytes, its values and its length, and frees the new range', async () => {
+    const m = await load();
+    const region = new Region();
+    const buffer = makeBuffer(region, m.Cell, 2, undefined, 'zeros()') as unknown as Cells;
+    buffer.at(0).a.set(1);
+    buffer.at(1).a.set(2);
+    const range = rangeOf(buffer).range;
+    const count = region.count;
+    buffer.needsUpdate = true;
+    const whole = dirtyRange(buffer);
+    expect(() => buffer.set([{ a: 7 }, { a: 8 }, { a: 'bad' }])).toThrow(TypeError);
+    expect(rangeOf(buffer).range).toBe(range);
+    expect(region.count).toBe(count);
+    expect(buffer.at(0).a.get()).toBe(1);
+    expect(buffer.at(1).a.get()).toBe(2);
+    expect((await buffer.read()).length).toBe(2);
+    buffer.needsUpdate = false;
+    buffer.needsUpdate = true;
+    expect(dirtyRange(buffer)).toEqual(whole);
+    expect(() => buffer.set([{ a: 'bad' }])).toThrow(TypeError);
+    buffer.at(1).a.set(5);
+    expect(buffer.at(1).a.get()).toBe(5);
+  });
+});

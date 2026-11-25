@@ -138,6 +138,28 @@ out[li + 8] = 1;`;
     expect(kindsOf(planOf(entry(body)))).toEqual(['barrier']);
   });
 
+  it('restarts the count after an atomic operation', () => {
+    const body = `${writes(4)}\natomicAdd(total, 1);\n${writes(4)}`;
+    expect(kindsOf(planOf(entry(body)))).toEqual(['atomic']);
+  });
+
+  it('refuses one statement that writes more entries than the log holds', () => {
+    const src = `"use typeshade";
+declare const rows: storage<array<array<u32, 5>>, "read_write">;
+function fill(a: array<u32, 5>): void {
+  a[0] = 1;
+}
+${ENTRY}
+  fill(rows[li]);
+}
+`;
+    expect(() => planOf(src, { logEntries: 4 })).toThrow(PhaseSplitError);
+    expect(() => planOf(src, { logEntries: 4 })).toThrow(
+      "one statement writes 5 log entries, more than the log's 4",
+    );
+    expect(() => planOf(src, { logEntries: 5 })).not.toThrow();
+  });
+
   it('counts a write of an array as one entry for each element', () => {
     const src = `"use typeshade";
 declare const rows: storage<array<array<u32, 5>>, "read_write">;

@@ -696,8 +696,8 @@ class Builder {
       src = varref(tmp, type);
     }
     if (type.kind === 'vec64') {
-      // Why: a vector is stored as hi and lo planes. Each scalar write is one pair; the memory
-      // pass maps its two words to those planes before fp64 lowering sees these places.
+      // Why: the memory pass maps the two words of each scalar write to the hi and lo planes of a vector,
+      // and it must do so before fp64 lowering sees these places.
       for (const field of 'xyzw'.slice(0, type.n)) {
         this.writePieces(
           { op: 'member', type: f64T, base: target, field },

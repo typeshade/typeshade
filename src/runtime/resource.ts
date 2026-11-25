@@ -959,7 +959,7 @@ class BufferRoot {
     const bytes = state.length * st;
     const back = new ArrayBuffer(Math.max(4, bytes));
     pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
-    // Why: a guard that no call of the API reaches while the read waits, since `set` and `needsUpdate` throw until a read lands the values; it keeps a newer value of the host from being overwritten.
+    // Why: a `set` made while the read waited is newer than the device's value, so the read then lands nothing and the array stays ahead of the region until a later read; no call of the API reaches this guard.
     if (!core.dirty && state.length === this.#length && core.ahead === state) {
       new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
         new Uint8Array(back, 0, bytes),

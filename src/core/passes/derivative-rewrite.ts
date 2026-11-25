@@ -174,7 +174,7 @@ function replacementOf(c: Call, plan: TargetPlan, handles: readonly Expr[]): Exp
       let [gx, gy] = handles as [Expr, Expr];
       const args = [...c.args];
       if (plan.bias !== undefined) {
-        // Why: WGSL clamps the bias to [-16.0, 15.99], and a gradient scaled by 2^bias gives the same level of detail.
+        // Why: WGSL clamps the bias to [-16.0, 15.99]; that a gradient scaled by 2^bias gives the same level of detail is an assumption to measure (change 0132).
         const bias = args.splice(plan.bias, 1)[0]!;
         const scale: Expr = {
           op: 'call',
