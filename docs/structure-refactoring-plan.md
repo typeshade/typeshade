@@ -1000,10 +1000,10 @@ A local branch with seventeen new files from `src/runtime/gl.ts` and `src/runtim
 
 Cost of D14: a budget set to the measured size has no headroom. The next rise needs a budget pull request under D14 or D15, or the owner.
 
-Decision D15: three kinds of budget rise merge without a separate "merge" from the owner.
+Decision D15: two more kinds of budget rise merge without a separate "merge" from the owner, and a test holds the limit of every rise.
 Kind (a): a pull request that implements a proposal already `accepted` on `main` raises its own budget to the measured numbers, inside the same pull request, as before D14.
-Kind (b): the 1% ceiling test of #1597 (`src/bundle-ceiling-policy.test.ts`) holds the total. Past a ceiling of `scripts/bundle-ceiling.json`, the owner decides.
-Kind (c): a pull request that sets the budget to the measured size of a `main` that a race put over the budget is approved in advance, within the same ceiling.
+Kind (b): a pull request that sets the budget to the measured size of a `main` that a race put over the budget is approved in advance.
+The limit: the 1% ceiling test of #1597 (`src/bundle-ceiling-policy.test.ts`) holds the total for D14 and D15. Past a ceiling of `scripts/bundle-ceiling.json`, the owner decides.
 Any other rise waits for the owner. The conditions are in `CLAUDE.md`, Merging.
 Authority: the owner's answer of 2026-11-25 ("추천안대로") to the recommendation of the orchestrating session.
 Reason: on 2026-11-24 two pull requests each passed alone (#1590, a feature; #1578, a move) and together put `main` over the budget.
