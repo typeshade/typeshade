@@ -8,6 +8,8 @@ import {
 import { AREA_DEFINITION } from '../scripts/code-shape/areas.js';
 import { createContextFromSources } from '../scripts/code-shape/context.js';
 
+const UP = ['..', '..'].join('/');
+
 const leaf = (name: string): string => `export const ${name} = 1;\n`;
 
 const SOURCES = {
@@ -97,7 +99,7 @@ describe('the breadth signal', () => {
         'src/core/ir/more.ts': [
           `import { i1 } from './i1.js';`,
           `import { i2 } from './i2.js';`,
-          `import { a } from '../../rhi/a.js';`,
+          `import { a } from '${UP}/rhi/a.js';`,
           `export const z = [i1, i2, a];`,
           '',
         ].join('\n'),

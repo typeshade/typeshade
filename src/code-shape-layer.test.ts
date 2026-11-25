@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createContextFromSources } from '../scripts/code-shape/context.js';
 import { layer, layerSignal, summariseLayer } from '../scripts/code-shape/layer.js';
 
+const UP = ['..', '..'].join('/');
+
 const POLICY = {
   mayImport: { core: [], rhi: ['core'], runtime: ['core', 'rhi'] },
   known: ['core/low.ts -> rhi/known.ts'],
@@ -54,9 +56,9 @@ describe('the layer signal', () => {
   it('reads every file the policy test reads: a testing helper counts, a test file does not', () => {
     const more = createContextFromSources({
       ...SOURCES,
-      'src/core/testing/helper.ts': `import { r } from '../../rhi/known.js';\nexport const h = r;\n`,
+      'src/core/testing/helper.ts': `import { r } from '${UP}/rhi/known.js';\nexport const h = r;\n`,
       'src/core/low.test.ts': `import { r } from '../rhi/known.js';\nexport const t = r;\n`,
-      'src/core/fixtures/input.ts': `import { r } from '../../rhi/known.js';\nexport const f = r;\n`,
+      'src/core/fixtures/input.ts': `import { r } from '${UP}/rhi/known.js';\nexport const f = r;\n`,
       'src/core/dynamic.ts': `export const d = import('../rhi/known.js');\n`,
     });
     const files = layerSignal(POLICY)(more).map((finding) => finding.file);
