@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bothHalves, bothRefuse } from '../../../core/testing/both-halves.js';
 
-const program = (classes: string, body: string): string => `"use typeshade"
+const program = (classes: string, body: string): string => `"use typeshade";
 ${classes}
 @fragment export function fs(): vec4 {
 ${body}
