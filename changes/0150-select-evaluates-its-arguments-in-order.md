@@ -281,7 +281,7 @@ Not searched:
 
 - `node_modules` and `dist`.
 - Compiler-emitted WGSL and GLSL inside generated manifests (`typeplot/examples/generated/*.js`, `web/apps/typeshade/public/benchmarks/artifacts/*.js`).
-- TypeShade source that a host builds at run time by string interpolation (`typeaudio` `src/graph/compiler/emitGraphSource.ts` and the `study.ts` templates), beyond the literal `select(` text in them.
+- TypeShade source that a host builds at run time by string interpolation (`typeaudio` src/graph/compiler/emitGraphSource.ts in typeaudio and the `study.ts` templates), beyond the literal `select(` text in them.
 - Radiance, and any repository outside the five above.
 
 ### What the site owes
@@ -292,7 +292,7 @@ The site (`typeshade/web` at `7a8d2926`, the repository that holds `typeshade.gi
 - `apps/typeshade/src/i18n/en.ts:3839` and `apps/typeshade/src/i18n/ko.ts:3988` say "A scalar choice is the ternary here and `select` on WGSL, so one name serves both". The implementation reads it against the new text and records whether it stays true. It is open.
 - `apps/typeshade/content/guide/ko/control-flow.md:107` says that the ternary computes both branches and then picks one, "like WGSL's `select`". That sentence is about `?:`. It is already imprecise against Rule 7.9 today. This proposal does not cause it and does not own the fix. It is an observation.
 - `typecv` `docs/audits/2026-10-27-typescript-surface-gaps.md:128` and `:465` record that `select(f, t, c)` and `c ? t : f` emit identical WGSL and GLSL at that pin (row Q63, 66 calls). That stays true for those 66 calls, because no argument writes. The audit is a dated record and owes nothing.
-- `apps/typeshade/content/api/ko/select.json` describes the builder function `select(cond, ifTrue, ifFalse)` of `ReadonlyNode`, which is another surface with the condition first. This proposal does not touch it: the builder builds the IR node (`src/core/ir/node.ts`, line 792) without the marker, so its behaviour stays as it is.
+- apps/typeshade/content/api/ko/select.json in typeshade/web describes the builder function `select(cond, ifTrue, ifFalse)` of `ReadonlyNode`, which is another surface with the condition first. This proposal does not touch it: the builder builds the IR node (`src/core/ir/node.ts`, line 792) without the marker, so its behaviour stays as it is.
 
 ### Per repository
 
