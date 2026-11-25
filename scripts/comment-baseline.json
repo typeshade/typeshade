@@ -481,7 +481,7 @@
   "src/core/host-resident-check.test.ts": 12,
   "src/core/host-runtime.ts": 14,
   "src/core/host-values.test.ts": 47,
-  "src/core/host-values.ts": 95,
+  "src/core/host-values.ts": 94,
   "src/core/intrinsic-coverage.test.ts": 32,
   "src/core/intrinsics.test.ts": 66,
   "src/core/intrinsics.ts": 472,

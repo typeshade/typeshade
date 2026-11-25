@@ -1,5 +1,5 @@
 // ═══ Host values: what a host call passes and gets back (Rule 8.21) ═══
-//
+// Implements: Rule 8.21
 // A host file that imports a `.shade.ts` calls its functions with plain JavaScript values, and
 // the CPU tier (Rule 11.7) runs on the representation the oracle already has (`cpu-runtime.ts`):
 // a scalar is a `number` or a `boolean`, a vector an array of its components, a matrix a flat
