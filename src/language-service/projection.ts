@@ -1,52 +1,4 @@
-// === The text TypeScript sees: the document, with the types TypeScript cannot infer written in ===
-//
-// TypeScript has no operator overloading, so the checker types every arithmetic result as
-// `number`. On an operand that is a vector or a matrix the diagnostics filter already drops the
-// operator's own complaint (TS2362, TS2363, TS2365). What it could not reach was the local the
-// result is stored in: `const uv = p.xy * frame.scale` gives `uv` the type `number`, and from
-// there `uv.x` is TS2339, `f(uv)` is TS2345, and completion after `uv.` offers nothing. The
-// front end knows `uv` is a `vec2`, because it lowered the expression. So the program the service
-// builds reads the document with that type written in, `const uv: vec2 = p.xy * frame.scale`,
-// and every answer the service gives maps back to the document the author wrote (#162).
-//
-// Only a declaration TypeScript would get wrong is written into, when its front-end type is a
-// vector or a matrix TypeScript can spell and the value it is declared from applies an operator
-// TypeScript types as a `number` or a `boolean` (arithmetic, a bitwise operator, a comparison, a
-// unary one):
-//
-//   - a `const` or `let` with no annotation, a local or a module const: `: vec2` after its name.
-//     `const c = a < b` on two `vec3` is a `vec3b`, and `const w = v * f64(2.)` a `vec3f64`;
-//   - a function that writes no return type and whose `return`, or an arrow function's
-//     expression body, applies such an operator (Rule 8.19): `: vec2` after its parameter list,
-//     and a pair of parentheses around an arrow function's one bare parameter. A function, a
-//     method, a getter, a field that holds a function, an arrow function or a function
-//     expression, local or handed to a call. Its return is written in when it is a SCALAR
-//     too (`f32`, `i32`, `u32`, `f64`), which TypeScript types `number` (0015's class B);
-//   - a class field with an initializer and no annotation, static or not, private or not,
-//     whose front-end type is a scalar: `: f32` after its name. `#width = 0.05` is `number` to
-//     TypeScript and `static readonly MIN_WIDTH = 0.01` the literal `0.01`;
-//   - a `const` or `let` with no annotation whose initializer is a list, `[1., 2.] as const`
-//     included: the sized array the front end gave it, `: array<f32, 2>` (change 0114, S2);
-//   - an array's `reduce` from a value that names no type argument: the front end's type of the
-//     call, and the array's size, as its type arguments, `xs.reduce<f32, 3>((a, x) => a + x, 0.)`.
-//     TypeScript takes the running value's type from `0.`, a `number`, before it reads the
-//     function; the front end concretizes it (0015's class C).
-//
-//   - `&` or `|` on two `bool`s, which WGSL takes as its logical and and or that do not
-//     short-circuit, and TypeScript refuses (TS2447) and types as a `number`: the operation is
-//     read as the `bool` the front end gives it, `((a & b) as unknown as bool)`, so a `bool`
-//     return, local, argument or field it flows into is not an error on a program the compiler
-//     accepts (Rule 12.7). The refusal itself is the diagnostics filter's to drop.
-//
-// Everything else is served as written. An insertion never spans a line break, so the two texts
-// have the same lines and differ only in the columns after an insertion on its own line.
-//
-// This is the one place a lost vector type is restored, and it restores it for every answer the
-// service gives, hover and completion as much as diagnostics. The diagnostics filters read no
-// type from the front end: what they judge is an operation used in place (`return a < b`), and
-// a name declared from one that the projection could not type, because the compiler refused the
-// declaration, is judged as that operation (`diagnostics.ts`). Both read one operator table,
-// `ERASING_OPERATORS`, so the two cannot disagree about which operation loses a vector's type.
+// Implements: Rule 12.7
 
 import ts from 'typescript';
 import type { ShaderType } from '../core/ir/types.js';
@@ -66,29 +18,13 @@ import {
   reduceCandidates,
 } from './projection/candidates.js';
 
-/** Text inserted into the document at `at`, an offset into the document as written. */
 export interface Insertion {
   readonly at: number;
   readonly text: string;
 }
 
-/** What the front end makes of a vector or matrix operand of an operator in
- *  `ERASING_OPERATORS`: a value of the operands' own shape, or, for a comparison, the `bool`
- *  vector of their width. */
 export type ErasedResult = 'shape' | 'bool';
 
-/**
- * The binary operators TypeScript types as a `number` or a `boolean` whatever their operands,
- * which on a vector or a matrix erases its type: the arithmetic (`+ - * / % **`), the bitwise
- * and shift operators, their compound assignments, and the comparisons. The front end gives each
- * a vector, or a matrix for matrix arithmetic, and a comparison of two vectors the `bool` vector
- * of their width. `&&` and `||` are not among them: TypeScript types those as an operand's own
- * type, and the front end takes them on a scalar `bool` only.
- *
- * One table, read twice: here, to find a declaration whose type TypeScript cannot infer, and by
- * the diagnostics filter (`diagnostics.ts`), to recognize the report such an operation draws
- * where its value is used in place.
- */
 export const ERASING_OPERATORS: ReadonlyMap<ts.SyntaxKind, ErasedResult> = new Map([
   [ts.SyntaxKind.PlusToken, 'shape'],
   [ts.SyntaxKind.MinusToken, 'shape'],
@@ -120,8 +56,6 @@ export const ERASING_OPERATORS: ReadonlyMap<ts.SyntaxKind, ErasedResult> = new M
   [ts.SyntaxKind.ExclamationEqualsEqualsToken, 'bool'],
 ]);
 
-/** The unary operators that erase a vector's type the same way, each keeping its operand's
- *  shape: negation, the identity `+`, bitwise not, logical not, and the increments. */
 export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusToken,
   ts.SyntaxKind.PlusToken,
@@ -131,8 +65,6 @@ export const ERASING_UNARY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.MinusMinusToken,
 ]);
 
-/** Whether `node` applies such an operator anywhere inside it: the only way TypeScript turns a
- *  vector into a `number` or a `boolean`. A call, a swizzle or a constructor keeps its type. */
 function hasOperator(node: ts.Node): boolean {
   if (ts.isBinaryExpression(node) && ERASING_OPERATORS.has(node.operatorToken.kind)) return true;
   if (
@@ -144,17 +76,9 @@ function hasOperator(node: ts.Node): boolean {
   return ts.forEachChild(node, (child) => (hasOperator(child) ? true : undefined)) === true;
 }
 
-/** `ambientSpelling`, and a scalar too: the `f32`, `i32`, `u32` or `f64` a class field or a
- *  function's return is to the front end, which TypeScript infers as `number` from a literal or
- *  arithmetic (0015's class B: `#width = 0.05`, `get period() { return this.r * 2. }`). A local
- *  keeps `ambientSpelling`: hover already answers for a local from the front end's own record,
- *  and a scalar there costs nothing downstream. The brands are optional, so writing one in
- *  rejects no `number`; a `bool` is TypeScript's own `boolean` already. */
 function memberSpelling(type: ShaderType): string | undefined {
   if (type.kind === 'scalar') return type.scalar === 'bool' ? undefined : type.scalar;
   if (type.kind === 'f64') return 'f64';
-  // An inferred `T | undefined` (Rule 8.19, change 0088) is written as TypeScript spells it,
-  // where a scalar `T` would otherwise be inferred as `number`.
   const inner = optionalInner(type);
   if (inner !== undefined) {
     const spelled = memberSpelling(inner);
@@ -163,16 +87,7 @@ function memberSpelling(type: ShaderType): string | undefined {
   return ambientSpelling(type);
 }
 
-/**
- * The insertions for `text`: a `: <type>` after the name of every unannotated local or module
- * const whose initializer applies an operator TypeScript types as a `number` or a `boolean`, and
- * after the parameter list of every function that writes no return type and whose return
- * applies one, when the front-end type is a vector or a matrix. Reads the front end's own record
- * of what it declared and what each function returns, so the type written in is the type the
- * compiler uses. A document the front end cannot read, or one without the directive, gets none.
- */
 export function planInsertions(text: string, fileName: string, imports?: ImportHooks): Insertion[] {
-  // The front end is the expensive half; a document with no candidate declaration skips it.
   const syntax = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true);
   if (
     candidates(syntax).length === 0 &&
@@ -209,9 +124,6 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   const out: Insertion[] = [];
   for (const name of fieldCandidates(analysis.sourceFile)) {
     const type = fieldTypes.get(name.getStart(analysis.sourceFile));
-    // A field whose initializer is a vector call TypeScript types right (`c = vec2(0.)`); only a
-    // scalar, which a literal or arithmetic leaves `number`, is written in unless it applied an
-    // operator (the rule for a local, above).
     const spelled =
       type === undefined || (type.kind !== 'scalar' && type.kind !== 'f64')
         ? sizedArraySpelling(type, name.parent)
@@ -230,12 +142,8 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   }
   const sf = analysis.sourceFile;
   for (const fn of functionCandidates(sf)) {
-    // A refused stage call's function is lowered as the declaration it stood for (change
-    // 0140), so TypeScript reads its result as it reads an entry's and adds nothing to the
-    // refusal (Rule 12.4).
     const lowered = stageDeclarationOfFunction(fn) ?? fn;
     const type = inferredReturnAt(sf, lowered.getStart(sf));
-    // An entry's struct result is named as the author wrote the struct (change 0136).
     const spelled =
       type === undefined
         ? undefined
@@ -247,20 +155,12 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
       out.push({ at: close.getEnd(), text: `: ${spelled}` });
       continue;
     }
-    // `x => x * k`: a return type needs the parameter in parentheses, `(x): vec2 => x * k`.
     const only = fn.parameters[0];
     if (only === undefined) continue;
     out.push({ at: only.getStart(sf), text: '(' });
-    // Two insertions, so the annotation's own starts at its colon, where the front end looks
-    // for a projected result type (`hasNoWrittenResult`; the fourth review of #1304).
     out.push({ at: only.getEnd(), text: ')' });
     out.push({ at: only.getEnd(), text: `: ${spelled}` });
   }
-  // `xs.reduce(f, 0.)`: TypeScript takes the running value's type from the value to start
-  // from, a `number`; the front end concretizes it (`f32` for `0.`). Its type is written in as
-  // the type argument, the one place TypeScript reads it from before the function is checked.
-  // The array's size follows it, since an explicit type argument leaves the rest to their
-  // defaults, and the function's `array` parameter would lose its length.
   const lowered = new Map(analysis.expressions.map((e) => [`${e.start}:${e.length}`, e.type]));
   const typeOf = (node: ts.Node): ShaderType | undefined =>
     lowered.get(`${node.getStart(sf)}:${node.getWidth(sf)}`) ?? undefined;
@@ -273,9 +173,6 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
     const args = size === undefined ? spelled : `${spelled}, ${String(size)}`;
     out.push({ at: call.expression.getEnd(), text: `<${args}>` });
   }
-  // The same record decides a `bool` operation: one it refused, or lowered to an integer or a
-  // vector, is served as written. Two operations that start or end together (`a & b | c`)
-  // insert the same text there, in either order.
   for (const op of logicalBitwiseOperations(sf)) {
     const type = typeOf(op);
     if (type?.kind !== 'scalar' || type.scalar !== 'bool') continue;
@@ -285,7 +182,6 @@ export function planInsertions(text: string, fileName: string, imports?: ImportH
   return out.sort((a, b) => a.at - b.at);
 }
 
-/** A function that writes no return type: what TypeScript infers a return type for. */
 type FunctionCandidate =
   | ts.FunctionDeclaration
   | ts.MethodDeclaration
@@ -293,8 +189,6 @@ type FunctionCandidate =
   | ts.ArrowFunction
   | ts.FunctionExpression;
 
-/** The values a function returns, its own and not a nested function's: an arrow function's
- *  expression body, or the expression of each `return` in its block. */
 function returnedValues(fn: FunctionCandidate): ts.Expression[] {
   const body = fn.body;
   if (body === undefined) return [];
@@ -312,8 +206,6 @@ function returnedValues(fn: FunctionCandidate): ts.Expression[] {
   return out;
 }
 
-/** Whether `fn` is an entry's function: a function with a stage attribute, or the function a
- *  refused stage call wraps (`vertex(function vs() { … })`, change 0140). */
 function isEntryFunction(fn: FunctionCandidate): boolean {
   const parent = fn.parent;
   if (
@@ -331,10 +223,6 @@ function isEntryFunction(fn: FunctionCandidate): boolean {
   );
 }
 
-/** Every function TypeScript may type wrongly: one that writes no return type and returns a
- *  value that applies such an operator (Rule 8.19), and an entry that writes none and returns a
- *  value, whose result the front end names (change 0136): an object literal it returns builds a
- *  struct, which TypeScript would read as an object type of its own. */
 function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
   const out: FunctionCandidate[] = [];
   const visit = (node: ts.Node): void => {
@@ -356,8 +244,6 @@ function functionCandidates(sourceFile: ts.SourceFile): FunctionCandidate[] {
   return out;
 }
 
-/** The name of every declaration TypeScript may type wrongly: a `const` or `let` with no
- *  annotation, outside a `for` header, whose initializer applies such an operator. */
 function candidates(sourceFile: ts.SourceFile): ts.Identifier[] {
   const out: ts.Identifier[] = [];
   const visit = (node: ts.Node): void => {
@@ -377,8 +263,6 @@ function candidates(sourceFile: ts.SourceFile): ts.Identifier[] {
   return out;
 }
 
-/** One document as written and as TypeScript reads it, with the offset and position maps
- *  between the two. */
 export class Projection {
   readonly projected: string;
   private readonly originalFile: ts.SourceFile;
@@ -403,8 +287,6 @@ export class Projection {
     );
   }
 
-  /** The offset, in the projected text, at which each insertion starts. An annotation that
-   *  starts at one is the projection's and not the author's (`abstract-const.ts`). */
   insertionStarts(): number[] {
     let shift = 0;
     return this.insertions.map((insertion) => {
@@ -414,21 +296,14 @@ export class Projection {
     });
   }
 
-  /** The length of each insertion, in the order of `insertionStarts`. */
   insertionLengths(): number[] {
     return this.insertions.map((insertion) => insertion.text.length);
   }
 
-  /** Whether the two texts differ at all. */
   get isIdentity(): boolean {
     return this.insertions.length === 0;
   }
 
-  /** An offset into the document as written, as an offset into the projected text. An offset
-   *  AT an insertion stays before it, so a cursor at the end of `uv` is at the end of `uv`,
-   *  except an insertion that opens a parenthesis there (`(` before an arrow's parameter, `((`
-   *  before a `bool` `&` or `|`): the cursor on the first character of the operand stays on the
-   *  operand, past the parenthesis. */
   toProjected(offset: number): number {
     let shift = 0;
     for (const insertion of this.insertions) {
@@ -440,8 +315,6 @@ export class Projection {
     return offset + shift;
   }
 
-  /** An offset into the projected text, as an offset into the document as written. An offset
-   *  inside inserted text maps to the point it was inserted at. */
   toOriginal(offset: number): number {
     let shift = 0;
     for (const insertion of this.insertions) {
@@ -459,20 +332,16 @@ export class Projection {
     return this.projectedFile.getLineAndCharacterOfPosition(this.toProjected(offset));
   }
 
-  /** An offset into the document as written, as a position in it. */
   originalPositionAt(offset: number): TypeshadePosition {
     const clamped = Math.max(0, Math.min(offset, this.original.length));
     return this.originalFile.getLineAndCharacterOfPosition(clamped);
   }
 
-  /** A position in the document as written, as an offset into it. */
   originalOffsetAt(position: TypeshadePosition): number {
     const p = clampPosition(this.originalFile, position.line, position.character);
     return this.originalFile.getPositionOfLineAndCharacter(p.line, p.character);
   }
 
-  /** Whether a position in the projected text falls inside text this projection inserted,
-   *  which the author never wrote: a semantic token there has nothing to colour. */
   isInserted(position: TypeshadePosition): boolean {
     const p = clampPosition(this.projectedFile, position.line, position.character);
     const offset = this.projectedFile.getPositionOfLineAndCharacter(p.line, p.character);
@@ -493,17 +362,8 @@ export class Projection {
   }
 }
 
-/** Where to find the projection of a document, or undefined for one read as written. */
 export type ProjectionLookup = (uri: string) => Projection | undefined;
 
-/**
- * `value`, an answer the service computed on the projected text, with every position, range
- * and span in it moved back to the document as written. A position is an object with a numeric
- * `line` and `character` (a semantic token is one, with its `length` beside them); a span is an
- * object that is exactly `{ start, length }`. An object carrying a `uri` answers for that
- * document, so a reference into another open document maps through that document's own
- * projection. Everything else is copied as it is.
- */
 export function mapToOriginal<T>(value: T, uri: string, lookup: ProjectionLookup): T {
   if (Array.isArray(value)) return value.map((v) => mapToOriginal(v, uri, lookup)) as T;
   if (value === null || typeof value !== 'object') return value;

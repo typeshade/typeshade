@@ -1,30 +1,3 @@
-// ═══ The device owner: the tier, the arrays and their pool, the limits, the lost signal and ═══
-// ═══ the plans of a host's kernel calls (Rule 11.8, Rule 11.11, Rule 11.13, change 0071)   ═══
-//
-// Before this change a host that ran kernel functions owned nothing: `configure()` set a
-// process-global tier order and runtime, `resident()` made a handle no object owned, and `fuse()`
-// recorded into a process-global slot. Two libraries built on the call layer (TypeNN, TypeCV)
-// each wrote the same owner over that state, and could not share a page: each `configure()`
-// overwrote the other's. `createDevice()` is that owner, once, here.
-//
-// A `Device` holds what the two libraries each held: the tier it opened and why the earlier tiers
-// of `prefer` did not open, the `Buffer`s it made and a pool of the released ones, the
-// device's limits and its lost signal, `fuse()` over its own device, a completion fence, and a
-// `dispose()` that frees what it made and never what the host handed in. Two devices in one
-// context are independent. The process-global `configure()`, `array()` and `fuse()` stay, and
-// describe the default owner (`core/owner.ts`).
-//
-// `device.fuse()` includes its synchronous recorder (change 0085). The plan reserves its queue
-// position before loading the package-owned executor; split builds defer that code, and a
-// single-file build can inline it. Rule 11.11 gates every asset and both forms' sizes.
-//
-// A device has a time budget (change 0074): the time one chunk of a long kernel may take. A plan
-// that names a chunk (`device.fuse(body, { chunk })`) runs alone, fenced and timed around the
-// planner's entry, and the device learns the rate of the chunk's key; `device.chunkSize()` sizes
-// the next chunk of that key from it (`runtime/chunk.ts`).
-//
-// Like the rest of `typeshade/runtime` it imports no compiler.
-
 import { runScope, type FuseScope } from '../core/fuse-record.js';
 import type { FuseReport } from '../core/fuse-report.js';
 import { glContext } from '../core/gl-context.js';
@@ -153,8 +126,6 @@ export interface DeviceStatistics {
   readonly variants: Readonly<Record<string, 'tree' | 'subgroup'>>;
 }
 
-/** A tier `createDevice()` tried before the one that opened, with the reason it did not. Not an
- *  export of its own: proposal 0071 declares `Device`, whose `skipped` rows it types. */
 interface SkippedTier {
   readonly tier: Tier;
   readonly reason: string;
@@ -278,32 +249,19 @@ export interface Device {
   use(): DeviceUse;
 }
 
-/**
- * What {@link Device.use} returns: the handle whose disposal ends the use. It is `Disposable`
- * where the `lib` declares `Symbol.dispose` (ES2024's explicit resource management), so `using`
- * takes it, and has `dispose()` everywhere. Not an export of its own: change 0138 declares
- * `Device`, whose `use()` returns it.
- */
 export type DeviceUse = Disposable & {
-  /** End the use: the device stops being the default. A second call does nothing. */
   dispose(): void;
 };
 
 declare global {
-  /** The `lib`'s `Disposable` (`[Symbol.dispose](): void`) where it declares one, and nothing
-   *  where it does not, so a type that names it reads under every `lib` (change 0138). */
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface Disposable {}
 }
 
-/** A pooled element: the zeroed ones, and `f64`, which `array(Float64Array)` holds. */
 type PooledElement = ZeroedElement | 'f64';
 
-/** What the device keeps of each array it made. */
 interface Slot {
   readonly state: ResidentArrayState;
-  /** The pool key, `element:length`, for a typed array; undefined for a value the pool does not
-   *  keep (a number, a tuple, an array of structs). */
   readonly key: string | undefined;
   readonly element: PooledElement | undefined;
   readonly length: number;
@@ -315,7 +273,6 @@ const DEFAULT_POOL_BYTES = 64 * 1024 * 1024;
 const DEFAULT_TIME_BUDGET_MS = 250;
 const MOST_TIME_BUDGET_MS = 60000;
 
-/** The element of a typed array the pool keeps, or undefined for any other value. */
 function elementOf(v: unknown): PooledElement | undefined {
   if (v instanceof Float32Array) return 'f32';
   if (v instanceof Int32Array) return 'i32';
@@ -336,20 +293,14 @@ class DeviceImpl implements Device {
   readonly skipped: readonly SkippedTier[];
   readonly limits: Readonly<Record<string, number>>;
   readonly lost: Promise<{ readonly reason: string; readonly message: string }>;
-  /** How a refusal names this device. */
   readonly label: string;
   readonly owner: CallOwner;
   readonly #gpu: GpuDevice | null;
-  /** Whether `createDevice()` requested the device, so that `dispose()` destroys it. */
   readonly #own: boolean;
   readonly #poolBytes: number;
   readonly #live = new Map<ResidentArrayState, Slot>();
-  /** The released arrays, by key, each list oldest first. */
   readonly #free = new Map<string, Slot[]>();
-  /** The released arrays, oldest first, for eviction. */
   readonly #order = new Set<Slot>();
-  /** Scratch handles expire with their scope; the ordinary state of each lease can outlive it
-   *  in the same pool as array(). */
   readonly #scratch = new WeakMap<ZeroedState, Slot>();
   #pooledBytes = 0;
   #liveBytes = 0;
@@ -357,12 +308,9 @@ class DeviceImpl implements Device {
   #reuses = 0;
   #uploadBytes = 0;
   #readBytes = 0;
-  /** What the device learned of each chunk key (change 0074). */
   readonly #rates = new Map<string, ChunkRate>();
-  /** The text the last call of each kernel function dispatched (change 0119). */
   readonly #variants = new Map<string, 'tree' | 'subgroup'>();
   #disposing: Promise<void> | undefined;
-  /** The textures the device made (change 0077), destroyed by `dispose()`. */
   readonly #textures = new Set<TextureImpl>();
 
   constructor(
@@ -403,8 +351,6 @@ class DeviceImpl implements Device {
       tiers: () => tiers,
       device: () => Promise.resolve(gpu),
       fp64Flavor: () => this.fp64Flavor,
-      // The probe ran when this device opened (change 0119): a call dispatches the variant
-      // where it passed.
       subgroupFolds: () => this.info.subgroups !== null,
       dispatched: (kernel: string, variant: 'tree' | 'subgroup') => {
         this.#variants.set(kernel, variant);
@@ -413,7 +359,6 @@ class DeviceImpl implements Device {
       scratchBuffer: (state: ZeroedState, device: GpuDevice, layout: Layout) =>
         this.#scratchBuffer(state, device, layout),
       releaseScratch: (state: ZeroedState) => this.#releaseScratch(state),
-      // A kernel's result on a resource is one of the device's arrays (Amendment A10, Q-C).
       result: (state: ResidentArrayState) => this.#result(state),
     });
   }
@@ -438,17 +383,12 @@ class DeviceImpl implements Device {
     return this.arrayAs(`${this.label}.array()`, args);
   }
 
-  /** `array()` with the refusals worded for `at`: `array()` of `typeshade/runtime` makes a device's
-   *  `Buffer` with this when the device is in use (change 0138, R3). Not API. */
   arrayAs(at: string, args: readonly unknown[]): Resident<unknown> {
     this.#usable('array()');
     const zeroed = args.length >= 2;
     const [given, element] = args as [unknown, unknown];
-    // A `number[]` makes a `Buffer` whose element its first use fixes (Amendment A12, decision 3),
-    // pooled by its 4-byte words as a `Float32Array` is; a pooled one starts open again (D5).
     const numbers = zeroed ? undefined : plainNumbers(given, at);
     const value = zeroed ? given : (numbers ?? given);
-    // The refusals of `array()` come first, so a wrong value makes no slot.
     const probe = makeResident(at, zeroed ? [value, element] : [value]);
     const probeState = residentState(probe)!;
     const el: PooledElement | undefined = zeroed
@@ -466,7 +406,6 @@ class DeviceImpl implements Device {
     if (!zeroed && el !== undefined) this.#uploadBytes += bytes;
     const pooled = key === undefined ? undefined : this.#take(key);
     if (pooled !== undefined) {
-      // The probe's state is dropped: it made no buffer and queued nothing.
       disposeState(probeState);
       this.#reuses++;
       if (zeroed) this.#rezero(pooled, el as ZeroedElement, length);
@@ -508,7 +447,6 @@ class DeviceImpl implements Device {
       throw new TypeError(`${at}: format takes a WebGPU texture format, such as "rgba8unorm".`);
     if (storage !== undefined && typeof storage !== 'boolean')
       throw new TypeError(`${at}: storage takes true or false.`);
-    // A device with no WebGPU device holds the texture in the CPU tier's memory (change 0077).
     if (this.#gpu === null) {
       const gap = cpuFormatGap(format);
       if (gap !== undefined) throw new TypeError(`${at}: ${gap}.`);
@@ -532,7 +470,6 @@ class DeviceImpl implements Device {
     this.#release(slot);
   }
 
-  /** Release an array or a scratch lease. Captured plans may finish while dispose() waits. */
   #release(slot: Slot): void {
     if (slot.pooled) return;
     if (slot.key === undefined || slot.bytes > this.#poolBytes || slot.bytes === 0) {
@@ -545,7 +482,6 @@ class DeviceImpl implements Device {
     else list.push(slot);
     this.#order.add(slot);
     this.#pooledBytes += slot.bytes;
-    // The oldest released array leaves first, until the pool fits (change 0071, D3).
     for (const oldest of this.#order) {
       if (this.#pooledBytes <= this.#poolBytes) break;
       this.#drop(oldest);
@@ -567,8 +503,6 @@ class DeviceImpl implements Device {
         throw new RangeError(
           `${this.label}.chunkSize(): ${name} takes a whole number of 1 or more.`,
         );
-    // The CPU tier has no watchdog: the whole work runs as one chunk, and its results are those of
-    // the state machine run once.
     if (this.tier === 'cpu') return max;
     return fitChunk(this.#rates.get(key), this.timeBudgetMs, max, min);
   }
@@ -588,11 +522,6 @@ class DeviceImpl implements Device {
     return this.#chunk(runScope, body, chunk);
   }
 
-  /** Run `body` as one chunk of `chunk.key` (change 0074): alone, fenced before and after, timed
-   *  by the wall clock around the planner's entry. The fences are items of the kernel queue on
-   *  either side of the plan, so the plan keeps the place where `fuse` was called (Rule 11.8), and
-   *  a call queued after it is in neither the plan nor its time. The rate the device learns is the
-   *  measured time over the chunk's units. */
   #chunk(
     open: (body: (scope: FuseScope) => void, owner: CallOwner) => Promise<FuseReport>,
     body: (scope: FuseScope) => void,
@@ -600,8 +529,6 @@ class DeviceImpl implements Device {
   ): Promise<FuseReport> {
     let started: Promise<number>;
     try {
-      // After the work submitted before, so the measured time is the chunk's alone (D5). Inside
-      // the body of another fuse() the queue refuses it: a chunked plan runs alone.
       started = kernelQueue.run(() => this.#fence());
     } catch (error) {
       return Promise.reject(error);
@@ -615,8 +542,6 @@ class DeviceImpl implements Device {
     });
   }
 
-  /** The time, by the wall clock, once the device has completed what was submitted to it: on
-   *  WebGPU after `queue.onSubmittedWorkDone()`, and at once on the other tiers. */
   async #fence(): Promise<number> {
     const queue = this.#gpu?.queue as { onSubmittedWorkDone?: () => Promise<void> } | undefined;
     if (typeof queue?.onSubmittedWorkDone === 'function') await queue.onSubmittedWorkDone();
@@ -643,30 +568,23 @@ class DeviceImpl implements Device {
     if (this.#disposing !== undefined) return this.#disposing;
     this.#disposing = (async () => {
       await kernelQueue.idle();
-      // Each exported storage array lands what a call of this device wrote, while the device holds
-      // it, and drops this device's copy (change 0138, R3).
       await forgetOwner(this.owner);
-      // The pooled arrays are in `live` too, so each is destroyed once.
       for (const slot of this.#live.values()) disposeState(slot.state);
       this.#live.clear();
       this.#free.clear();
       this.#order.clear();
       this.#pooledBytes = 0;
       this.#liveBytes = 0;
-      // After the calls queued before, which may still bind them.
       for (const t of this.#textures) t.destroy();
       this.#textures.clear();
       if (this.#own && this.#gpu !== null) {
         const d = this.#gpu as GpuDevice & { destroy?: () => void };
-        // After the destroys of the arrays, which the queue holds in order.
         kernelQueue.whenIdle(() => d.destroy?.());
       }
     })();
     return this.#disposing;
   }
 
-  /** The handle the host gets: a `Buffer`'s members over the slot's state, with the reads and
-   *  the sets counted and a dispose that leaves the device's books. */
   #handleOf(slot: Slot): Resident<unknown> {
     return handleOf(slot.state, {
       read: (v) => {
@@ -675,18 +593,13 @@ class DeviceImpl implements Device {
       set: (v) => {
         this.#uploadBytes += v.byteLength;
       },
-      // A handle the host disposes itself leaves the pool and the books; `dispose()` then has
-      // nothing of it to dispose.
       dispose: () => {
         if (this.#live.has(slot.state)) this.#forget(slot);
       },
     });
   }
 
-  /** The handle of a kernel's result on a resource (Amendment A10, Q-C): one of the device's
-   *  arrays, in its books as `array()` puts one. */
   #result(state: ResidentArrayState): Resident<unknown> {
-    // A `Buffer` of `bool`, of a key or of a matrix is not pooled: no `array()` makes one again.
     const el = state.elem === undefined ? elementOf(state.host) : undefined;
     const length = el !== undefined ? (state.host as ArrayLike<number>).length : 0;
     const slot: Slot = {
@@ -704,7 +617,6 @@ class DeviceImpl implements Device {
     return this.#handleOf(slot);
   }
 
-  /** A released array of `key`, taken from the pool, or undefined. */
   #take(key: string, fits: (slot: Slot) => boolean = () => true): Slot | undefined {
     const list = this.#free.get(key);
     const at = list?.findIndex(fits) ?? -1;
@@ -717,9 +629,6 @@ class DeviceImpl implements Device {
     return slot;
   }
 
-  /** Acquire only at first device use: unused and contracted scratch arrays still allocate
-   *  nothing. A scalar/vec4 scratch layout has four bytes per flattened component. A pooled
-   *  ordinary array may have a padded vec3 layout, so its key alone is not enough. */
   #scratchBuffer(state: ZeroedState, d: GpuDevice, layout: Layout): void {
     if (this.#scratch.has(state) || d !== this.#gpu) return;
     const key = `${state.element}:${state.length}`;
@@ -755,7 +664,6 @@ class DeviceImpl implements Device {
       if (state.host === undefined) {
         state.fresh = 'device';
         state.clearPending = true;
-        // This plan owns its queue position already: do not defer the reset with whenIdle().
         pendingClears.set(state.gpu.buffer, state);
       }
     }
@@ -770,19 +678,12 @@ class DeviceImpl implements Device {
     state.clearPending = false;
     slot.state.gpu = state.gpu;
     slot.state.fresh = state.gpu === undefined ? 'host' : 'device';
-    // A future array(value) replaces the contents; a zeroed array or scratch clears them.
     this.#release(slot);
     return true;
   }
 
-  /** Zero a pooled array for `array(length, element)`: where its buffer exists, the next plan
-   *  that binds it clears it in its own submission (`pendingClears`), and until then the host copy
-   *  holds the zeros; otherwise the host copy of zeros is the array, uploaded on first use. After
-   *  the calls queued before, which may still read it. */
   #rezero(slot: Slot, element: ZeroedElement, length: number): void {
     const state = slot.state;
-    // The new handle's accessors see zeros at once, out of the released handle's window; the
-    // calls of the released handle made before still run on its old contents.
     renew(state);
     const ahead = ZEROED_ELEMENTS[element](length);
     state.next = ahead;
@@ -802,7 +703,6 @@ class DeviceImpl implements Device {
     });
   }
 
-  /** Free an array now: out of the pool and the books, its buffer destroyed. */
   #drop(slot: Slot): void {
     this.#forget(slot);
     disposeState(slot.state);
@@ -846,13 +746,11 @@ class DeviceImpl implements Device {
   }
 }
 
-/** Refuse a chunk key that is not a non-empty string. */
 function checkKey(at: string, field: string, key: unknown): void {
   if (typeof key !== 'string' || key === '')
     throw new TypeError(`${at}: ${field} takes a non-empty string that names the kernel loop.`);
 }
 
-/** The chunk of `device.fuse(body, options)`, checked, or undefined for a plan that names none. */
 function chunkOf(
   at: string,
   options: unknown,
@@ -871,14 +769,11 @@ function chunkOf(
   return { key: key as string, units };
 }
 
-/** Whether `d` is a WebGL2 context: a `GPUDevice` has neither method. */
 function isWebGl2(d: object): boolean {
   const c = d as { getParameter?: unknown; createTransformFeedback?: unknown };
   return typeof c.getParameter === 'function' && typeof c.createTransformFeedback === 'function';
 }
 
-// A kernel call and an entry call with no owned resource run on the device in use (change 0138,
-// R3). The call layer reads it through this, and imports no device itself.
 ownerInUse.of = () => {
   const d = defaultDevice();
   return d instanceof DeviceImpl ? d.owner : undefined;
@@ -936,8 +831,6 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
     throw new TypeError(
       `createDevice({ subgroups }): ${JSON.stringify(options.subgroups)} is not a setting; the choices are 'auto' and 'off'.`,
     );
-  // The subgroup probe (change 0119), on a WebGPU device that has the feature, unless the host
-  // keeps it off.
   const probe = (d: GpuDevice): Promise<SubgroupObservation | null> =>
     options.subgroups === 'off' ? Promise.resolve(null) : probeSubgroups(d);
   if (options.device !== undefined) {
@@ -1039,7 +932,6 @@ export async function createDevice(options: DeviceOptions = {}): Promise<Device>
   );
 }
 
-/** Validate and snapshot requirements before any asynchronous adapter request (change 0085). */
 function instanceRequest(options: DeviceOptions): CallRequest {
   if (options.limits !== undefined) {
     if (
@@ -1061,7 +953,6 @@ function instanceRequest(options: DeviceOptions): CallRequest {
   };
 }
 
-/** A supplied device is checked in place; never request another adapter or change its owner. */
 function checkCapabilities(device: GpuDevice, request: CallRequest): void {
   const have = reportOf(device).limits;
   for (const [name, asked] of Object.entries(request.limits)) {

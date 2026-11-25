@@ -1,12 +1,7 @@
-// === One Markdown sentence per GPU type, attribute, builtin function, and constant (design doc §5) ===
-//
-// Shared by `hover.ts` (a documentation lookup) and `completions.ts` (an item's
-// `documentation` field), so the two never describe the same name two different ways.
-
 import { ATTRIBUTE_NAMES as COMPILER_ATTRIBUTE_NAMES } from '../compiler/ts/builtin-check.js';
 import { WGSL_BUILTIN_NAMES as SOT_WGSL_BUILTIN_NAMES } from '../core/sot.js';
 
-// Re-export these tables so `ambient.ts` can import from `docs.ts` without an import cycle.
+// Why: re-exported so `ambient.ts` can import them from `docs.ts` without an import cycle.
 export const ATTRIBUTE_NAMES = COMPILER_ATTRIBUTE_NAMES;
 export const WGSL_BUILTIN_NAMES = SOT_WGSL_BUILTIN_NAMES;
 
@@ -122,8 +117,6 @@ export const ATTRIBUTE_DOCS: Readonly<Record<string, string>> = {
     'The decorated form of the `blend_src` option, `location<0, vec4, { blend_src: 0 }>` beside `{ blend_src: 1 }`: which of the two colours a dual-source blend mixes this fragment output is. Derives the `dualSourceBlending` capability; the GLSL lowering of a second source is not supported yet (Rule 10.3), so a module using it fails closed there.',
 };
 
-/** One Markdown sentence per attribute type of change 0111, the plain-TypeScript spelling of
- *  an entry input's or output's attribute. Each type means its value type. */
 export const ATTRIBUTE_TYPE_DOCS: Readonly<Record<string, string>> = {
   builtin:
     'A WebGPU builtin value, of the type WGSL gives it: `i: builtin<"vertex_index">` on an entry parameter is a `u32`, `pos: builtin<"position">` on an entry IO field a `vec4`. An option is the second argument: `builtin<"position", { invariant: true }>`. `clip_distances` is the one name that writes its type, `builtin<"clip_distances", array<f32, 4>>`. A written type that WGSL fixes, `builtin<"vertex_index", u32>`, is the migration form: the compiler warns on it (TS8028), and `tshc migrate` rewrites it.',
@@ -161,7 +154,6 @@ export const BUILTIN_DOCS: Readonly<Record<string, string>> = {
 /** One Markdown sentence per builtin function: free math functions, expansions, casts, vector
  * constructors, array, fill, uniform, storage, and random. Shared by `hover.ts` and `completions.ts`. */
 export const FUNCTION_DOCS: Readonly<Record<string, string>> = {
-  // The subgroup family (change 0117, §77).
   subgroupAdd:
     "Returns the sum of `value` over the lanes of the subgroup, in every lane. A float sum's order is the device's. On the CPU oracle and on WebGL2 a subgroup is one invocation (Rule 11.21), so it gives the lane's own value.",
   subgroupMul:
@@ -497,8 +489,6 @@ export const CONSTANT_DOCS: Readonly<Record<string, string>> = {
   TAU: 'The mathematical constant 2π (tau), inlined as a compile-time `f32` literal (approximately 6.28318). Defined as 2 times `Math.PI`.',
 };
 
-/** A free function's sentence as its `Math` member says it: the member takes scalars only (Rule 9.4,
- *  change 0112), so the vector clauses of the free function's sentence are left out. */
 function scalarDoc(doc: string): string {
   return doc
     .replace(/,? componentwise over vectors/, '')
@@ -562,16 +552,9 @@ export const MATH_MEMBER_DOCS: Readonly<Record<string, string>> = {
     "The square root of 2, inlined as a compile-time `f32` literal (approximately 1.41421). The value matches JavaScript's `Math.SQRT2`.",
 };
 
-/** Every documented type name: the rows of `TYPE_DOCS`, asserted in `docs.test.ts` to cover
- *  every name in the compiler's `SUPPORTED_TYPE_NAMES`. */
 export const DOCUMENTED_TYPE_NAMES: readonly string[] = Object.keys(TYPE_DOCS);
-/** Every documented attribute name, asserted in `docs.test.ts` to equal `ATTRIBUTE_NAMES`. */
 export const DOCUMENTED_ATTRIBUTE_NAMES: readonly string[] = ATTRIBUTE_NAMES;
-/** Every documented builtin name, asserted in `docs.test.ts` to equal `WGSL_BUILTIN_NAMES`. */
 export const DOCUMENTED_BUILTIN_NAMES: readonly string[] = WGSL_BUILTIN_NAMES;
-/** Every documented function name, asserted in `docs.test.ts` to equal the declared function names in `SHADE_DTS`. */
 export const DOCUMENTED_FUNCTION_NAMES = Object.keys(FUNCTION_DOCS);
-/** Every documented constant name, asserted in `docs.test.ts` to equal the language constant names. */
 export const DOCUMENTED_CONSTANT_NAMES = Object.keys(CONSTANT_DOCS);
-/** Every documented Math member name, asserted in `docs.test.ts` to match the MathObject members in `SHADE_DTS`. */
 export const DOCUMENTED_MATH_MEMBER_NAMES = Object.keys(MATH_MEMBER_DOCS);

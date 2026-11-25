@@ -85,6 +85,7 @@
     "src/core/spec-conformance/coredef-witness.ts",
     "src/core/testing/tsc-diagnostics.ts",
     "src/core/testing/yield-between-tests.ts",
+    "src/core/testing/entry-program-harness.ts",
     "src/core/testing/move-purity-fixtures.ts",
     "src/core/testing/move-declarations-fixtures.ts",
     "src/compiler/ts/remedy-lines/sites.ts",
