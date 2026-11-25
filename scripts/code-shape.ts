@@ -1,4 +1,5 @@
 import { breadth, summariseBreadth } from './code-shape/breadth.js';
+import { cohesion, summariseCohesion } from './code-shape/cohesion.js';
 import { createContext, relativeToRoot } from './code-shape/context.js';
 import { layer, summariseLayer } from './code-shape/layer.js';
 import { formatJson, formatMarkdown, type SignalReport } from './code-shape/report.js';
@@ -13,6 +14,7 @@ export interface RegisteredSignal {
 export const SIGNALS: readonly RegisteredSignal[] = [
   { name: 'layer', run: layer, summarise: summariseLayer },
   { name: 'breadth', run: breadth, summarise: summariseBreadth },
+  { name: 'cohesion', run: cohesion, summarise: summariseCohesion },
 ];
 
 const USAGE = 'Usage: bun scripts/code-shape.ts [--json] [--file <path>...] [--repo <path>]';
