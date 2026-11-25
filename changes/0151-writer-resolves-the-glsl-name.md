@@ -251,6 +251,24 @@ Open for the owner: D1 and D2, and the judgement the reviewer raised: the benefi
 - **Responsibilities and milestones.** Unassigned. No schedule, owner or estimate is established.
 - **Required validation.** The checks of the implementation plan above. None has run.
 
+### Amendment A1. Three approved sentences name `emittedGlsl` for more records than carry it (2026-11-25)
+
+- [fact] Only four records carry `emittedGlsl`: `BindEntry` (`src/core/reflect.ts:346`), `OverrideInfo` (`src/core/reflect.ts:616`), `PackBinding` (`src/core/manifest-types.ts:182`) and `PackOverride` (`src/core/manifest-types.ts:247`). `StructLayout` (`reflect.ts:211`), `FieldLayout` (`reflect.ts:192`), `EntryInfo` (`reflect.ts:574`), `VertexAttr` (`reflect.ts:494`), `EntryIoField` (`reflect.ts:526`) and `PackEntry` (`manifest-types.ts:221`) carry one `emitted`. Their GLSL spelling reaches a host through the WebGL2 maps of the manifest (`PackGlDraw`, `PackGlVertex`, `PackGlCompute`; proposal 0070, D3, amendment of 2026-10-13). Read on `origin/main` at `d28e833a`, 2026-11-25. This proposal never changed that split (P4: "the records that keep one `emitted`").
+- [fact] Three sentences, as the stage 1 branch `impl-0151-stage1` carries them word for word, read as if every record of the manifest carried the field. The line of "What it touches" that names Rules 3.4 and 11.10 reads with them.
+- [decision, owner] Pending. The owner's approval: pending. The orchestrating session asked on 2026-11-25 at 07:50Z and has no answer yet.
+- A. Rule 3.4.
+  - Before: "A struct, field, override or binding whose GLSL spelling is reserved receives a planned GLSL spelling (Proposal 0070), and its record carries `emittedGlsl`, which equals `emitted` where the two spellings agree (Proposal 0151). No diagnostic is reported for it."
+  - After: "A struct, field, override or binding whose GLSL spelling is reserved receives a planned GLSL spelling (Proposal 0070). The record of a binding or of an override carries it as `emittedGlsl`, which equals `emitted` where the two spellings agree (Proposal 0151); the GLSL spelling of a struct or of a field is in the WebGL2 maps of the manifest. No diagnostic is reported for it."
+  - The words of the orchestrating session end "...of the manifest." and keep the last sentence of the rule. In the new paragraph "it" can read as the maps. A wording such as "No diagnostic is reported for such a name." is open; the owner or the orchestrating session decides it.
+- B. Rule 11.10.
+  - Before: "(`emitted`, the WGSL spelling, and `emittedGlsl`, the GLSL spelling, which equals `emitted` where the two agree, changes 0070 and 0151)"
+  - After: "(`emitted`, the WGSL spelling; a binding and an override also carry `emittedGlsl`, the GLSL spelling, which equals `emitted` where the two agree, changes 0070 and 0151)"
+- C. Surface §62.
+  - Before: "`emittedGlsl` is always present and equals `emitted` where the two agree (§69)"
+  - After: "`emitted` is the WGSL spelling, and a binding and an override also carry `emittedGlsl`, which is always present and equals `emitted` where the two agree (§69)."
+- What does not change: no export (`exports` stays as declared), no code, no schema number (D2 (a) stands), no diagnostic, and no example an author writes. The change is the text of three sentences only, so it matches what the code does.
+- Status: `status: accepted` does not change. Delivery of this amendment is added to "Configuration and validation record" when the stage 1 pull request merges.
+
 ### Configuration and validation record
 
 Does not yet apply. Delivery will require the checks of the plan: the tests of stage 0, `bun run docs:impact`, `bun run reqs:sync`, `python scripts/doorstop-check.py -C`, the type check, the lint, the format check and the bundle check. Functional validation and the document audit are separate records.
