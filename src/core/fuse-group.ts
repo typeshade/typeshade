@@ -1,9 +1,10 @@
 // Implements: Rule 11.13 (docs/language-design.md; traced in reqs/).
 
 import { KERNEL_TREE, KERNEL_WORKGROUP } from './kernel-tree.js';
-import type { GroupCall, PlannedCall, Group } from './fuse-group/types.js';
+import type { PlannedCall, Group } from './fuse-group/types.js';
 import { infoOf } from './fuse-group/call-info.js';
 import { declaredIn, refusal } from './fuse-group/refusal.js';
+export { assignSlots } from './fuse-group/slots.js';
 export { WEBGL2_APART, onLaterTier } from './fuse-group/tier-words.js';
 export type { GroupCall, EntryCall, PlannedCall, Group } from './fuse-group/types.js';
 
@@ -55,19 +56,4 @@ export function groupCalls(
       contracted: g.calls.length > 1 ? [...held(g.calls)] : [],
     };
   });
-}
-
-export function assignSlots(calls: readonly GroupCall[]): {
-  readonly slots: readonly (readonly (number | undefined)[])[];
-  readonly arrays: readonly object[];
-} {
-  const arrays: object[] = [];
-  const slots = calls.map((c) =>
-    c.arrays.map((a) => {
-      if (a === undefined) return undefined;
-      const at = arrays.indexOf(a);
-      return at >= 0 ? at : arrays.push(a) - 1;
-    }),
-  );
-  return { slots, arrays };
 }
