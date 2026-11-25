@@ -208,7 +208,7 @@
   "src/language-service/entry-location-hover.test.ts": 438,
   "src/language-service/expression-parity.test.ts": 433,
   "src/language-service/hover.test.ts": 867,
-  "src/language-service/hover.ts": 925,
+  "src/language-service/hover.ts": 912,
   "src/language-service/imported-symbol-hover.test.ts": 1356,
   "src/language-service/program-refusal-location.test.ts": 1875,
   "src/language-service/projection.test.ts": 520,
