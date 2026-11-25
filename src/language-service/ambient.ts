@@ -82,8 +82,8 @@ for (const name of SUPPORTED_TYPE_NAMES) {
   VEC_TYPE_ELEM.set(name, elem);
 }
 
-/** Why: the compiler's `VEC_CTOR` table in `lower/expression-call.ts` is private, and it accepts
- * `vec2`/`vec3`/`vec4` with the `f`/`i`/`u`/`f64` suffixes but never the bare `d` suffix. */
+// Why: the compiler's `VEC_CTOR` table in `lower/expression-call.ts` is private, and it accepts
+// `vec2`/`vec3`/`vec4` with the `f`/`i`/`u`/`f64` suffixes but never the bare `d` suffix.
 const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(name));
 
 /** WGSL builtin ids `@builtin(...)` accepts — `core/sot.ts`'s own runtime array (the compiler
