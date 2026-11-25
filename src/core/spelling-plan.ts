@@ -91,6 +91,14 @@ export const spellsNothing = (t: TargetSpellings): boolean =>
     (map) => map.size === 0,
   );
 
+export class Emitted<R extends { readonly emitted: string; readonly emittedGlsl?: string }> {
+  constructor(readonly record: R) {}
+
+  get glslName(): string {
+    return this.record.emittedGlsl ?? this.record.emitted;
+  }
+}
+
 /** The emitted name of `name` in `map`: the name itself when the map does not rename it. */
 export const emittedName = (map: ReadonlyMap<string, string>, name: string): string =>
   map.get(name) ?? name;

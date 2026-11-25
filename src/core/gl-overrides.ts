@@ -1,4 +1,5 @@
 // Pin the same normalized override values in every WebGL2 host path (0057, 0084).
+import { Emitted } from './spelling-plan.js';
 import type { Pack } from './manifest-types.js';
 
 /** `source` with each override named in `values` pinned: GLSL ES 3.00 has no specialization
@@ -26,7 +27,7 @@ export function pinOverrides(
 export function glslOverrideNames(m: Pick<Pack, 'overrides'>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const o of m.overrides ?? []) {
-    const g = o.emittedGlsl ?? o.emitted;
+    const g = new Emitted(o).glslName;
     if (g !== o.name) out[o.name] = g;
   }
   return out;

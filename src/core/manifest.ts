@@ -14,7 +14,7 @@ import { withoutKernels } from './ir/kernels.js';
 // manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
 // ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
-import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
+import { Emitted, emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import {
   stageOf,
   type BindingDecl,
@@ -861,7 +861,7 @@ function toDrawBinding(b: PackBinding): DrawBinding {
   // A host without a `glsl` looks the uniform up by its authored name (`glsl ?? name`), so `glsl`
   // is present whenever the GLSL name differs from that name, even when it equals the WGSL one
   // (Proposal 0070, C8, deviation 4).
-  const glsl = b.emittedGlsl ?? b.emitted;
+  const glsl = new Emitted(b).glslName;
   const at = {
     name: b.name,
     group: b.group,

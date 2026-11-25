@@ -1,3 +1,4 @@
+import { Emitted } from '../../core/spelling-plan.js';
 import { pinOverrides, glslOverrideNames } from '../../core/gl-overrides.js';
 import type { Layout } from '../../core/host-entry.js';
 import {
@@ -19,7 +20,6 @@ import {
 import { STAGE, type RhiBindLayoutEntry, type RhiColorTarget } from '../../rhi/rhi.js';
 import { glReadBindings } from '../../rhi/webgl2.js';
 import type { GlDrawing } from './drawing.js';
-import { glslNameOf } from './glsl-name.js';
 import type { Slot, Built } from './pipeline-types.js';
 import { checkState } from './state-check.js';
 import { refuseBias } from './depth-bias.js';
@@ -28,13 +28,13 @@ import { GlRenderPipelineImpl } from './render-pipeline.js';
 export class GlRenderPrograms {
   readonly #pipelines = new Map<string, Promise<GlRenderPipelineImpl>>();
   readonly #built = new Map<string, Promise<Built>>();
-  readonly #bindings: ReadonlyMap<string, PackBinding>;
+  readonly #bindings: ReadonlyMap<string, Emitted<PackBinding>>;
 
   constructor(
     readonly d: GlDrawing,
     readonly manifest: Pack,
   ) {
-    this.#bindings = new Map(manifest.bindings.map((b) => [b.name, b]));
+    this.#bindings = new Map(manifest.bindings.map((b) => [b.name, new Emitted(b)]));
   }
 
   render(state: RenderState): Promise<RenderPipeline> {
@@ -160,7 +160,7 @@ export class GlRenderPrograms {
         label: name,
         buffer: { type: 'uniform' },
       });
-      slots.push({ binding: b, index, kind: 'block', ...layoutOfBinding(b) });
+      slots.push({ binding: b.record, index, kind: 'block', ...layoutOfBinding(b.record) });
     }
     const textures = Object.keys(samplers).sort();
     const samplerIndex = new Map<string, number>();
@@ -181,13 +181,13 @@ export class GlRenderPrograms {
       entries.push({
         binding: index,
         visibility,
-        name: glslNameOf(b),
+        name: b.glslName,
         label: name,
         ...(paired !== undefined ? { samplerBinding: paired.index } : {}),
         texture: { sampleType: 'float', viewDimension: '2d', multisampled: false },
       });
       slots.push({
-        binding: b,
+        binding: b.record,
         index,
         kind: 'texture',
         ...(paired !== undefined ? { sampler: paired } : {}),
@@ -199,11 +199,11 @@ export class GlRenderPrograms {
       entries.push({
         binding: index,
         visibility,
-        name: glslNameOf(b),
+        name: b.glslName,
         label: name,
         buffer: { type: 'read-only-storage' },
       });
-      slots.push({ binding: b, index, kind: 'data', ...layoutOfBinding(b) });
+      slots.push({ binding: b.record, index, kind: 'data', ...layoutOfBinding(b.record) });
     }
     for (const [name, index] of samplerIndex)
       entries.push({
