@@ -1,26 +1,3 @@
-// === The ambient declarations for the TypeShade globals (design doc §4, §6) ===
-//
-// `SHADE_DTS` is loaded by `host.ts` as a virtual library file so a TypeScript program over a
-// `"use typeshade"` file sees `f32`, `vec4`, `uniform<T>`, `@vertex`, and the rest of the
-// authoring vocabulary with zero false positives on a valid program (§6). The vocabulary is
-// derived from the compiler's own tables — `SUPPORTED_TYPE_NAMES` and `SCALAR_CAST` from
-// `compiler/ts/type-map.ts`/`numeric.ts`, and the Math aliases from `compiler/ts/math-alias.ts`,
-// with the count of arguments of the ones it expands from `compiler/ts/math-expand.ts` — rather
-// than retyped by hand, so the two cannot drift silently. `WGSL_BUILTIN_NAMES` below is
-// re-exported straight from `core/sot.ts`'s own runtime array, next to the `WgslBuiltinName`
-// type it mirrors; `ambient.test.ts` additionally cross-checks that array against the type
-// itself by parsing `core/sot.ts` with the TypeScript compiler API.
-//
-// GPU scalar types are branded nominal types: `type f32 = number & { readonly [tag]?: true }`,
-// with an OPTIONAL unique-symbol property (the note above `scalarBrands` says why), so a plain
-// numeric literal — which every "use typeshade" program passes to `vec4(...)`, an `if`, or a
-// `let` with no annotation — still widens to `number` and flows anywhere a `number` is
-// accepted. Vector types are branded with a required tag, keyed by an
-// `[elementKind, arity]` tuple so `vec2`/`vec3`/`vec4` and their `i`/`u`/`f64` variants are all
-// distinct, and each is an interface carrying every component and every swizzle the compiler
-// takes, and a native one an index signature, so member access and `v[i]` type-check as the
-// compiler does (see `vecInterfaces`).
-
 import { SUPPORTED_TYPE_NAMES } from '../compiler/ts/type-map.js';
 import { F64_VEC_TWIN_KIND } from '../core/fp64/twins.js';
 import { SCALAR_CAST } from '../compiler/ts/numeric.js';
@@ -51,19 +28,10 @@ import { renderJSDoc, withTypeDocs } from './ambient/type-docs.js';
 import { generatedOverloads, scalarOfDeclaration } from './builtin-signatures.js';
 import { ARRAY_LIBRARY_DTS } from './ambient/array-library.js';
 
-/** The overloads the builtin table generates, by name (0017), less the names change 0112 removed:
- *  `arrayLength` and `pow` are rows of the table, and no author-facing declaration (`xs.length`
- *  and `**` carry them). */
 const GENERATED = new Map([...generatedOverloads()].filter(([name]) => !isRemovedCall(name)));
 
 type VecElem = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
-/** Every `vecN`/`vecNf`/`vecNi`/`vecNu`/`vecNf64` name in `SUPPORTED_TYPE_NAMES`, mapped to its
- * element kind — derived by pattern, not retyped, so a new vector alias in `type-map.ts` is
- * picked up automatically (and `ambient.test.ts` asserts every `SUPPORTED_TYPE_NAMES` entry is
- * accounted for by this map or the scalar/mat handling below, so a name that fits no pattern is
- * never silently skipped). `vecNd` is a bare alias for the same `vecNf64` brand, not a
- * constructor name — see `VEC_CTOR_NAMES` below. */
 const VEC_TYPE_ELEM = new Map<string, VecElem>();
 for (const name of SUPPORTED_TYPE_NAMES) {
   const m = /^vec([234])(f64|f|i|u|d|b)?$/.exec(name);
@@ -91,13 +59,6 @@ const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(nam
  * completion/hover data source too — see `completions.ts`. */
 export const WGSL_BUILTIN_NAMES: readonly string[] = SOT_WGSL_BUILTIN_NAMES;
 
-/** The type WGSL gives the built-in value `N`, as the ambient \`builtin<N>\` reads it: one arm
- * for each row of `core/sot.ts`'s `WGSL_BUILTIN_TYPES`, the table the compiler reads the same
- * type from (change 0135, decision D1.2), so the editor and the compiler cannot give one name
- * two types (Rule 12.7). `clip_distances` has no row, since its author chooses its
- * `array<f32, N>`, and reads as `never`: the compiler refuses `builtin<"clip_distances">`
- * (TS8003), and the language service leaves that one diagnostic standing alone. Written inline
- * where it is used, so the library declares no name for it. */
 const BUILTIN_VALUE_TYPE: string =
   '(' +
   Object.entries(SOT_WGSL_BUILTIN_TYPES)
@@ -121,28 +82,10 @@ const BUILTIN_VALUE_TYPE: string =
  */
 export const ATTRIBUTE_NAMES: readonly string[] = COMPILER_ATTRIBUTE_NAMES;
 
-/**
- * The two access modes a storage buffer may take, re-exported from `bindings.ts` for the reason
- * `ATTRIBUTE_NAMES` above is re-exported from `builtin-check.ts`: the front end reads these
- * words out of a declaration's second type argument, the library below declares the union an
- * editor checks against, and one list is what keeps the two answers the same. The union's TEXT
- * is generated from this array (`storageBufferAccessUnion`), so a word cannot reach one side
- * and not the other.
- */
 export const STORAGE_BUFFER_ACCESS: readonly string[] = COMPILER_STORAGE_BUFFER_ACCESS;
 
-/** `'read' | 'read_write'`, spelled as the library's `StorageBufferAccess` declares it. */
 const storageBufferAccessUnion = COMPILER_STORAGE_BUFFER_ACCESS.map((w) => `'${w}'`).join(' | ');
 
-/** The nine \`matCxR\` aliases plus the \`matN\` shorthand for a square one, each taking the
- * element as an optional type argument — the same names `type-map.ts` maps and
- * `expression-call.ts` builds, generated from one pair of loops so the three cannot drift.
- * Only a SQUARE matrix takes `f64`: the fp64 pass has one df64 body per dimension.
- *
- * The element is keyed on `keyof` for the reason `VecElemOf` is: the scalar brands are
- * optional properties, so `f32 extends f64` is true. Written as `T extends f64`, the default
- * `mat4` resolved to an `'f64'` element, its column to `never`, and `m[3].xyz` was TS2339 on a
- * program the compiler accepts. */
 const MAT_ARITIES = [2, 3, 4] as const;
 const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
@@ -151,24 +94,17 @@ const matTypeAliases = MAT_ARITIES.flatMap((cols) =>
     const body = `Mat<${elem}, ${cols}, ${rows}>`;
     const lines = [`type mat${cols}x${rows}${param} = ${body}`];
     if (cols === rows) lines.push(`type mat${cols}${param} = mat${cols}x${rows}<T>`);
-    // WGSL's predeclared alias (#183): the `f32` matrix, taking no type argument.
     lines.push(`type mat${cols}x${rows}f = mat${cols}x${rows}`);
     return lines;
   }),
 ).join('\n');
 
-/** Every matrix constructor: from columns, from components, from a larger matrix, and the
- * zero form — the four `lowerMatrixCtor` accepts, in the same order. */
 const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
   MAT_ARITIES.flatMap((rows) => {
     const name = `mat${cols}x${rows}`;
     const t = `mat${cols}x${rows}`;
     const columns = Array.from({ length: cols }, (_, i) => `c${i}: vec${rows}`).join(', ');
     const comps = Array.from({ length: cols * rows }, (_, i) => `e${i}: number`).join(', ');
-    // Every source at least this size, the EQUAL one included: `lowerMatrixCtor` refuses only
-    // `src.cols < cols || src.rows < rows`, so `mat3(m3)` is a legal identity construction and
-    // the editor has to agree (it reported "No overload matches this call" on a program the
-    // compiler accepts).
     const bigger = MAT_ARITIES.flatMap((c2) =>
       MAT_ARITIES.flatMap((r2) =>
         c2 >= cols && r2 >= rows ? [`declare function NAME(m: mat${c2}x${r2}): ${t}`] : [],
@@ -181,8 +117,6 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
       ...bigger,
     ];
     const names = cols === rows ? [name, `${name}f`, `mat${cols}`] : [name, `${name}f`];
-    // Every `declare function` carries JSDoc — `docs.test.ts` requires it, and an editor
-    // with no hover text on a constructor is the gap that rule exists to close.
     return names.flatMap((n) => {
       const doc = FUNCTION_DOCS[n];
       return forms.map((f) => {
@@ -195,102 +129,49 @@ const matCtorOverloads = MAT_ARITIES.flatMap((cols) =>
 
 const vecCtorOverloads = (name: string, elem: VecElem): string => {
   const n = Number(name.match(/\d/)![0]) as 2 | 3 | 4;
-  // The PLAIN `vecN` names take WGSL's type argument, `vec3<u32>(1, 2, 3)` (#150). The short
-  // names (`vec3u`) name their element already and the compiler refuses a second one, so they
-  // stay ungeneric and the editor's "Expected 0 type arguments" is the right answer for them.
   const generic = /^vec[234]$/.test(name);
   const type = generic ? `VecFor${n}<T>` : vecTypeName(elem, n);
   const head = generic ? `declare function ${name}<T = f32>` : `declare function ${name}`;
-  // A component of a bool vector (§27) is a bool; of every other vector, a number.
-  //
-  // PARAMETER types stay concrete even on the generic names, and only the RETURN rides on T.
-  // A conditional in a parameter position defeats `diagnostics.ts`'s vector-arithmetic filter
-  // (issue #43): that rule reads the brand off the resolved parameter type to decide whether
-  // the shape the arithmetic erased would have fitted, and an unresolved `VecFor3<T>` carries
-  // no brand, so `vec4(c * 2., 1.)` — a shape every example uses — started reporting TS2345.
-  // The bool components get overloads of their own below instead of widening this one, which
-  // would stop `vec3(1., true, 2.)` reporting.
   const c = elem === 'bool' ? 'bool' : 'number';
   const shorter = (k: 2 | 3): string => vecTypeName(elem, k);
   const lines: string[] = [];
-  // `vec3()` is the ZERO value (wgsl.txt:20015-20030). Not on the emulated double, whose zero
-  // is a pair the fp64 pass assembles rather than a literal the constructor can write — the
-  // compiler refuses `vec3f64()` for the same reason.
   if (elem !== 'f64') lines.push(`${head}(): ${type}`);
   if (n === 2) {
     lines.push(`${head}(x: ${c}, y: ${c}): ${type}`);
   } else if (n === 3) {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}): ${type}`);
     lines.push(`${head}(v: ${shorter(2)}, z: ${c}): ${type}`);
-    // The composition WGSL allows in the other order (wgsl.txt:20889/20987). Only the
-    // vector-FIRST forms were declared, so `vec3(x, v2)` was red in the editor and green in
-    // the compiler — the editor reading the vector as the scalar the first parameter names
-    // ("Argument of type 'f32' is not assignable to parameter of type 'vec2'"). #157.
     lines.push(`${head}(x: ${c}, v: ${shorter(2)}): ${type}`);
   } else {
     lines.push(`${head}(x: ${c}, y: ${c}, z: ${c}, w: ${c}): ${type}`);
     lines.push(`${head}(v: ${shorter(3)}, w: ${c}): ${type}`);
     lines.push(`${head}(v: ${shorter(2)}, z: ${c}, w: ${c}): ${type}`);
-    // The same gap at width 4, for the THREE-argument compositions.
     lines.push(`${head}(x: ${c}, v: ${shorter(2)}, w: ${c}): ${type}`);
     lines.push(`${head}(x: ${c}, y: ${c}, v: ${shorter(2)}): ${type}`);
-    // `vec4(x, v3)` and `vec4(v2, v2)`, the two-argument compositions WGSL has beside
-    // `vec4(v3, w)` (#157). They were left out because a second two-argument overload cost
-    // TypeScript the contextual type it inferred `vec4(mix(c * 0.5, d, 0.5), 1.)` through, and
-    // the call reported TS2769 on a program that compiles. The projection now writes `c * 0.5`
-    // its vector type before TypeScript reads it (`projection.ts`), so `mix` infers `vec3` from
-    // its own arguments and the context is not needed; `ambient-parity.test.ts` holds both
-    // compositions and that call to both halves.
     lines.push(`${head}(x: ${c}, v: ${shorter(3)}): ${type}`);
     lines.push(`${head}(a: ${shorter(2)}, b: ${shorter(2)}): ${type}`);
   }
   lines.push(`${head}(scalar: ${c}): ${type}`);
-  // The identity, `vec3(v)` on a `vec3` (core.def's `vec3<T>(vec3<T>)`): the compiler takes it
-  // and the converting forms below skip their own element, so the editor refused it.
   if (elem !== 'f64') lines.push(`${head}(v: ${vecTypeName(elem, n)}): ${type}`);
-  // `vec3<bool>(true, false, true)` and `vec3<bool>(true)`. Generic with NO default, so the
-  // type argument has to be written: an inferable `T` here would make the bare
-  // `vec3(true, false, true)` legal in the editor, which the compiler refuses.
   if (generic) {
     const bools = Array.from({ length: n }, (_, i) => `${'xyzw'[i]!}: bool`).join(', ');
     lines.push(`declare function ${name}<T>(${bools}): VecFor${n}<T>`);
     lines.push(`declare function ${name}<T>(scalar: bool): VecFor${n}<T>`);
   }
-  // The element-CONVERTING form (#8 A8): one whole vector of this constructor's own size and
-  // a different element kind. The compiler's rule (`isConvertibleVector`) is exactly "native
-  // vec, same n, different elem", so the overloads are the two other native kinds — and an
-  // `f64` constructor gets none, because an emulated-double vector is a pair of f32 lanes the
-  // fp64 pass assembles rather than a component list to reinterpret.
   if (elem !== 'f64') {
     for (const other of NATIVE_VEC_ELEMS) {
       if (other === elem) continue;
       lines.push(`${head}(v: ${vecTypeName(other, n)}): ${type}`);
     }
   }
-  // The NARROWING form (§39): `vec3(v)` on a `vec3f64` takes each lane's (hi, lo) pair down
-  // to one f32, which is `f32(lane)` per lane. Only the f32 constructor of the vector's own
-  // width has it — the compiler refuses the integer and bool ones, since the fp64 pass has no
-  // f64 → i32 body at all.
   if (elem === 'f32') {
-    // The return is spelled CONCRETELY rather than as `${type}`, and not by accident. `${type}`
-    // is `VecFor${n}<T>` on the plain `vecN` names, which carry a `<T = f32>` type argument
-    // since #150 — so writing it here left `T` unbound in a declaration with no type parameter
-    // ("Cannot find name 'T'", caught by the d.ts self-check when the two lanes merged). The
-    // narrowing always yields the FLOAT vector whatever the constructor is called, so naming
-    // that is both correct and the reason the overload needs no type parameter of its own.
     lines.push(`declare function ${name}(v: ${vecTypeName('f64', n)}): ${vecTypeName('f32', n)}`);
   }
   return lines.join('\n');
 };
 
-/** The element kinds a converting constructor accepts on either side. `f64` is deliberately
- *  absent — see {@link vecCtorOverloads}. */
 const NATIVE_VEC_ELEMS: readonly VecElem[] = ['f32', 'i32', 'u32', 'bool'];
 
-/** The canonical brand-type name for one (element, arity) pair — `vec2`/`vec3`/`vec4` for
- * `f32` (the default element every bare `vecN` name maps to), `vecNi`/`vecNu`/`vecNf64`
- * otherwise. Used both to declare the type aliases and to reference them from constructor
- * and swizzle signatures, so the two can never name two different types for one pair. */
 function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
   if (elem === 'f32') return `vec${n}`;
   if (elem === 'f64') return `vec${n}f64`;
@@ -298,22 +179,12 @@ function vecTypeName(elem: VecElem, n: 2 | 3 | 4): string {
   return `vec${n}${elem === 'i32' ? 'i' : 'u'}`;
 }
 
-/** Math free functions callable without a `Math.` prefix (GLSL-style), from `MATH_FN_ARITY` —
- * every key except `f32` (that key exists only because `Math.fround` aliases to the `f32`
- * scalar cast id; the callable name `f32` is the cast declared separately below, and the
- * compiler's own call lowering checks `SCALAR_CAST` before it ever reaches the canonical-math
- * path, so a second `f32` overload here would be dead vocabulary, never a real ambiguity). */
 const FREE_MATH_NAMES = Object.keys(MATH_FN_ARITY).filter(
   (name) => name !== 'f32' && !isRemovedCall(name),
 );
 
-/** The vector arities every native GPU vector type comes in, in order. */
 const VEC_ARITIES: readonly (2 | 3 | 4)[] = [2, 3, 4];
 
-/** The swizzle members of a vector of `n` components: every pick the compiler takes
- * (`parseSwizzle`), one to four components of one family, `xyzw` or `rgba`, within the vector's
- * size, repeats and any order included. A one-component pick is a `lane`, a longer one the
- * vector of its length and the same element. */
 function swizzleMembers(n: 2 | 3 | 4, lane: string, elem: VecElem): string[] {
   const out: string[] = [];
   for (const family of ['xyzw', 'rgba']) {
@@ -328,23 +199,6 @@ function swizzleMembers(n: 2 | 3 | 4, lane: string, elem: VecElem): string[] {
   return out;
 }
 
-/**
- * Every vector type of `elem` as an interface of its own: its brand, its index, and every
- * swizzle the compiler takes (Rule 12.7). `v.yx`, `v.xx` and `c.bgra` are ordinary WGSL, and
- * while only the components and the prefix swizzles were declared, each was TS2339 in the editor
- * and an error in `tshc check` on a program that compiles.
- *
- * Written out member by member, not generated by a mapped type over template-literal keys. The
- * mapped form declares the same members and made every check about twice as slow, measured over
- * the examples: the checker rebuilds the key unions, and the members of an intersection, in each
- * program. An interface's members are bound once, with the file.
- *
- * A native vector is indexed as WGSL indexes it, by a constant or by a value (`v[i]`, with an
- * `i: u32` or a `for` counter), so it takes an index signature, as `array<T, N>` does. The
- * signature admits what an array's admits, which the compiler alone refuses: a constant past the
- * last lane (`v[4]`, TS8016) and an `f32` index (TS8003), each one diagnostic in the editor. An
- * emulated-double vector takes a constant lane only, as numeric keys (see `LaneKeys`).
- */
 const vecInterfaces = (elem: VecElem): string =>
   VEC_ARITIES.map((n) => {
     const head =
@@ -359,66 +213,10 @@ const vecInterfaces = (elem: VecElem): string =>
     ].join('\n');
   }).join('\n');
 
-/** The two vector families `mix` declares a vector-with-scalar overload for, and nothing else.
- *
- * WHICH SHAPES ARE REAL, measured by emitting one module per shape: `mix(vecN<f32>, vecN<f32>,
- * f32)` is the only vector-beside-scalar call in this vocabulary that both Tint and ANGLE's GLSL
- * ES 3.00 translator accept, and `mix(vecNf64, vecNf64, f32)` is the one the fp64 emitter
- * lowers, which is why the `f64` vectors are here too (`core/passes/fp64-lower.ts` refuses every
- * other vec64 form itself, with "mix() on vec64 needs a scalar f32 interpolant"). The `i32` and
- * `u32` vectors get none, since WGSL's and GLSL's `mix` are float only, and neither do
- * `clamp(vecN, s, s)`, `pow(vecN, s)` or `step(vecN, s)`. `min`/`max(vecN, s)` are declared
- * separately and lowered to an explicit vector splat before emission.
- *
- * WHAT THE DECLARATION ADMITS is wider than the shape it is named for, knowingly. `t: number`
- * takes any scalar, and narrowing it to `f32` closes nothing, measured: the scalar brands are
- * OPTIONAL (see `scalarBrands` below), so an `i32`, a `u32` and an `f64` are each assignable to
- * `f32` as well. `mix(vec3, vec3, i32)`, the `u32` form and the `f64` form are therefore accepted
- * here while Tint refuses them ("no matching call to 'mix(vec3<f32>, vec3<f32>, i32)'"), and a
- * blend factor whose vector brand arithmetic already erased, `mix(a, b, c * 2.)` with a `vec2`
- * `c`, is a fourth: it types as `number` and matches this overload outright, so the TS2769 rule
- * in `diagnostics.ts` is never consulted about it. Nothing on the declaration side can close any
- * of the four; the front-end argument check for the math builtins is where they belong (#57).
- * `ambient.test.ts` pins all four as known silent, so a later fix flips them deliberately. */
 const F32_VEC_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f32', n));
 
-/** The `f64` vector names, the second family {@link mixSignature} declares an overload for. */
 const VEC64_TYPE_NAMES: readonly string[] = VEC_ARITIES.map((n) => vecTypeName('f64', n));
 
-/**
- * `mix(a, b, t)`, whose `t` is a BLEND FACTOR rather than a third value of `a`'s type: WGSL
- * spells it `mix(e1: vecN<T>, e2: vecN<T>, e3: T)` and GLSL ES 3.00 `mix(genType, genType,
- * float)`, and the compiler lowers `mix(u.bottom.rgb, u.top.rgb, t)` with a scalar `t` to
- * exactly that call. The generic `mix<T extends Numeric>(a: T, b: T, t: T)` this vocabulary had
- * before demanded a vector there, so the line every gradient, hillshade and ocean shader is
- * written in drew TS2345 in the editor while it compiled, emitted and ran.
- *
- * Declared as CONCRETE overloads, one per vector arity in each of the two families
- * {@link F32_VEC_TYPE_NAMES} and {@link VEC64_TYPE_NAMES} name, ahead of the generic same-shape
- * one. Concrete is the point: a parameter TypeScript does not have to infer cannot collapse `T`,
- * so neither the vector arguments nor `t` are measured against a type another argument settled,
- * which is where the second-hand messages inside these calls came from (`'0.55' is not
- * assignable to '0.3'`). The same-shape generic overload stays last and still carries
- * `mix(vecN, vecN, vecN)`, `mix(f32, f32, f32)` and the `i32`/`u32` vectors, so nothing this
- * lib accepted before is rejected now.
- *
- * The `f64` arm is the one the generic overload could never have carried: `Numeric` does not
- * include the `vec64` family at all, so `mix(a, b, t)` on three `vec3f64` reported TS2741
- * ("Property '[vec64Tag]' is missing in type 'vec2'") beside its TS2769, on a program
- * `compileTsSource` lowers and the fp64 emitter turns into a `df64_v3_mix` call.
- */
-/** The cross-lane reductions on an emulated-double vector (§39). The fp64 pass composes each
- * one from the SCALAR df64 error-free transforms and hands back an `f64`, which is what
- * `mathResultType` types them — so the signature has to answer `f64` and not the `number` the
- * `Numeric` form returns, or the editor would call a correct `const l: f64 = length(v)` a
- * mismatch. `Numeric` itself stays f32/i32/u32-only: widening it would let every componentwise
- * builtin take a `vec64` in the editor, and the pass has a body for ten of them
- * (fp64/twins.ts), not all of them.
- *
- * ONE signature with a widened constraint and a conditional result, not an overload SET: a
- * second overload turns every genuinely wrong shape from a TS2345 that names the argument into
- * a TS2769 that says only "no overload matches", and `diagnostics.test.ts` pins the TS2345 on
- * `dot(vec3, vec2)` as the diagnostic an author can act on. */
 function vec64Reduction(name: string, arity: 1 | 2): string {
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ');
   return (
@@ -427,9 +225,6 @@ function vec64Reduction(name: string, arity: 1 | 2): string {
   );
 }
 
-/** Native vector/scalar forms TypeShade lowers by splatting the scalar. The generated core.def
- * overloads still provide the scalar/scalar and vector/vector forms; these extra declarations
- * cover the authoring surface's portable broadcast form. */
 function componentwiseBroadcastSignature(name: string): string {
   const vectors = [
     ...F32_VEC_TYPE_NAMES,
@@ -449,29 +244,11 @@ function mixSignature(): string {
   ].join('\n');
 }
 
-/**
- * The all-scalar shape of one math function, declared ahead of its generic overload.
- *
- * `T extends Numeric` has a PRIMITIVE constraint (`Numeric` includes `number`), which is exactly
- * the condition under which TypeScript keeps a literal argument's literal type as an inference
- * candidate instead of widening it. With no scalar overload to resolve to, `smoothstep(0.3,
- * 0.55, h)` on an `f32` `h` therefore settled `T` to `0.3` and reported the perfectly good
- * `0.55` against it, and `step(horizon, y)` on a `const horizon = 0.58` reported `y`. A concrete
- * `(a0: number, a1: number, ...) => number` matches first for every all-scalar call, infers
- * nothing, and returns `number` rather than a literal type. A vector argument is not a `number`,
- * so the overload cannot swallow a vector call: those still resolve to the generic one.
- */
 function scalarMathOverload(name: string, arity: number): string {
   const params = Array.from({ length: arity }, (_, i) => `a${i}: number`).join(', ');
   return `declare function ${name}(${params}): number`;
 }
 
-/** Real GLSL semantics for the handful of free math functions whose signature is not simply
- * "same numeric type in, same numeric type out": `dot`/`distance`/`length` reduce a vector to
- * a scalar, `cross` is vec3-only, `normalize` preserves its vector's shape, and `mix` takes a
- * scalar blend factor beside two vectors (see {@link mixSignature}). Declared by hand because
- * `MATH_FN_ARITY` records arity only, not shape. An entry here replaces the generated pair
- * outright, so a name listed must declare its own all-scalar overload too when it wants one. */
 const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   dot: vec64Reduction('dot', 2),
   distance: vec64Reduction('distance', 2),
@@ -481,12 +258,6 @@ const SPECIAL_MATH_SIGNATURES: Readonly<Record<string, string>> = {
   mix: mixSignature(),
   min: componentwiseBroadcastSignature('min'),
   max: componentwiseBroadcastSignature('max'),
-  // Roadmap 0.2 item 8: the shapes the generated "same type in, same type out" pair misses.
-  // transpose(matCxR) -> matRxC on every shape (wgsl.txt:23397); determinant is square-only
-  // (wgsl.txt:21842), so the non-square shapes get no overload and `tsc` says so first.
-  // A square matrix of doubles transposes too, since the fp64 pass has a transpose body per
-  // dimension (surface §39), so it gets its own overload. Its determinant is refused (TS8036),
-  // so it gets none.
   transpose: [
     ...MAT_ARITIES.flatMap((cols) =>
       MAT_ARITIES.map(
@@ -513,16 +284,7 @@ function freeMathSignature(name: string): string {
   if (special) return special;
   const arity = MATH_FN_ARITY[name]!;
   const params = Array.from({ length: arity }, (_, i) => `a${i}: T`).join(', ');
-  // A componentwise builtin the fp64 pass has a `df64_vN_*` body for takes an emulated-double
-  // vector too, and the editor has to say so or it red-squiggles a program the compiler
-  // accepts — `abs(v)`, `round(v)`, `min(a, b)` on a `vec3f64` were eight such shapes. The set
-  // is read from the pass's own table, so the editor cannot drift from it: a builtin with NO
-  // body keeps the `Numeric` constraint and stays refused here, exactly as
-  // `checkMathArgs` refuses it (§39).
   const constraint = F64_VEC_TWIN_KIND[name] === undefined ? 'Numeric' : 'Numeric | Vec64Any';
-  // A name the overload table generates (`builtin-signatures.ts`) needs no all-scalar overload:
-  // the generated one gives each argument its own type parameter, which is what this one was
-  // for, and returns the scalar its arguments carry rather than `number`.
   const scalar = GENERATED.has(name) ? '' : `${scalarMathOverload(name, arity)}\n`;
   return `${scalar}declare function ${name}<T extends ${constraint}>(${params}): T`;
 }
@@ -530,14 +292,6 @@ function freeMathSignature(name: string): string {
 const LANG_CONST_NAMES = Object.keys(LANG_CONST);
 const SCALAR_CAST_NAMES = Object.keys(SCALAR_CAST);
 
-// The brand property is OPTIONAL, not required: a required unique-symbol brand made a bare
-// number literal (returned from an `f32`-annotated function, assigned to an `f32`-typed local,
-// passed to a `dot`/`length` result typed `number`) a TS2322 false positive on ordinary valid
-// "use typeshade" programs, because nothing in the authoring surface ever produces a literal
-// value already carrying the brand. An optional brand gives up keeping `f32`/`u32`/... apart
-// from one another (they are mutually assignable, a false negative the compiler's own type
-// checks catch) and lets a plain `number` widen into any scalar type, matching how these values
-// actually flow through a real program: a false negative chosen over a false positive.
 const scalarBrands = ['f32', 'i32', 'u32', 'f64']
   .map(
     (name) =>
@@ -558,7 +312,6 @@ const vecCtors = VEC_CTOR_NAMES.map((name) => {
   const overloads = vecCtorOverloads(name, VEC_TYPE_ELEM.get(name)!);
   const doc = FUNCTION_DOCS[name];
   if (!doc) return overloads;
-  // Add JSDoc before every overload
   return overloads
     .split('\n')
     .map((line) => {
@@ -570,10 +323,6 @@ const vecCtors = VEC_CTOR_NAMES.map((name) => {
 }).join('\n');
 
 const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
-  // A conversion, and — for every name but `f64`, whose zero is the pair the fp64 pass
-  // assembles — the ZERO-value form WGSL also spells (#150): `f32()`, `i32()`, `u32()`,
-  // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
-  // `number` in the general case; the generated line below is the numeric one it already had.
   const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`;
   // Why: WGSL takes a bool in a scalar cast (wgsl.txt:20207). `f64` is the exception, since the
   // compiler widens an f32 only.
@@ -601,7 +350,6 @@ const freeMath = FREE_MATH_NAMES.map((name) => {
     .join('\n');
 }).join('\n');
 
-// Add the random function declaration with JSDoc
 const randomDeclaration = FUNCTION_DOCS.random
   ? `${renderJSDoc(FUNCTION_DOCS.random)}\ndeclare function random(seed: f32 | vec2 | vec3): f32`
   : 'declare function random(seed: f32 | vec2 | vec3): f32';
@@ -613,45 +361,19 @@ const langConsts = LANG_CONST_NAMES.map((name) => {
   return `${renderJSDoc(doc)}\n${line}`;
 }).join('\n');
 
-// ── `interface MathObject`: the members, read from the compiler's tables (Rule 12.7, #186) ──
-//
-// The functions are every name in `MATH_FN_ALIAS` (a WGSL builtin under its ECMAScript name) and
-// `MATH_EXPAND_ALIAS` (a member WGSL has no builtin for, expanded at the call), and the values are
-// `MATH_CONST_ALIAS`, so a member joins the editor's `Math` by joining the compiler's table. This
-// was a list of names written out here: the 27 aliases and none of the five expansions, so
-// `Math.cbrt(x)` compiled while the editor reported TS2339 on it, as it did on `log10`, `log1p`,
-// `expm1` and `hypot`. `ambient-parity.test.ts` holds the declaration to the compiler member by
-// member, at every count of arguments, and reads a name either side lacks.
-//
-// A member takes the count of arguments the compiler checks: `MATH_FN_ARITY` for an alias, under
-// the id it resolves to (`fround` under `f32`), and `EXPAND_ARITY` for an expansion, which is one
-// `x` for four of them and two arguments with an optional third for `hypot`. Every parameter and
-// every result is a `number`, which is what an `f32` is to TypeScript (see `scalarBrands`). A member
-// takes scalars only (change 0112, Rule 9.4): `Math.sin(v)` and `Math.max(v, 0.)` on a `vec3` are
-// TS2345 here and TS8003 from the compiler, in the one sentence that names the WGSL builtin.
-
-/** The parameters of a member that are not named `x`, or `a` and `b` for two, which are the
- *  names ECMAScript and this surface's documentation give them: `atan2(y, x)` and
- *  `pow(base, exponent)`. */
 const MATH_PARAMETER_NAMES: Readonly<Record<string, readonly string[]>> = {
   atan2: ['y', 'x'],
   pow: ['base', 'exponent'],
 };
 
-/** A member the compiler takes a second form of, named after the member that has it: `Math.atan`
- *  takes two arguments as WGSL's `atan2` (Rule 9.2's recorded exception), which lowering turns
- *  the call into. The second form is declared with that member's parameters and documentation. */
 const MATH_ALSO_TAKES: Readonly<Record<string, string>> = { atan: 'atan2' };
 
-/** `(x: number)`, `(a: number, b: number)` or `(a: number, b: number, c?: number)`: the parameters
- *  of a member that takes from `fewest` to `most` arguments, the optional ones marked. */
 function mathParameters(form: string, fewest: number, most: number): string {
   const names =
     MATH_PARAMETER_NAMES[form] ?? (most === 1 ? ['x'] : ['a', 'b', 'c', 'd'].slice(0, most));
   return names.map((n, i) => `${n}${i < fewest ? '' : '?'}: number`).join(', ');
 }
 
-/** One signature of `interface MathObject`, under the JSDoc block of `form`'s documentation. */
 function mathMethod(name: string, form: string, parameters: string): string {
   const line = `  ${name}(${parameters}): number`;
   const doc = MATH_MEMBER_DOCS[form];
@@ -671,16 +393,11 @@ const mathMethods = [
     const [fewest, most] = EXPAND_ARITY[MATH_EXPAND_ALIAS[name]!];
     return mathMethod(name, name, mathParameters(name, fewest, most));
   }),
-  // The one member that is not the compiler's, and the one exclusion of the parity assertion
-  // (#181): ECMAScript's `Math.random()` takes no argument, and the compiler takes one seed and
-  // refuses none, so no spelling of it compiles and is clean in the editor.
   mathMethod('random', 'random', ''),
 ].join('\n');
 
 const mathConstants = Object.keys(MATH_CONST_ALIAS)
   .map((name) => {
-    // The compiler gives a Math constant an f32 literal type, while retaining its double
-    // value for contextual f64 literals. The optional scalar brand preserves that conversion.
     const line = `  readonly ${name}: f32`;
     const doc = MATH_MEMBER_DOCS[name];
     if (!doc) return line;
@@ -688,34 +405,8 @@ const mathConstants = Object.keys(MATH_CONST_ALIAS)
   })
   .join('\n');
 
-/**
- * The unique-symbol tags `SHADE_DTS` brands the vector and matrix types with: `vecTag` on the
- * `vec2`/`vec3`/`vec4` family, `vec64Tag` on the `f64` vectors, `matTag` on the matrices.
- * The scalar tags (`f32Tag` and friends) and `arrayTag` are deliberately not listed. This is
- * the set of types whose arithmetic TypeScript's checker rejects, because a branded object
- * type is not a `number` (so `v * s` draws TS2362), and which `diagnostics.ts` therefore has
- * to recognize structurally to drop that false positive (design doc §6). A scalar is already
- * a `number` to TypeScript and indexing an `array` is not arithmetic, so neither needs the
- * same treatment. `diagnostics.test.ts` asserts this list against the tags `SHADE_DTS`
- * actually declares, so a new brand cannot appear without a decision about its arithmetic.
- */
 export const GPU_BRAND_TAGS: readonly string[] = ['vecTag', 'vec64Tag', 'matTag'];
 
-/**
- * The ambient declarations for every TypeShade global: the GPU scalar and vector/matrix types,
- * `array`/`uniform`/`storage`, the attribute decorators, the vector constructors, the scalar
- * casts, and the GLSL-style free math functions plus `Math.*`. Loaded by `host.ts` as a virtual
- * library file (`compilerOptions.lib: []`, this file supplying everything a `"use typeshade"`
- * program needs) so the editor and the compiler agree on one vocabulary (design doc §9).
- *
- * SWIZZLES: a vector declares every swizzle the compiler accepts, one to four components of
- * one family (`.xyzw` or `.rgba`) within its size, repeats and any order included (`.yx`, `.xx`,
- * `.bgra`), each typed by its length. This file used to declare only the components and the
- * prefix swizzles, and its note called the rest a false negative; each was a false positive,
- * TS2339 in the editor and an error in `tshc check` for a program that compiles. A
- * completion lists the components and the prefix swizzles only (`completions.ts`), since the
- * whole set is 680 names on a `vec4`.
- */
 const HAND_WRITTEN_DTS = `// Generated ambient declarations for TypeShade authoring — see ambient.ts.
 
 ${scalarBrands}
@@ -1689,8 +1380,6 @@ function withGeneratedBuiltins(dts: string): string {
     if (name !== undefined && overloads !== undefined) {
       pending.delete(name);
       const doc = FUNCTION_DOCS[name];
-      // Ahead of the documentation the text above put on this line, which stays with it; each
-      // generated overload carries its own copy, as `freeMath` gives every overload one.
       let at = out.length;
       if (out[at - 1]?.trimEnd().endsWith('*/')) {
         while (at > 0 && !out[at - 1]!.trimStart().startsWith('/**')) at--;
@@ -1701,8 +1390,6 @@ function withGeneratedBuiltins(dts: string): string {
     out.push(line);
   }
   if (pending.size > 0) {
-    // A generated name with no hand-written declaration still has to be declared: it goes at
-    // the end, documented the same way.
     for (const [name, overloads] of pending) {
       const doc = FUNCTION_DOCS[name];
       for (const o of overloads) out.push(...(doc ? [renderJSDoc(doc)] : []), o);
