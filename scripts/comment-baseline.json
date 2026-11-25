@@ -863,7 +863,7 @@
   "src/language-service/positions.ts": 54,
   "src/language-service/program-refusal-location.test.ts": 117,
   "src/language-service/projection.test.ts": 42,
-  "src/language-service/projection.ts": 141,
+  "src/language-service/projection.ts": 140,
   "src/language-service/random-seed.test.ts": 40,
   "src/language-service/recursion-parity.test.ts": 7,
   "src/language-service/semantic-tokens.ts": 42,
