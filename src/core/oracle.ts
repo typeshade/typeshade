@@ -50,36 +50,20 @@ import { fnWrites } from './passes/effects.js';
 import { consoleArgs, consoleTableRows, type ConsoleMethod, type ConsoleSink } from './console.js';
 import { dispatchCompute, type WorkgroupCount } from './debug/dispatch.js';
 
-// Preserve the historical `typeshade` oracle surface: the value-model
-// types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
-// re-exported here so existing importers of `./oracle` are unaffected.
 export type { CpuValue, CpuStruct } from './cpu-runtime.js';
-/** The `workgroups` a {@link CpuModule.dispatch} takes, re-exported so a caller can name it. */
 export type { WorkgroupCount } from './debug/dispatch.js';
 export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js';
 
 interface Ctx {
   consts: Map<string, CpuValue>;
-  /** Specialization constants (X-GIS #923) → the selected value, or their default. */
   overrides: Map<string, CpuValue>;
   fns: Record<string, (...args: CpuValue[]) => CpuValue>;
-  /** Each declared function's parameters, for a call to store back what its `inout`
-   *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
   params: Map<string, FuncDecl['params']>;
   bindings: Record<string, CpuValue>;
-  /** The module variables (roadmap 0.2 item 5): a `workgroup` one is allocated once, zero,
-   *  and lives for the module's lifetime as one implicit workgroup's memory; a `private` one
-   *  is set to its initializer or zero at the start of every host-facing call, which is one
-   *  invocation. Written in place, like a binding, so the next invocation sees it. */
   vars: Record<string, CpuValue>;
   structs: Map<string, StructDecl>;
-  /** Opt-in GPU stubs (X-GIS #763 O3): textureSample/fwidth return placeholder values
-   *  instead of throwing. OFF by default — plausible-wrong is the worst failure
-   *  mode for a reference backend. */
   gpuStubs: boolean;
   consoleSink?: ConsoleSink;
-  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2),
-   *  and whether an `f32` combine rounds. */
   trees?: ReadonlyMap<Stmt, TreeLoop>;
   f32?: boolean;
 }
@@ -139,7 +123,6 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (v === undefined) throw new Error(`typeshade/cpu: unknown override ${e.name}`);
       return v;
     }
-    // X-GIS #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
     case 'externref':
       throw new Error(`typeshade/cpu: host-provided global '${e.name}' has no CPU value`);
     case 'param':
@@ -152,8 +135,6 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'binop': {
       const av = evalExpr(e.a, env, ctx),
         bv = evalExpr(e.b, env, ctx);
-      // mat * vec (column-major) — the MVP transform. Dispatched by the
-      // operand's static type since values are type-blind number[] at runtime.
       if (
         e.bop === '*' &&
         e.a.type.kind === 'mat' &&
@@ -161,9 +142,6 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       ) {
         return matVecShaped(av as number[], bv as number[], e.a.type.cols, e.a.type.rows);
       }
-      // A real column-major matrix product — needed for the mat64 (emulated
-      // double) matmul path, whose metamorphic gate evaluates the AUTHORED
-      // module here. (The native-mat*mat case stays supported by the same code.)
       if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat') {
         return matMulShaped(
           av as number[],
@@ -177,19 +155,13 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') {
         return vecMatShaped(av as number[], bv as number[], e.b.type.cols, e.b.type.rows);
       }
-      // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
-      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (X-GIS #2274).
       return applyBin(e.bop, av, bv, numKindOf(e.type));
     }
     case 'unop': {
-      // The negation of the least `i32` is itself on both targets, as `wrapValue` says.
       const a = evalExpr(e.a, env, ctx);
       return wrapValue(isArr(a) ? a.map((v) => -(v as number)) : -(a as number), numKindOf(e.type));
     }
     case 'compare': {
-      // == / != reflect f32 rounding when comparing f32 operands — the GPU computes f32, so
-      // exact f64 equality silently disagrees with it on equality branches (X-GIS #13).
-      // Ordering ops keep f64. Two vectors compare componentwise into a vector of bools (§27).
       return compareValues(
         e.cop,
         evalExpr(e.a, env, ctx),
@@ -204,15 +176,8 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return a ? true : (evalExpr(e.b, env, ctx) as boolean);
     }
     case 'call': {
-      // A barrier waits for the other invocations of the workgroup, and a function called one
-      // invocation at a time has none; `dispatch` runs the workgroup in lockstep (#82).
       if (e.declRef === undefined && isBarrierIntrinsic(e.fn)) throw barrierOutsideDispatch(e.fn);
-      // An atomic builtin takes its first argument as a LOCATION, not a value: the read and
-      // the write-back go through one resolved reference (roadmap 0.2 item 4). A module that
-      // declares its own `atomicAdd` carries `declRef` and takes the declared-function path.
       if (e.declRef === undefined && isAtomicIntrinsic(e.fn)) return evalAtomic(e, env, ctx);
-      // An `inout` argument that is a field or an element is resolved ONCE, as an atomic's
-      // location is: the callee reads it there, and what the callee leaves in it goes back to
       // Implements: Rule 8.25
       const params = ctx.params.get(e.fn);
       const places: (Place | undefined)[] = [];
@@ -241,45 +206,27 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
           });
         return undefined as unknown as CpuValue;
       }
-      // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see
-      // cpu-runtime's f32To*Sat). The value alone cannot tell the sources apart,
-      // so branch on the ARG's static type; cpu-codegen bakes the same branch at
-      // compile time, keeping the twins bit-identical.
       if (e.fn === 'u32' || e.fn === 'i32') {
         const src = e.args[0]!.type;
         if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
           return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number);
         }
       }
-      // `transpose` needs the matrix's SHAPE, and a flat column-major list cannot carry it:
-      // six numbers are a mat2x3 or a mat3x2, and the two transpose to different things. The
-      // static argument type says which, exactly as the bit builtins below read their kind.
       if (e.declRef === undefined && e.fn === 'transpose') {
         const t = e.args[0]!.type;
         if (t.kind === 'mat') return matTransposeShaped(args[0] as number[], t.cols, t.rows);
       }
-      // A bit builtin whose value depends on the argument's kind (§10) takes the static kind.
       if (e.declRef === undefined && TYPED_BIT_BUILTINS.has(e.fn)) {
         return bitBuiltin(e.fn, args, elemKindOf(e.args[0]!.type) === 'i32' ? 'i32' : 'u32');
       }
-      // A call the front end RESOLVED to a declared function carries `declRef`, and that
-      // function is what the emitted shader calls, under the name its writer gave it — a
-      // module may declare `fn saturate(…)`, and every call of it the author wrote reaches it
-      // (Rule 9.5). Honouring it here keeps the oracle evaluating what the GPU runs. A call of
-      // the builtin has no declRef and still takes the builtin: the compiler's own, and a
-      // `Math.pow` beside a declared `pow`.
       if (e.declRef !== undefined) {
         const declared = ctx.fns[e.fn];
         if (declared) return storeBack(e, declared(...args), env, ctx, places);
       }
-      // An integer result wraps into its type, which a builtin handed plain numbers cannot know.
       const b = BUILTINS[e.fn];
       if (b) return wrapValue(b(...args), numKindOf(e.type));
       const stub = GPU_STUBS[e.fn];
       if (stub) {
-        // A texture of the CPU tier's memory is read and written there (change 0077, part 5),
-        // as the generated code reads it (`cpu-codegen-runtime.ts`), so the two CPU walks agree
-        // on a bound texture as they do on everything else (Rule 11.7).
         const real = cpuTextureCall(e.fn, args);
         if (real !== undefined) return real;
         if (!ctx.gpuStubs) {
@@ -296,17 +243,13 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'member': {
       const base = evalExpr(e.base, env, ctx);
       if (isArr(base)) {
-        // Multi-char swizzle (.rgb / .xy) → a new vector; single → a scalar.
         if (e.field.length > 1) return [...e.field].map((c) => base[FIELD_IDX[c]!] as number);
         return base[FIELD_IDX[e.field]] as CpuValue;
       }
       return (base as Record<string, CpuValue>)[e.field];
     }
     case 'construct': {
-      // Array literal: keep each element intact (array<vec2,N> → [[x,y],…]).
       if (e.type.kind === 'array') return e.args.map((a) => evalExpr(a, env, ctx)) as CpuValue;
-      // Struct constructor: `MyStruct(a, b, …)` → a field-keyed object in decl order (the
-      // same shape the field-by-field `assign(out.f, …)` build produces).
       if (e.type.kind === 'struct') {
         const decl = ctx.structs.get(e.type.name);
         if (decl === undefined) throw new Error(`oracle: struct '${e.type.name}' not declared`);
@@ -316,11 +259,6 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         });
         return obj as CpuValue;
       }
-      // Vector constructor: flatten scalar/vec args into one component list, each component
-      // converted to the constructed vector's element kind. For an ordinary composing
-      // constructor every kind already matches and convertComponent(s) returns the value
-      // untouched; for WGSL's element-CONVERTING form, vecN<T>(v: vecN<S>), it applies the
-      // same saturating / reinterpreting rules the scalar cast path applies.
       const elem = e.type.kind === 'vec' ? e.type.elem : undefined;
       const out: number[] = [];
       for (const a of e.args) {
@@ -334,14 +272,12 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
         if (isArr(v)) out.push(...convertComponents(v as number[], from, elem));
         else out.push(convertComponent(v as number, from, elem));
       }
-      // WGSL splat: vecN<T>(singleScalar) fills all N components (e.g. vec3(0.5) = [0.5,0.5,0.5]).
       if ((e.type.kind === 'vec' || e.type.kind === 'vec64') && out.length === 1)
         return new Array(e.type.n as number).fill(out[0]);
       return out;
     }
     case 'select': {
       const c = evalExpr(e.cond, env, ctx);
-      // A vector-of-bools condition picks per component (§27) and needs both arms.
       if (isArr(c)) {
         return selectComponents(c, evalExpr(e.ifTrue, env, ctx), evalExpr(e.ifFalse, env, ctx));
       }
@@ -350,14 +286,10 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     case 'index': {
       const base = evalExpr(e.base, env, ctx) as CpuValue[];
       const i = evalExpr(e.idx, env, ctx) as number;
-      // `m[j]` is COLUMN j, which is `rows` components of a flat list — not `base[j]`.
       if (e.base.type.kind === 'mat') return matColumn(base as number[], i, e.base.type.rows);
       return base[i];
     }
     case 'matchExpr': {
-      // CPU semantics mirror the WGSL pre-emit lowering: evaluate the
-      // scrutinee, find the matching case (by ===), return its value.
-      // No fall-through. Default fires when no case matches.
       const sv = evalExpr(e.scrutinee, env, ctx) as number;
       const hit = e.cases.find(([v]) => v === sv);
       return evalExpr(hit ? hit[1] : e.default, env, ctx);
@@ -365,11 +297,6 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
   }
 }
 
-/** A read-and-write handle on an assignment target, resolved ONCE: an atomic builtin reads
- *  the location and writes it back as one step, and resolving `xs[i]` twice would evaluate an
- *  index expression that may itself carry an atomic call twice. A bare binding name writes
- *  the host's binding table, so a counter in `storage<atomic<u32>>` is read back by the host
- *  the way an array element is. */
 function refOf(target: Expr, env: Map<string, CpuValue>, ctx: Ctx): Place {
   if (target.op === 'varref' || target.op === 'param') {
     const name = target.name;
@@ -407,8 +334,6 @@ function refOf(target: Expr, env: Map<string, CpuValue>, ctx: Ctx): Place {
   if (target.op === 'index') {
     const base = evalExpr(target.base, env, ctx) as CpuValue[];
     const i = evalExpr(target.idx, env, ctx) as number;
-    // A matrix's column is a slice of its flat column-major list (`matColumn`), a place a
-    // reference may name (Rule 8.25).
     if (target.base.type.kind === 'mat') {
       const rows = target.base.type.rows;
       return {
@@ -426,8 +351,6 @@ function refOf(target: Expr, env: Map<string, CpuValue>, ctx: Ctx): Place {
   throw new Error(`typeshade/cpu: bad atomic location ${target.op}`);
 }
 
-/** `atomicAdd(xs[i], v)` and its family: one {@link atomicStep} on the resolved location. The
- *  location's element kind decides the wrap; `atomicLoad` writes nothing back. */
 function evalAtomic(
   e: Extract<Expr, { op: 'call' }>,
   env: Map<string, CpuValue>,
@@ -437,21 +360,14 @@ function evalAtomic(
   if (loc === undefined) throw new Error(`typeshade/cpu: ${e.fn} needs a location`);
   const ref = refOf(loc, env, ctx);
   const arg = e.args[1] === undefined ? 0 : (evalExpr(e.args[1], env, ctx) as number);
-  // The third argument is `atomicCompareExchangeWeak`'s value to store (#152); every other
-  // atomic has two at most, so this is undefined for them.
   const store = e.args[2] === undefined ? undefined : (evalExpr(e.args[2], env, ctx) as number);
   const step = atomicStep(e.fn, ref.get() as number, arg, numKindOf(loc.type), store);
   if (e.fn !== 'atomicLoad') ref.set(step.next);
   return step.result;
 }
 
-/** A read-and-write handle on a place, resolved once ({@link refOf}). */
 type Place = { readonly get: () => CpuValue; readonly set: (v: CpuValue) => void };
 
-/** A call's value, having stored what each of the callee's `inout` parameters holds as it
- *  returned into the place passed there (`inoutReturn`, cpu-runtime.ts): a variable, or a field
- *  or an element through the handle `places` resolved before the call, so no index is
- *  evaluated again (Rule 8.25). */
 function storeBack(
   call: Expr & { op: 'call' },
   value: CpuValue,
@@ -473,9 +389,6 @@ function storeBack(
 
 function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ctx: Ctx): void {
   if (target.op === 'varref' || target.op === 'param') {
-    // A module-level name that is not shadowed by a local (a module variable, a scalar
-    // binding) is written in the module's own table, so the host and the next invocation see
-    // the value; a local is the frame's. `let`/`var` always put a local in the env first.
     if (!env.has(target.name)) {
       if (target.name in ctx.vars) {
         ctx.vars[target.name] = value;
@@ -498,7 +411,6 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
   if (target.op === 'index') {
     const base = evalExpr(target.base, env, ctx) as CpuValue[];
     const i = evalExpr(target.idx, env, ctx) as number;
-    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
     if (target.base.type.kind === 'mat') {
       setMatColumn(base as number[], i, target.base.type.rows, value as number[]);
       return;
@@ -519,24 +431,10 @@ const NORMAL: Signal = { kind: 'normal' };
 
 // Why: one flat env per call matches WGSL block scoping only while a binding is reached through
 // the Node b.let()/b.var()/forRange returns; a read of a binding by name would diverge from it.
-/** A value about to be STORED under a name — bound to a `let`/`var`, or assigned to an
- *  existing one: copied when it is an aggregate, so the store has the value semantics both
- *  GPU targets give it. A freshly built value would not need the copy, but telling those
- *  apart statically is the kind of special case that drifts from the generator; both backends
- *  apply the one rule.
- *
- *  The binding half alone was not enough. `w = v` assigns without binding, so it stored the
- *  same array under the second name and a later `w.x = 100.` reached through to `v` — the CPU
- *  said 100 where both GPU targets say 3. The rule belongs at every store, not at declaration
- *  sites only. */
 function bindValue(v: CpuValue, t: ShaderType): CpuValue {
   return isAggregateType(t) ? cloneValue(v) : v;
 }
 
-/** A kernel function's reduction loop (Rule 7.2): each iteration combines into the variable
- *  from the identity, what it holds after the iteration is collected, and after the loop the
- *  variable is combined with the collection folded in the tree order (`kernel-tree.ts`). The
- *  proof leaves no `return` and no `break` of the loop's own, so only a `discard` leaves. */
 function execTreeFor(
   s: Stmt & { s: 'for' },
   loop: TreeLoop,
@@ -559,8 +457,6 @@ function execTreeFor(
         ctx,
       );
   };
-  // The scatter targets: each is read and written through the run's view, so an iteration sees
-  // its own sum of contributions and the loop folds the sums per element (change 0056, option C).
   const scatter = loop.scatters.length > 0 ? loop.scatters : undefined;
   const run =
     scatter === undefined
@@ -601,9 +497,6 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   for (const s of body) {
     switch (s.s) {
       case 'let':
-        // An aggregate is COPIED into the new name, as `var w = v` is on both GPU targets;
-        // binding the same array/object would make a later `w.x = …` mutate `v` here and
-        // not there (cloneValue, cpu-runtime.ts). A scalar binds as before.
         env.set(s.name, bindValue(evalExpr(s.expr, env, ctx), s.expr.type));
         break;
       case 'var':
@@ -613,19 +506,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         );
         break;
       case 'assign':
-        // Through bindValue, as `let`/`var` are: an aggregate is copied into the target
-        // rather than shared with the source.
         setLValue(s.target, bindValue(evalExpr(s.expr, env, ctx), s.expr.type), env, ctx);
         break;
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx);
-        // X-GIS #763 O6 — thread the numeric kind exactly as the binop path does
-        // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
-        // shift; the flag was once applied to one of the two eval sites only.
         const kind = numKindOf(s.target.type);
-        // No bindValue here, in either backend: applyBin builds its result with `.map()`, so
-        // an aggregate one is always a fresh array and there is nothing to alias. A clone
-        // would be a copy per compound assignment in a hot loop, bought for nothing.
         setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), kind), env, ctx);
         break;
       }
@@ -638,7 +523,6 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
       case 'discard':
         return { kind: 'discard' };
       case 'call':
-        // Evaluated for its effect (a binding write inside the callee); the value is dropped.
         evalExpr(s.expr, env, ctx);
         break;
       case 'if': {
@@ -669,16 +553,12 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
           const r = execBody(s.body, env, ctx);
           if (r.kind === 'break') break;
           if (r.kind === 'return' || r.kind === 'discard') return r;
-          // 'continue' jumps straight to the update + next condition eval —
-          // the body short-circuit already returned, just don't propagate.
           execBody([s.update], env, ctx);
         }
         break;
       }
       case 'switch': {
         const v = evalExpr(s.scrut, env, ctx) as number;
-        // A clause may hold SEVERAL selectors (`case 0, 1:` in WGSL), so the match is
-        // membership, not equality.
         const hit = s.cases.find((c) => c.values.includes(v));
         const chosen = hit ? hit.body : s.defaultBody;
         if (chosen) {
@@ -689,21 +569,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break;
       }
       case 'placeholder': {
-        // Phase 2.5 US-007 — the polygon composer (emitPolygonWgsl)
-        // MUST swap every placeholder Stmt before emit. If one reaches
-        // CPU eval, the composer forgot to splice — fail loudly rather
-        // than silently no-op (the WGSL backend emits a defensive
-        // comment, but on CPU there's no analogue and a silent
-        // missing-return is much harder to localise).
         throw new Error(
           `typeshade/cpu: placeholder Stmt reached CPU backend — composer forgot to splice tag=${s.tag}`,
         );
       }
       case 'raw': {
-        // Phase 2 PR 2e.B.2 — raw passthrough is GPU-only; it has no
-        // CPU evaluation. Reaching here means a raw Stmt was placed on a
-        // shader path that also runs through the CPU mirror (cpu-projections
-        // / compute eval), which is a composition bug — fail loudly.
         throw new Error(
           'typeshade/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only',
         );
@@ -788,21 +658,14 @@ export function compileModule(
     overrides?: Readonly<Record<string, CpuValue>>;
   },
 ): CpuModule {
-  // Same validation gate as the WGSL/GLSL writers — the oracle is the third
-  // backend over the same IR, so it must reject a structurally-invalid module.
   validate(m);
-  // Materialise auto-vars (plain `const x = …; assign(x, …)`) into real `var` bindings, exactly
-  // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
   m = autoVars(m);
   const unrounded = m;
-  // …then, in f32 mode, round after every f32 operation. AFTER autoVars, so the `var` bindings
-  // it materialises have their initialisers rounded like any other.
   if (opts?.precision === 'f32') m = froundF32(m);
   const overrides = new Map<string, CpuValue>((m.overrides ?? []).map((o) => [o.name, o.default]));
   for (const [name, value] of Object.entries(opts?.overrides ?? {})) overrides.set(name, value);
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
-    // X-GIS #923 — an override reads as its default on the CPU mirror.
     overrides,
     fns: {},
     params: new Map(m.funcs.map((f) => [f.name, f.params])),
@@ -814,9 +677,6 @@ export function compileModule(
     trees: treeLoops(unrounded, m),
     f32: opts?.precision === 'f32',
   };
-  // Populate consts in declaration order so a later const may reference an
-  // earlier one. A `valueExpr` const (vec / array / struct literal) is evaluated
-  // through the same tree-walk; a scalar const uses its full-precision cpuValue.
   for (const c of m.consts) {
     ctx.consts.set(c.name, c.valueExpr ? evalExpr(c.valueExpr, new Map(), ctx) : c.cpuValue);
   }
@@ -840,14 +700,9 @@ export function compileModule(
       f.params.forEach((p, i) => env.set(p.name, copies[i] ? cloneValue(args[i]!) : args[i]));
       const r = execBody(f.body, env, ctx);
       if (inout) inoutReturn.values = f.params.map((p) => env.get(p.name) as CpuValue);
-      // Unread placeholder: a void (ret: voidT) fn is invoked as a STATEMENT — its value
-      // is never consumed, so the undefined bridged to CpuValue here is never read.
       return r.kind === 'return' ? (r.value as CpuValue) : (undefined as unknown as CpuValue);
     };
   }
-  // A host-facing call is one invocation: its private variables start from their
-  // initializers. A call from inside the module (`ctx.fns`) is the same invocation and keeps
-  // them. Without private variables the two tables are one object, as they always were.
   let fns = ctx.fns;
   if (privates.length > 0) {
     fns = {};
