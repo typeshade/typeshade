@@ -163,7 +163,7 @@
   "src/compiler/ts/io-attribute-arguments.test.ts": 9,
   "src/compiler/ts/io-name-cascades.test.ts": 5,
   "src/compiler/ts/ir-equality.test.ts": 28,
-  "src/compiler/ts/issue-1261-differential.test.ts": 131,
+  "src/compiler/ts/issue-1261-differential.test.ts": 126,
   "src/compiler/ts/jagged-storage-array.test.ts": 13,
   "src/compiler/ts/kernel-corpus.test.ts": 31,
   "src/compiler/ts/kernel-loops.test.ts": 123,

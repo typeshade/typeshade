@@ -43,7 +43,8 @@ import { writeFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { compile } from './compile.js';
-import { checkDocuments } from '../../language-service/check.js';
+import { checkDocumentsIn } from '../../language-service/check.js';
+import { createTypeshadeLanguageService } from '../../language-service/service.js';
 import {
   Skip,
   binary,
@@ -61,6 +62,7 @@ import {
 } from './issue-1261-differential/oracle.js';
 import { rng } from './issue-1261-differential/rng.js';
 import { FILE, INPUTS, LIBS, LIB_FILE } from './issue-1261-differential/libs.js';
+import { FIXED } from './issue-1261-differential/fixed.js';
 import { editedRanges } from './issue-1261-differential/ranges.js';
 
 /** One generated expression: its source text and its reference value. */
@@ -903,8 +905,16 @@ function compiled(p: Program2): Line[] {
 
 /** The editor's errors in each file of the program (`checkDocuments`, the CLI's and the
  *  editor's check), TypeShade's own: TypeScript's (`4 != 7` has no overlap) are the editor's. */
+let current: Program2 = { main: '', lib: '' };
+const sharedService = createTypeshadeLanguageService({
+  readDocument: (uri) => (uri.includes('lib.shade') ? current.lib : undefined),
+});
+
 function editor(p: Program2): Line[] {
-  return checkDocuments([{ path: FILE, uri: FILE, text: p.main }], { readDocument: readerOf(p) })
+  current = p;
+  return checkDocumentsIn(sharedService, [{ path: FILE, uri: FILE, text: p.main }], {
+    readDocument: readerOf(p),
+  })
     .diagnostics.filter((d) => d.severity === 'error' && d.source === 'typeshade')
     .map((d) => ({
       file: fileOf(d.file),
@@ -1071,42 +1081,6 @@ function applied(p: Program2, changes: readonly Change[]): Program2 | undefined 
 
 export const CORPUS_SIZE = Number(process.env.DIFF_SIZE ?? 450);
 const SEED = Number(process.env.DIFF_SEED ?? 1261);
-
-/** The programs the twelfth and thirteenth reviews found, with TypeScript's value at the
- *  inputs: they lead the corpus, so a run shows each of them. */
-const u32of = (x: number): number => Math.trunc(x) >>> 0;
-const H0 = 'function g() {\n  return 3000000000|0;\n}\n';
-const FIXED: readonly (readonly [string, string, number, string?])[] = [
-  ['f32', 'let a = 1|2;\n  a /= f32(2);\n  return f32(a);', 1.5],
-  ['f32', 'return f32((5|0)/(f32(2)+1));', Math.fround(5 / 3)],
-  ['f32', 'return f32((0xF0000000|0)/(i32(2)+1));', Math.trunc((0xf0000000 | 0) / 3)],
-  ['f32', 'let a = 1|2;\n  a = a / 2;\n  return f32(a);', 1.5],
-  ['f32', 'let a = 1|2;\n  a = a / K;\n  return f32(a);', 0.75],
-  ['f32', 'let a = 1|2;\n  a /= K;\n  return f32(a);', 0.75],
-  ['f32', 'let a = abs(5|0);\n  a = a / 2;\n  return f32(a);', 2.5],
-  ['u32', 'return max((3000000000|0), vi);', u32of(Math.max(3000000000 | 0, 7))],
-  ['u32', 'return (3000000000|0) >> vi;', u32of((3000000000 | 0) >> 7)],
-  ['u32', 'let a = (3000000000|0);\n  let b = a;\n  return b / vi;', u32of((3000000000 | 0) / 7)],
-  ['u32', 'let a = (3000000000|0);\n  a %= vi;\n  return a;', u32of((3000000000 | 0) % 7)],
-  ['f32', 'return f32((0xF0000000|0));', 0xf0000000 | 0],
-  // B1: a compound assignment with a quotient on its right.
-  ['i32', 'let g = ii;\n  g *= (5|0)/2;\n  return g;', Math.trunc(-3 * 2.5)],
-  ['i32', 'let g = ii;\n  g += (5|0)/2;\n  return g;', Math.trunc(-3 + 2.5)],
-  ['f32', 'let g = ii;\n  g *= (1<<3)/3;\n  return f32(g);', Math.fround(-3 * (8 / 3))],
-  // B2: two readings through `?:`, `select`, a result, a module `let`, arithmetic.
-  ['u32', 'let a = vi > 3 ? (3000000000|0) : vi;\n  return a / vi;', u32of((3000000000 | 0) / 7)],
-  ['u32', 'return select(vi, (3000000000|0), vi > 3) / vi;', u32of((3000000000 | 0) / 7)],
-  ['u32', 'return g() / vi;', u32of((3000000000 | 0) / 7), H0],
-  ['u32', 'return M / vi;', u32of((3000000000 | 0) / 7), 'let M = 3000000000|0;\n'],
-  [
-    'u32',
-    'let a = (3000000000|0);\n  let c = a + 0;\n  return c / vi;',
-    u32of((3000000000 | 0) / 7),
-  ],
-  // B3: two readings through arithmetic of a constant.
-  ['f32', 'const k = (3000000000|0);\n  return f32(k | 1);', 3000000000 | 0 | 1],
-  ['f32', 'return f32(3 / (((vi < 2) ? 3 : 9) << 2));', Math.fround(3 / 36)],
-];
 
 describe('the written-integer rules hold over a generated corpus (issue 1261, D1)', () => {
   it(
