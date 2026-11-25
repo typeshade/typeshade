@@ -49,7 +49,7 @@
   "src/compiler/ts/bool-vectors.test.ts": 15,
   "src/compiler/ts/broadcast.test.ts": 16,
   "src/compiler/ts/builtin-breadth.test.ts": 104,
-  "src/compiler/ts/builtin-check.ts": 168,
+  "src/compiler/ts/builtin-check.ts": 163,
   "src/compiler/ts/builtin-type-diagnostic.test.ts": 8,
   "src/compiler/ts/builtin-type-form.test.ts": 20,
   "src/compiler/ts/builtin-type-form.ts": 40,

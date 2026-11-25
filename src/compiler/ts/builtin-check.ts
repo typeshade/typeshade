@@ -41,9 +41,9 @@ export const ATTRIBUTE_NAMES: readonly string[] = [
   'compute',
   'builtin',
   'location',
-  // The entry-IO attributes of §53. `@interpolate` and `@invariant` pass through to WGSL and
-  // become qualifiers on GLSL ES 3.00; `@blend_src` derives the `dualSourceBlending`
-  // capability and fails the module closed on GLSL, which has no second source.
+  // Why: `@interpolate` and `@invariant` pass through to WGSL and become qualifiers on GLSL ES
+  // 3.00; `@blend_src` derives `dualSourceBlending` and fails the module closed on GLSL, which
+  // has no second source.
   'interpolate',
   'invariant',
   'blend_src',
@@ -395,8 +395,8 @@ export const BUILTIN_STAGE_RULES: Readonly<
   global_invocation_id: [{ stage: 'compute', direction: 'input' }],
   workgroup_id: [{ stage: 'compute', direction: 'input' }],
   num_workgroups: [{ stage: 'compute', direction: 'input' }],
-  // The subgroup pair is a FRAGMENT input as well as a compute one, per WGSL's built-in
-  // value table; it read as compute-only here, which refused a legal fragment program.
+  // Why: WGSL's built-in value table makes the subgroup pair a fragment input as well as a
+  // compute one.
   subgroup_invocation_id: [
     { stage: 'compute', direction: 'input' },
     { stage: 'fragment', direction: 'input' },
