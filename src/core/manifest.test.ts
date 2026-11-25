@@ -68,7 +68,7 @@ describe('the manifest (Rule 11.10)', () => {
   });
 
   for (const ex of corpus) {
-    it(`${ex.id}: is schema 1, survives JSON, and agrees with reflect() (Rule 6.8)`, () => {
+    it(`${ex.id}: carries PACK_SCHEMA, survives JSON, and agrees with reflect() (Rule 6.8)`, () => {
       const m = ex.module;
       const p = buildManifest(m, { console: true });
       expect(p.schema).toBe(PACK_SCHEMA);

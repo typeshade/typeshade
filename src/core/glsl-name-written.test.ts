@@ -1,12 +1,12 @@
 // Verifies: Rule 3.4.
 // Verifies: Rule 11.10.
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { compile } from '../compiler/ts/compile.js';
 import { packModule } from '../compiler/ts/pack.js';
-import { SHADE_FILES } from '../../examples/_example-file.js';
+import { examples } from '../../examples/index.js';
+import { shadeExamples } from '../../examples/_shade.js';
+import type { ModuleDecl } from './ir/nodes.js';
+import { buildManifest } from './manifest.js';
 import { reflect } from './reflect.js';
 import { glslOverrideNames } from './gl-overrides.js';
 import { bothTake } from './testing/both-halves.js';
@@ -32,7 +32,9 @@ describe('the compiler writes the GLSL name of every binding and override (Rule 
 
   it('reads the same source in both halves, and the editor shows no emittedGlsl', () => {
     expect(halves.editor).toEqual([]);
-    expect(halves.hover('texture: uniform')).not.toContain('emittedGlsl');
+    expect(halves.hover('texture: uniform')).toBe(
+      '```ts\nconst texture: Frame\n```\n\nuniform resource at @group(0) @binding(1)',
+    );
   });
 
   it('writes emittedGlsl equal to emitted where the two targets spell a binding alike', () => {
@@ -76,18 +78,42 @@ describe('the compiler writes the GLSL name of every binding and override (Rule 
 });
 
 describe('every example binding and override carries emittedGlsl in its manifest', () => {
-  const dir = fileURLToPath(new URL('../../examples/', import.meta.url));
-  for (const [id, path] of SHADE_FILES) {
-    it(id, () => {
-      let pack;
-      try {
-        const r = compile(readFileSync(dir + path, 'utf8'), { fileName: dir + path });
-        pack = packModule(r.module);
-      } catch {
-        return;
-      }
+  const corpus = [...examples, ...shadeExamples].filter(
+    (e): e is typeof e & { module: ModuleDecl } => e.module !== undefined,
+  );
+  const seen = { bindings: 0, overrides: 0 };
+
+  for (const ex of corpus) {
+    it(ex.id, () => {
+      const pack = buildManifest(ex.module, { console: true });
       for (const b of pack.bindings) expect(typeof b.emittedGlsl).toBe('string');
       for (const o of pack.overrides ?? []) expect(typeof o.emittedGlsl).toBe('string');
+      seen.bindings += pack.bindings.length;
+      seen.overrides += pack.overrides?.length ?? 0;
     });
   }
+
+  it('covers at least one binding and one override', () => {
+    expect(corpus.length).toBeGreaterThan(80);
+    expect(seen.bindings).toBeGreaterThan(0);
+    expect(seen.overrides).toBeGreaterThan(0);
+  });
+});
+
+describe('the record of a struct and of a field carries emitted only (Rule 3.4)', () => {
+  const r = reflect(allKindsModule({ struct: 'common', field: 'half' }, 'graphics'));
+  const structs = [...r.uniforms, ...r.storage];
+
+  it('names a struct and a field whose GLSL spelling is reserved without emittedGlsl', () => {
+    expect(structs.length).toBeGreaterThan(0);
+    for (const s of structs) {
+      expect(s).not.toHaveProperty('emittedGlsl');
+      for (const f of s.fields) expect(f).not.toHaveProperty('emittedGlsl');
+    }
+    expect(structs.flatMap((s) => s.fields.map((f) => f.name))).toContain('half');
+  });
+
+  it('names an entry without emittedGlsl', () => {
+    for (const e of r.entries) expect(e).not.toHaveProperty('emittedGlsl');
+  });
 });

@@ -91,8 +91,6 @@ describe('the emitted-name record (Rule 11.10)', () => {
   });
 });
 
-// The record reads the spelling plan (Proposal 0070, C4): `emitted` is the WGSL spelling, and
-// `emittedGlsl` is present only where the GLSL spelling differs.
 describe('the spelling record reads the plan (Proposal 0070, C4)', () => {
   const names = {
     const: 'class',

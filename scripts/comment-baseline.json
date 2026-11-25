@@ -433,7 +433,7 @@
   "src/core/emit-prune.ts": 47,
   "src/core/emit-reflection.test.ts": 6,
   "src/core/emit.ts": 270,
-  "src/core/emitted-record.test.ts": 11,
+  "src/core/emitted-record.test.ts": 9,
   "src/core/fp64/df64-int-property.test.ts": 49,
   "src/core/fp64/df64-int.ts": 106,
   "src/core/fp64/df64-known-answer.test.ts": 39,
