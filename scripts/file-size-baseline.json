@@ -125,7 +125,6 @@
   "src/core/gl-compute.ts": 918,
   "src/core/host-compute.ts": 581,
   "src/core/host-draw.ts": 886,
-  "src/core/host-entry-program.ts": 420,
   "src/core/host-entry.ts": 2029,
   "src/core/host-kernel.ts": 2589,
   "src/core/host-values.test.ts": 401,
