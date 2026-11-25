@@ -11,12 +11,7 @@ import { emitModule } from '../../core/backends/wgsl.js';
 import type { ConsoleLog } from '../../core/console.js';
 import { generateModuleJs } from '../../core/cpu-codegen.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
-import {
-  type ComputeEntry,
-  type EntryBinding,
-  type HandleBinding,
-  type Layout,
-} from '../../core/host-entry.js';
+import { type EntryBinding, type HandleBinding, type Layout } from '../../core/host-entry.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import type {
   FuseArray,
@@ -28,16 +23,15 @@ import type {
 } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
 import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
-import { workgroupShapeOf } from '../../core/ir/nodes.js';
 import { toPortable } from '../../core/ir/portable.js';
 import type { ShaderType } from '../../core/ir/types.js';
-import { addsTo, colourOf } from './host-face/entry-shapes.js';
+import { addsTo } from './host-face/entry-shapes.js';
 import { keyedStructsOf, writtenName } from './host-face/private-keys.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
 import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
-import { buildManifest, glDrawOf, layoutOf } from '../../core/manifest.js';
+import { buildManifest, layoutOf } from '../../core/manifest.js';
 import {
   calleesOf,
   closureOf,
@@ -50,7 +44,6 @@ import { fnReads, fnWrites } from '../../core/passes/effects.js';
 import { lowerKernelGl, type KernelPlan } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
-import { typeLayout } from '../../core/reflect.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
 import { VERSION } from '../../core/version.js';
 import type { ClassLayouts } from '../../runtime/resource.js';
@@ -73,14 +66,7 @@ import {
 import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
-import {
-  isBufferBinding,
-  objectType,
-  structNames,
-  viewText,
-  type Naming,
-  type ViewTypes,
-} from './host-view.js';
+import { structNames, viewText, type Naming, type ViewTypes } from './host-view.js';
 import { describeRead } from './kernel-loops.js';
 import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
 import { ctorFnName } from './lower/class-methods.js';
@@ -89,10 +75,9 @@ import { staticConstName } from './module-const.js';
 import { compileTsProgram } from './source-file.js';
 import { emittedStructDecls, type CollectedStruct } from './structs.js';
 import type { FaceCtx } from './host-face/context.js';
-import { gpuOnlyCall, barrierIn } from './host-face/reach.js';
-import { guardOf, guardBinding } from './host-face/guard.js';
+import { gpuOnlyCall } from './host-face/reach.js';
+import { guardOf } from './host-face/guard.js';
 import { spell } from './host-face/spell.js';
-import { noCpuTier, wgslEntryPoint, glTier } from './host-face/entry-tier.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
 import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
@@ -102,12 +87,9 @@ import { never } from './host-face/never-export.js';
 import type { BindingRef } from './host-face/binding-ref.js';
 import { resourceFaces } from './host-face/resource-faces.js';
 import type { HostFaceOptions, HostFace } from './host-face/contracts.js';
-import {
-  COMPUTE_BUILTINS,
-  STORAGE_ACCESS,
-  FRAGMENT_BUILTINS,
-} from './host-face/entry-vocabulary.js';
-import { entryBindings, typeOfBinding, namedBindings } from './host-face/entry-bindings.js';
+import { STORAGE_ACCESS } from './host-face/entry-vocabulary.js';
+import { typeOfBinding, namedBindings } from './host-face/entry-bindings.js';
+import { computeFace, fragmentFace } from './host-face/stage-faces.js';
 export { typeOfBinding } from './host-face/entry-bindings.js';
 export type { HostFaceOptions, HostFace } from './host-face/contracts.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
@@ -347,102 +329,6 @@ export function hostFace(source: string, options: HostFaceOptions): HostFace {
       log,
     ),
     files,
-  };
-}
-
-function computeFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
-  const x = c.entry;
-  for (const p of f.params)
-    if (p.builtin === undefined || !COMPUTE_BUILTINS.has(p.builtin))
-      return never(name, `parameter "${p.name}" is not a builtin the call can fill in`);
-  const reached = entryBindings(f, c);
-  if ('none' in reached) return never(name, reached.none);
-  const { bindings, types, queued, waiting, closure } = reached;
-  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
-  const barrier = barrierIn(closure, c.byName, x.declared);
-  const noCpu = noCpuTier(closure, bindings, c);
-  const gl = glTier(f, c);
-  const touched = new Set([...(x.reads.get(f.name) ?? []), ...(x.writes.get(f.name) ?? [])]);
-  const workgroupVars = (x.module.vars ?? []).filter(
-    (v) => v.space === 'workgroup' && touched.has(v.name),
-  );
-  return {
-    kind: 'compute',
-    name,
-    entry: {
-      name,
-      fn: f.name,
-      ...wgslEntryPoint(f, c),
-      wg: workgroupShapeOf(f) ?? [64, 1, 1],
-      ...(f.workgroupSizeOverrides === undefined
-        ? {}
-        : {
-            workgroupSizeOverrides: f.workgroupSizeOverrides.map((n) => n ?? null) as [
-              string | null,
-              string | null,
-              string | null,
-            ],
-          }),
-      ...(workgroupVars.length === 0
-        ? {}
-        : {
-            workgroupVars: workgroupVars.map((v) => ({
-              name: v.name,
-              size: typeLayout(v.type, 'std430', c.structs).size,
-              ...(v.type.kind === 'array' && v.type.sizeOverride !== undefined
-                ? { override: v.type.sizeOverride }
-                : {}),
-            })),
-          }),
-      params: f.params.map((p) => p.builtin!),
-      bindings,
-      workgroupZero: Object.fromEntries(
-        workgroupVars.map((v) => [v.name, x.workgroupZero[v.name]]),
-      ) as ComputeEntry['workgroupZero'],
-      ...(barrier !== undefined ? { barrier } : {}),
-      ...(noCpu !== undefined ? { noCpu } : {}),
-      ...gl,
-    },
-    bindingsType: objectType(types),
-    ...(bindings.some((b) => isBufferBinding(b) && b.writes) &&
-    bindings.every(
-      (b) => !isBufferBinding(b) || !b.writes || (b.layout.k === 'a' && b.layout.n === null),
-    )
-      ? { queuedType: objectType(queued), waitingType: objectType(waiting) }
-      : {}),
-  };
-}
-
-function fragmentFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
-  const x = c.entry;
-  for (const p of f.params)
-    if (p.builtin === undefined || !FRAGMENT_BUILTINS.has(p.builtin))
-      return never(name, REASON.fragmentInput(p.name));
-  const out = colourOf(f, c.structs);
-  if (out === undefined) return never(name, REASON.fragmentOutput);
-  const reached = entryBindings(f, c);
-  if ('none' in reached) return never(name, reached.none);
-  const { bindings, draw: drawTypes, closure } = reached;
-  if (x.guard !== undefined) bindings.push(guardBinding(x.guard));
-  const draw = glDrawOf(x.module, f, bindings, closure, c.byName, x.declared);
-  const gl =
-    'none' in draw ? draw : { frag: draw.fragment, blocks: draw.blocks, samplers: draw.samplers };
-  const noCpu = noCpuTier(closure, bindings, c);
-  return {
-    kind: 'fragment',
-    name,
-    entry: {
-      name,
-      fn: f.name,
-      ...wgslEntryPoint(f, c),
-      params: f.params.map((p) => p.builtin!),
-      out,
-      bindings,
-      ...('none' in gl ? { noGl: gl.none } : { gl }),
-      ...(noCpu !== undefined ? { noCpu } : {}),
-      ...gl,
-    },
-    bindingsType: objectType(drawTypes),
   };
 }
 
