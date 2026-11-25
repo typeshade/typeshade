@@ -826,7 +826,7 @@
   "src/language-service/ambient-parity.test.ts": 144,
   "src/language-service/ambient-registry-closure.test.ts": 81,
   "src/language-service/ambient.test.ts": 303,
-  "src/language-service/ambient.ts": 321,
+  "src/language-service/ambient.ts": 313,
   "src/language-service/analysis-cache.test.ts": 14,
   "src/language-service/builtin-signatures.test.ts": 6,
   "src/language-service/builtin-signatures.ts": 63,
