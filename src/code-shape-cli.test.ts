@@ -40,7 +40,7 @@ describe('the code-shape command', () => {
       definitions: { skipRules: unknown[] };
     };
     expect(report.analysedFiles).toBe(1);
-    expect(report.signals.map((signal) => signal.name)).toEqual(['layer', 'breadth']);
+    expect(report.signals.map((signal) => signal.name)).toEqual(['layer', 'breadth', 'ownership']);
     expect(report.definitions.skipRules.length).toBeGreaterThan(0);
   });
 
