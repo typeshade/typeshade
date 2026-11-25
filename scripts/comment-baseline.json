@@ -239,7 +239,7 @@
   "src/compiler/ts/module-const-f64.ts": 5,
   "src/compiler/ts/module-const-value.test.ts": 28,
   "src/compiler/ts/module-const.test.ts": 15,
-  "src/compiler/ts/module-const.ts": 215,
+  "src/compiler/ts/module-const.ts": 204,
   "src/compiler/ts/module-var-names.ts": 4,
   "src/compiler/ts/module-vars-atomic.test.ts": 5,
   "src/compiler/ts/module-vars.test.ts": 63,
