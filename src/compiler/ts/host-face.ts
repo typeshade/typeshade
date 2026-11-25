@@ -13,24 +13,15 @@ import { generateModuleJs } from '../../core/cpu-codegen.js';
 import { zeroOf } from '../../core/cpu-runtime.js';
 import { type EntryBinding, type HandleBinding, type Layout } from '../../core/host-entry.js';
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
-import type {
-  FuseArray,
-  FuseLoop,
-  KernelFace,
-  KernelFuse,
-  KernelLoop,
-  KernelParam,
-} from '../../core/host-kernel.js';
+import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
 import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
-import { toPortable } from '../../core/ir/portable.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { addsTo } from './host-face/entry-shapes.js';
 import { keyedStructsOf, writtenName } from './host-face/private-keys.js';
 import { grownChecked, lowerKernelFor, madeFace } from './host-face/made.js';
 import { exportsOf, type ExportRef } from './host-face/exports.js';
 import { wgslLoweredOf } from './source-file/wgsl-lowered.js';
-import { kernelWorkgroups } from '../../core/kernel-workgroup.js';
 import { buildManifest, layoutOf } from '../../core/manifest.js';
 import {
   calleesOf,
@@ -41,11 +32,10 @@ import {
 } from '../../core/manifest/reach.js';
 import { CONSOLE_NAMES, consoleBuffer } from '../../core/passes/console-buffer.js';
 import { fnReads, fnWrites } from '../../core/passes/effects.js';
-import { lowerKernelGl, type KernelPlan } from '../../core/passes/kernel-lower.js';
+import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
-import { VERSION } from '../../core/version.js';
 import type { ClassLayouts } from '../../runtime/resource.js';
 import {
   isPrivateName,
@@ -67,7 +57,6 @@ import { REASON } from './host-face-shared.js';
 import { moduleText } from './host-module.js';
 import { hostTypeOf, kernelArrayLayout } from './host-types.js';
 import { structNames, viewText, type Naming, type ViewTypes } from './host-view.js';
-import { describeRead } from './kernel-loops.js';
 import { collectionKeyOf, keyTypeText, keysOf } from './key-types.js';
 import { ctorFnName } from './lower/class-methods.js';
 import { pushedParams } from './lower/kernel-push.js';
@@ -79,7 +68,7 @@ import { gpuOnlyCall } from './host-face/reach.js';
 import { guardOf } from './host-face/guard.js';
 import { spell } from './host-face/spell.js';
 import { wordBinding, wordBindings, heldVariant } from './host-face/kernel-words.js';
-import { dispatched, bareArrays, reachedBy } from './host-face/kernel-facts.js';
+import { dispatched } from './host-face/kernel-facts.js';
 import { isFunctionType } from './host-face/type-nodes.js';
 import { classChain, memberCall, classMembers } from './host-face/class-members.js';
 import { classCalls, generatedClass } from './host-face/class-calls.js';
@@ -90,6 +79,8 @@ import type { HostFaceOptions, HostFace } from './host-face/contracts.js';
 import { STORAGE_ACCESS } from './host-face/entry-vocabulary.js';
 import { typeOfBinding, namedBindings } from './host-face/entry-bindings.js';
 import { computeFace, fragmentFace } from './host-face/stage-faces.js';
+import { fuseRecord } from './host-face/kernel-fuse.js';
+export { fuseRecord } from './host-face/kernel-fuse.js';
 export { typeOfBinding } from './host-face/entry-bindings.js';
 export type { HostFaceOptions, HostFace } from './host-face/contracts.js';
 export { hostViewPath, isShaderModulePath, formatBuildErrors } from './host-face/build-paths.js';
@@ -722,49 +713,6 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
     },
     ranges: plan.ranges,
   };
-}
-
-export function fuseRecord(
-  f: FuncDecl,
-  plan: KernelPlan,
-  proof: KernelProof,
-  origin: string,
-): KernelFuse {
-  const arrayParams = f.params
-    .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
-    .map((p) => p.name);
-  const facts = plan.loops.map((l, j): FuseLoop => {
-    const v = proof.loops[j]!;
-    if (!v.ok) throw new Error(`${f.name}: loop ${j + 1} lowered without an accepted proof`);
-    const arrays: FuseArray[] = [];
-    for (const param of arrayParams) {
-      const store = v.stores.find((x) => x.name === param);
-      const fact = store ?? v.reads.find((x) => x.name === param);
-      if (fact === undefined) continue;
-      const first = describeRead(f, fact);
-      arrays.push({
-        param,
-        access: store === undefined ? 'read' : store.readBack ? 'readwrite' : 'write',
-        atI: fact.atI,
-        ...(first !== undefined ? { first } : {}),
-      });
-    }
-    const bare = bareArrays(f, plan, l, arrayParams);
-    return {
-      entry: l.entry,
-      ...(l.reduce !== undefined ? { fold: l.reduce.entry } : {}),
-      wg: l.wg,
-      ...(kernelWorkgroups.has(f) ? { declared: true } : {}),
-      arrays,
-      ...(bare.length > 0 ? { bare } : {}),
-      reduces: l.reduce !== undefined,
-      scatters: v.writes.some((w) => w.kind === 'scatter'),
-      continues: l.continues,
-      iterates: l.iterates,
-      iteration: l.iteration,
-    };
-  });
-  return { origin, facts, ir: toPortable(reachedBy(plan.module), VERSION) };
 }
 
 function kernelGl(
