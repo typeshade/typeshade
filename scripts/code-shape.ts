@@ -1,4 +1,5 @@
 import { breadth, summariseBreadth } from './code-shape/breadth.js';
+import { cohesion, summariseCohesion } from './code-shape/cohesion.js';
 import { createContext, relativeToRoot } from './code-shape/context.js';
 import { home, summariseHome } from './code-shape/home.js';
 import { ownership, summariseOwnership } from './code-shape/ownership.js';
@@ -16,6 +17,7 @@ export const SIGNALS: readonly RegisteredSignal[] = [
   { name: 'layer', run: layer, summarise: summariseLayer },
   { name: 'breadth', run: breadth, summarise: summariseBreadth },
   { name: 'home', run: home, summarise: summariseHome },
+  { name: 'cohesion', run: cohesion, summarise: summariseCohesion },
   { name: 'ownership', run: ownership, summarise: summariseOwnership },
 ];
 

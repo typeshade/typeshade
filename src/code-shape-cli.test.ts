@@ -44,6 +44,7 @@ describe('the code-shape command', () => {
       'layer',
       'breadth',
       'home',
+      'cohesion',
       'ownership',
     ]);
     expect(report.definitions.skipRules.length).toBeGreaterThan(0);
