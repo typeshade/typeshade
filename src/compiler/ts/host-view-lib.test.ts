@@ -49,7 +49,7 @@ const lineErrors = async (lib: string[]): Promise<string[]> => {
     lib,
     types: [],
   });
-  return found.map((d) => `${d.fileName === app ? d.line - 1 : d.fileName} TS${d.code}`);
+  return found.map((d) => `${d.fileName === app ? (d.line ?? 0) - 1 : d.fileName} TS${d.code}`);
 };
 
 describe('the type of an exported binding has no dispose under either lib', () => {
