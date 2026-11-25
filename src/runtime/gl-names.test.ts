@@ -6,17 +6,7 @@
 // Verifies: Rule 11.10 (docs/language-design.md; traced in reqs/).
 import { describe, expect, it } from 'vitest';
 import { packModule } from '../compiler/ts/pack.js';
-import {
-  f32T,
-  samplerT,
-  texture2dfT,
-  vec3fT,
-  vec4fT,
-  type Expr,
-  type ModuleDecl,
-  type Stmt,
-} from '../core/ir/index.js';
-import { allKindsModule } from '../core/testing/all-kinds-module.js';
+import type { ModuleDecl } from '../core/ir/index.js';
 import { GlDrawing, GlRenderPrograms, pinOverrides } from './gl-draw.js';
 import { webgl2Device } from '../rhi/webgl2.js';
 import { createRuntime } from './runtime.js';
@@ -29,98 +19,7 @@ import { compileTsSource } from '../compiler/ts/source-file.js';
 import { emittedStructDecls } from '../compiler/ts/structs.js';
 import { emittedName, spellingsOf } from '../core/spelling-plan.js';
 import { hostFace } from '../compiler/ts/host-face.js';
-
-/** A stand-in for a WebGL2 constant: a number nothing reads, distinct per name. */
-const constant = (name: string): number =>
-  name === 'INVALID_INDEX' ? 0xffffffff : 0x1000 + name.length;
-
-/** A WebGL2 stand-in that keeps each call, with its arguments, and answers the queries the
- *  program and the draw make. Constants are numbers nothing reads. */
-function recordingGl(options: { minimum?: number; inactive?: string } = {}): {
-  gl: WebGL2RenderingContext;
-  calls: [string, unknown[]][];
-} {
-  const calls: [string, unknown[]][] = [];
-  const answers: Record<string, (...a: unknown[]) => unknown> = {
-    getShaderParameter: () => true,
-    getProgramParameter: () => true,
-    getParameter: () => 8,
-    getError: () => constant('NO_ERROR'),
-    checkFramebufferStatus: () => constant('FRAMEBUFFER_COMPLETE'),
-    getUniformBlockIndex: (_p, name) => (name === options.inactive ? 0xffffffff : 0),
-    getActiveUniformBlockParameter: () => options.minimum ?? 16,
-    getUniformLocation: (_p, name) => ({ at: name }),
-    createFramebuffer: () => ({}),
-    createSampler: () => ({}),
-    createProgram: () => ({}),
-    createShader: () => ({}),
-    createBuffer: () => ({}),
-    createTexture: () => ({}),
-    getExtension: () => null,
-  };
-  const gl = new Proxy(
-    {},
-    {
-      get: (_t, key) => {
-        if (typeof key !== 'string') return undefined;
-        const answer = answers[key];
-        if (answer !== undefined)
-          return (...a: unknown[]) => {
-            calls.push([key, a]);
-            return answer(...a);
-          };
-        if (/^[A-Z0-9_]+$/.test(key)) return constant(key);
-        return (...a: unknown[]) => {
-          calls.push([key, a]);
-          return undefined;
-        };
-      },
-    },
-  ) as WebGL2RenderingContext;
-  return { gl, calls };
-}
-
-// The factory's fragment reads its uniform and samples its texture (the body is patched below,
-// as the C7 test does), and its override `shared` is spelled `shared_` in GLSL.
-const graphicsWithBinding = (binding: string): ModuleDecl => {
-  const base = allKindsModule(
-    { binding, texture: 'texture', struct: 'half', override: 'shared' },
-    'graphics',
-  );
-  const structT = { kind: 'struct', name: 'half' } as const;
-  const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });
-  const sample: Expr = {
-    op: 'call',
-    type: vec4fT,
-    fn: 'textureSample',
-    args: [
-      { op: 'varref', type: texture2dfT, name: 'texture' },
-      { op: 'varref', type: samplerT, name: 'textureSampler' },
-      { op: 'construct', type: vec3fT, args: [lit(0), lit(0), lit(0)] },
-    ],
-  };
-  const body: Stmt[] = [
-    {
-      s: 'return',
-      expr: {
-        op: 'construct',
-        type: vec4fT,
-        args: [
-          {
-            op: 'member',
-            type: f32T,
-            base: { op: 'varref', type: structT, name: binding },
-            field: 'f',
-          },
-          { op: 'member', type: f32T, base: sample, field: 'x' },
-          { op: 'overrideref', type: f32T, name: 'shared' },
-          lit(1),
-        ],
-      },
-    },
-  ];
-  return { ...base, funcs: base.funcs.map((f) => (f.name === 'fe' ? { ...f, body } : f)) };
-};
+import { graphicsWithBinding, recordingGl } from './testing/gl-names-fixtures.js';
 
 describe('the WebGL2 host pins and binds by the GLSL names (Proposal 0070, C8)', () => {
   it('pins an override under the define the program declares, and keeps the authored name without one', () => {
@@ -450,49 +349,4 @@ declare const V: uniform<f32>;
       await expect(async () => draw(gl, { U: 0.25 })).rejects.toThrow(/V/);
     });
   }
-});
-
-describe('the bind layout names each texture and data entry by the GLSL spelling of its binding', () => {
-  const layoutEntries = (
-    pack: ReturnType<typeof packModule>,
-  ): readonly { label?: string; name?: string }[] => {
-    const { gl } = recordingGl();
-    const device = webgl2Device(gl);
-    const seen: { label?: string; name?: string }[][] = [];
-    const create = device.createBindGroupLayout.bind(device);
-    device.createBindGroupLayout = (entries) => {
-      seen.push([...entries]);
-      return create(entries);
-    };
-    new GlRenderPrograms(new GlDrawing(device), pack).render({ vertex: 'e', fragment: 'fe' });
-    return seen.flat();
-  };
-  const withData = (pack: ReturnType<typeof packModule>, dropGlsl: boolean) => {
-    const fe = pack.gl!.draws!.fe as { data?: string[] };
-    return {
-      ...pack,
-      bindings: pack.bindings.map((b) => {
-        if (!dropGlsl) return b;
-        const { emittedGlsl: _dropped, ...rest } = b;
-        return rest;
-      }),
-      gl: { ...pack.gl, draws: { ...pack.gl!.draws, fe: { ...fe, data: ['buffer'] } } },
-    } as ReturnType<typeof packModule>;
-  };
-  const pack = packModule(graphicsWithBinding('buffer'));
-
-  it('uses the GLSL spelling of a texture and of a data binding when the record gives one', () => {
-    const entries = layoutEntries(withData(pack, false));
-    const glslOf = (n: string) => pack.bindings.find((b) => b.name === n)!;
-    expect(glslOf('texture').emittedGlsl).toBe('texture_');
-    expect(entries.find((e) => e.label === 'texture')?.name).toBe('texture_');
-    expect(glslOf('buffer').emittedGlsl).toBe('buffer_');
-    expect(entries.filter((e) => e.label === 'buffer').map((e) => e.name)).toContain('buffer_');
-  });
-
-  it('uses the WGSL spelling of a texture and of a data binding when the record gives none', () => {
-    const entries = layoutEntries(withData(pack, true));
-    expect(entries.find((e) => e.label === 'texture')?.name).toBe('texture');
-    expect(entries.filter((e) => e.label === 'buffer').map((e) => e.name)).toContain('buffer');
-  });
 });

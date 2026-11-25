@@ -215,7 +215,6 @@
   "src/runtime/device.ts": 974,
   "src/runtime/exported-binding.test.ts": 407,
   "src/runtime/gl-draw.test.ts": 1924,
-  "src/runtime/gl-names.test.ts": 456,
   "src/runtime/program.ts": 2242,
   "src/runtime/render-state-parity.test.ts": 977,
   "src/runtime/resource-call.test.ts": 656,
