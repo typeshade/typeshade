@@ -99,6 +99,7 @@ import { parseSwizzle } from '../swizzle.js';
 import { libraryNameSentence } from '../type-map.js';
 import { stageCallRefusalAt } from '../stage-call.js';
 import { unknownNameAlreadyReported } from '../refused-names.js';
+import { markOrderedSelect } from '../sequence/ordered-select.js';
 import { isConsoleMethod } from '../../../core/console.js';
 import { lowerGatherCall } from './expression-call/gather.js';
 import { lowerStorageTextureCall, lowerDepthTextureCall } from './expression-call/storage-depth.js';
@@ -1393,12 +1394,6 @@ function retargetIntrinsicLiterals(
   }
 }
 
-/** `select(falseValue, trueValue, cond)` — WGSL's argument order, which is what this surface
- *  follows (the EDSL's free `select(cond, a, b)` puts the condition first; #8 S-seam notes the
- *  difference and keeps each surface's own order). It lowers to the `select` Expr op, the very
- *  node `cond ? trueValue : falseValue` already lowers to, so the two spellings are one IR and
- *  the backends spell it as `select(f, t, c)` in WGSL and `(c ? t : f)` in GLSL. It is not a
- *  call: the oracle and both writers handle `select` as an Expr, never as an intrinsic call. */
 function lowerStructuredClone(
   node: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -1545,7 +1540,7 @@ function lowerSelectCall(
       return undefined;
     }
   }
-  return { op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse };
+  return markOrderedSelect({ op: 'select', type: ifTrue.type, cond, ifTrue, ifFalse });
 }
 
 /** `any(m)` / `all(m)` over a bool or a vector of bools (§27): the builtin of both targets,

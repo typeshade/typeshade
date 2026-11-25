@@ -21,8 +21,7 @@
 // which is what the caller stored back. A call of one inside a larger expression is put in
 // source order by `sequence.ts` (Rule 7.9).
 //
-// The object's name in the emitted function is `self_`, not `self`: Tint refuses `self`, which
-// is on WGSL's reserved-word list (as `this` is), and GLSL ES 3.00 takes either.
+// Why: the emitted object is `self_`, not `self`: Tint refuses `self`, a WGSL reserved word.
 
 import { hasNoWrittenResult } from '../abstract-const.js';
 import { logicalTypeKey as typeKey } from '../optional.js';

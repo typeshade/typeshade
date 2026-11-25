@@ -1,16 +1,15 @@
 import { dirname, relative } from 'node:path/posix';
-import { checkMove, type MoveReport } from '../move-purity/check-move.js';
+import type { MoveReport } from '../move-purity/check-move.js';
 import { createSide } from '../move-purity/side-program.js';
 import { LINE_LIMIT, lineCount } from '../file-size-policy.js';
 import type { MoveOptions } from './arguments.js';
 import { checkComments, surfaceNames } from './comment-ban.js';
-import { composeSource } from './compose-source.js';
 import { composeTarget } from './compose-target.js';
 import { formatKeepingUnits } from './format-text.js';
 import { planImports } from './import-plan.js';
 import { linkBlock, nameFacts, neededUsage } from './link-block.js';
 import { checkPaths } from './path-guards.js';
-import { candidateGaps } from './placement.js';
+import { choosePlacement, DEFAULT_SEARCH, type SearchLimits } from './placement-search.js';
 import { analyzeReferences } from './references.js';
 import { segmentsOf } from './segments.js';
 import { selectUnits } from './selection.js';
@@ -63,17 +62,11 @@ const moduleSpecifier = (source: string, target: string): string => {
   return path.startsWith('.') ? path : `./${path}`;
 };
 
-function onlyOrderFindings(report: MoveReport): boolean {
-  return (
-    report.findings.length > 0 &&
-    report.findings.every((f) => f.kind.startsWith('evaluation order')) &&
-    report.units.changed.length + report.units.vanished.length + report.units.appeared.length ===
-      0 &&
-    report.units.reordered.length + report.directives.length + report.outside.length === 0
-  );
-}
-
-export async function planMove(workspace: Workspace, options: MoveOptions): Promise<MovePlan> {
+export async function planMove(
+  workspace: Workspace,
+  options: MoveOptions,
+  search: SearchLimits = DEFAULT_SEARCH,
+): Promise<MovePlan> {
   const { source, target } = checkPaths(workspace, options);
   checkNotCitedByLine(workspace.base, source);
   const side = createSide(workspace.root, workspace.base);
@@ -101,25 +94,10 @@ export async function planMove(workspace: Workspace, options: MoveOptions): Prom
   const segmented = segmentsOf(analysis.source);
   const block = [...links.imports, ...links.exports].join('\n');
   const edit = { moved, importEdits: imports.sourceEdits, block };
-  let chosen: { text: string; formatted: boolean; report: MoveReport; label: string } | undefined;
-  for (const gap of candidateGaps(analysis.source, segmented)) {
-    const sourceText = await formatKeepingUnits(
-      workspace,
-      source,
-      composeSource(analysis, segmented, edit, gap),
-    );
-    const head = new Map(workspace.base);
-    head.set(source, sourceText.text);
-    head.set(target, targetText.text);
-    const report = checkMove(workspace.base, head, {
-      paths: [source, target],
-      root: workspace.root,
-    });
-    const attempt = { ...sourceText, report, label: gap.label };
-    if (chosen === undefined || report.pure) chosen = attempt;
-    if (report.pure || !onlyOrderFindings(report)) break;
-  }
-  const final = chosen!;
+  const final = await choosePlacement(
+    { workspace, analysis, segmented, edit, source, target, targetText: targetText.text },
+    search,
+  );
   checkReportClean(final.report, source);
   const lineOf = (index: number): number => {
     const unit = analysis.units[index]!;

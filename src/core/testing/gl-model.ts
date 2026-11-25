@@ -1,21 +1,5 @@
-// ═══ The WebGL2 executor of change 0054, modelled on the CPU ═══
-//
-// The GL executor (step 2 of change 0054) keeps each storage buffer and workgroup variable as a
-// texture of 32-bit words, runs a split entry (`passes/phase-split.ts`) one pass at a time, and
-// moves a pass's writes through a log and a scatter. This file runs the same plan over
-// `Uint32Array`s, with the entry's memory rewritten to words (`passes/memory-words.ts`):
-//
-//   - a `_phLoad` answers from the invocation's own log, its latest write to that word first,
-//     else from memory as the pass began, which no write of the pass has touched;
-//   - a `_phStore` appends to the log, which may hold `logEntries` × 4 words;
-//   - the scatter writes every invocation's log, in invocation index order;
-//   - the resolve pass performs each atomic request on its word, in invocation index order.
-//
-// It is the GL executor's specification in code. The tests hold it to the phased oracle
-// (`debug/phased.ts`) bit for bit on `f32` lanes, and the GLSL the executor runs will be held to
-// it, so a difference in a texel says which side moved. It models no texture: the CPU tier reads
-// none, so an entry that binds a sampled or a storage texture is held to WebGPU by the compile
-// gate's program cases (`scripts/compute-case.ts`) instead. Test code only.
+// Why: the CPU tier reads no texture, so an entry that binds a sampled or a storage texture is held
+// to WebGPU by the compile gate's program cases (`scripts/compute-case.ts`), not by this model.
 
 import { atomicStep, zeroOf, type CpuValue } from '../cpu-runtime.js';
 import { stageOf, type ModuleDecl, type ShaderType, type StructDecl } from '../ir/index.js';

@@ -1,6 +1,6 @@
 import type { FuncDecl, ModuleDecl, Stmt } from '../../ir/nodes.js';
 import type { ShaderType } from '../../ir/types.js';
-import type { LoopReduction } from '../parallel-loop.js';
+import type { KernelProof, LoopReduction } from '../parallel-loop.js';
 
 export type ForStmt = Stmt & { s: 'for' };
 
@@ -82,6 +82,12 @@ export interface LowerOptions {
   readonly held?: boolean;
   readonly exactTotal?: boolean;
 }
+
+export type KernelLowering = (
+  f: FuncDecl,
+  m: ModuleDecl,
+  proof: KernelProof,
+) => KernelPlan | { readonly noGpu: string };
 
 export interface LoopCtx {
   readonly f: FuncDecl;
