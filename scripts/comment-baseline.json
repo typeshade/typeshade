@@ -184,7 +184,7 @@
   "src/compiler/ts/local-places.test.ts": 21,
   "src/compiler/ts/loop-bound.test.ts": 1,
   "src/compiler/ts/loop-shapes.test.ts": 131,
-  "src/compiler/ts/lower/array-methods.ts": 89,
+  "src/compiler/ts/lower/array-methods.ts": 87,
   "src/compiler/ts/lower/atomics.ts": 38,
   "src/compiler/ts/lower/barriers.ts": 66,
   "src/compiler/ts/lower/caller-decided.ts": 9,
