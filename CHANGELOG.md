@@ -337,6 +337,14 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
 
 ### Changed
 
+- **An explicit `select` evaluates its three arguments left to right** (change 0150, Rule 7.9).
+  `select(f, t, c)` is a call: `f`, `t` and `c` are all evaluated, in that order, on every target,
+  whichever value `c` picks. A call that writes in `f` or `t` takes effect in that order; before,
+  a scalar `c` ran only the chosen arm and a vector `c` evaluated `c` first. Cost to authors: a
+  program that relied on one arm running gives a different result and runs both calls. Write
+  `c ? t : f` to run one arm. A `select` with no call that writes in an argument emits the same
+  text as before.
+
 - **Bundle budgets follow the file splits of the structure refactoring.** No behaviour changes.
   A split adds modules, and the single-file build of a bundle carries a lazy-init wrapper for a
   module below a dynamic import. Measured budgets (`scripts/bundle-budget.json`, gzip bytes)

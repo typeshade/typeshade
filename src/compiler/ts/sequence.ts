@@ -45,6 +45,7 @@ import { collectLocals } from '../../core/passes/opt/expr-utils.js';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import { diagnosticAtSpan } from './diagnostic.js';
 import { TS_CODES } from './codes.js';
+import { isOrderedSelect, stripOrdered } from './sequence/ordered-select.js';
 
 type Call = Extract<Expr, { op: 'call' }>;
 
@@ -131,6 +132,7 @@ export function sequenceEffects(
     const body = seqBody(f.body, fn);
     if (body !== f.body) (f as { body: readonly Stmt[] }).body = body;
   }
+  stripOrdered(m);
   return built;
 }
 
@@ -465,11 +467,9 @@ function seqNode(e: Expr, out: Stmt[], whole: boolean, fn: Fn): Expr {
       return t;
     }
     case 'select': {
-      // A condition of bools picks per component and evaluates both arms (§27), in the order
-      // they are written.
-      if (e.cond.type.kind === 'vec') {
-        const [cond, ifTrue, ifFalse] = seqList(
-          [{ expr: e.cond }, { expr: e.ifTrue }, { expr: e.ifFalse }],
+      if (isOrderedSelect(e)) {
+        const [ifFalse, ifTrue, cond] = seqList(
+          [{ expr: e.ifFalse }, { expr: e.ifTrue }, { expr: e.cond }],
           out,
           fn,
         );
