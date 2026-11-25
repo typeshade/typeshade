@@ -36,7 +36,7 @@
   "src/compiler/ts/host-kernel-push.test.ts": 789,
   "src/compiler/ts/host-kernel.test.ts": 1787,
   "src/compiler/ts/host-names.test.ts": 796,
-  "src/compiler/ts/host-view.ts": 997,
+  "src/compiler/ts/host-view.ts": 809,
   "src/compiler/ts/inheritance.test.ts": 554,
   "src/compiler/ts/int-lit-context.test.ts": 582,
   "src/compiler/ts/ir-equality.test.ts": 634,

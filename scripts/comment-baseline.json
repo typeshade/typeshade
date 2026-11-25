@@ -148,7 +148,6 @@
   "src/compiler/ts/host-override-calls.test.ts": 5,
   "src/compiler/ts/host-resource.ts": 33,
   "src/compiler/ts/host-types.ts": 7,
-  "src/compiler/ts/host-view.ts": 187,
   "src/compiler/ts/index-bound.test.ts": 4,
   "src/compiler/ts/index-bound.ts": 8,
   "src/compiler/ts/index.ts": 1,
