@@ -16,7 +16,10 @@
 // The runtime can defer its fuse executor and WebGL2 tier, or inline them in a single file.
 //
 // bun scripts/bundle-boundary.ts            check and print sizes
-// bun scripts/bundle-boundary.ts --update   regenerate allowances for explicit review
+// bun scripts/bundle-boundary.ts --update   write scripts/bundle-budget.json: for a single file,
+//                                           bytes = measured gzip size plus 10 percent (up to 100),
+//                                           floor = half of it; for a split, initial and total =
+//                                           measured, floor = half of initial
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve } from 'node:path';
@@ -446,7 +449,7 @@ async function main(): Promise<number> {
       failures++;
     } else if (size > budget.bytes) {
       console.log(
-        `FAIL  ${s.name} is ${size} bytes gzipped, over its budget of ${budget.bytes}: move the budget in this pull request, where a reviewer reads it`,
+        `FAIL  ${s.name} is ${size} bytes gzipped, over its budget of ${budget.bytes}: CLAUDE.md (Merging) says who may raise a budget; a Move: pure range follows docs/structure-slice-playbook.md, The bundle budget`,
       );
       failures++;
     } else if (size < budget.floor) {
@@ -516,16 +519,25 @@ async function main(): Promise<number> {
           total: totalSize,
         },
       };
-    else if (
-      b?.split === undefined ||
-      initialSize > b.split.initial ||
-      totalSize > b.split.total ||
-      initialSize < b.split.floor
-    ) {
-      console.log(
-        `FAIL  ${s.name}: split initial ${initialSize}, total ${totalSize} gzip bytes exceed a budget or miss its floor; record measurements in scripts/bundle-budget.json`,
-      );
-      failures++;
+    else {
+      const rule =
+        'CLAUDE.md (Merging) says who may raise a budget; a Move: pure range follows docs/structure-slice-playbook.md, The bundle budget';
+      const sb = b?.split;
+      const problems =
+        sb === undefined
+          ? [`${s.name}: split has no budget in scripts/bundle-budget.json; run with --update`]
+          : [
+              initialSize > sb.initial &&
+                `${s.name}: split initial is ${initialSize} bytes gzipped, over its budget of ${sb.initial}`,
+              totalSize > sb.total &&
+                `${s.name}: split total is ${totalSize} bytes gzipped, over its budget of ${sb.total}`,
+              initialSize < sb.floor &&
+                `${s.name}: split initial is ${initialSize} bytes gzipped, under its floor of ${sb.floor}: the bundle measured nothing`,
+            ].filter((p): p is string => p !== false);
+      for (const p of problems) {
+        console.log(`FAIL  ${p}: ${rule}`);
+        failures++;
+      }
     }
     console.log(
       `${s.name} split: initial ${initialSize}, deferred ${totalSize - initialSize}, aggregate ${totalSize} gzip bytes; ${split.chunks.size} assets scanned`,

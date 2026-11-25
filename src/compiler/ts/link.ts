@@ -1,7 +1,6 @@
 // Implements: Rule 3.9, Rule 3.2 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
-import { declaresEntry, stageCallOf } from './stage-call.js';
 import { GLSL_ES300_RESERVED, WGSL_RESERVED } from '../../core/reserved-words.js';
 import { TS_CODES } from './codes.js';
 import { makeDiagnostic, syntaxDiagnostics } from './diagnostic.js';
@@ -17,271 +16,40 @@ import {
   type Resolution,
 } from './specifier.js';
 import { unknownNameSentence } from './unknown-names.js';
-
-export interface ImportHooks {
-  readonly readDocument?: (fileName: string) => string | undefined;
-  readonly resolveImport?: (fromFile: string, specifier: string) => string | undefined;
-}
-
-export function hasModuleReference(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some(
-    (s) =>
-      ts.isImportDeclaration(s) ||
-      (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined) ||
-      (ts.isImportEqualsDeclaration(s) && ts.isExternalModuleReference(s.moduleReference)),
-  );
-}
-
-export interface LinkedFile {
-  readonly name: string;
-  readonly sourceFile: ts.SourceFile;
-  readonly kept: boolean;
-}
-
-export interface LinkedExport {
-  readonly name: string;
-  readonly emitted: string;
-  readonly file: string;
-}
-
-export interface MappedSpan {
-  readonly file: LinkedFile;
-  readonly start: number;
-  readonly end: number;
-}
-
-export interface LinkedProgram {
-  readonly fatal: boolean;
-  readonly diagnostics: readonly TsCompilerDiagnostic[];
-  readonly fileName: string;
-  readonly source: string;
-  readonly files: readonly LinkedFile[];
-  readonly exports: readonly LinkedExport[];
-  map(start: number, end: number): MappedSpan | undefined;
-  readonly silenced: readonly SilencedUse[];
-}
-
-export interface SilencedUse {
-  readonly file: string;
-  readonly start: number;
-  readonly end: number;
-  readonly name: string;
-}
-
-export interface LinkRoot {
-  readonly fileName: string;
-  readonly text: string;
-}
-
-interface ProgramFile {
-  readonly name: string;
-  readonly sf: ts.SourceFile;
-  readonly root: boolean;
-  readonly pkg: string | undefined;
-  readonly imports: ProgramFile[];
-}
-
-interface Unit {
-  readonly file: ProgramFile;
-  readonly stmt: ts.Statement;
-  readonly names: readonly ts.Identifier[];
-  readonly fixedName: 'entry point' | 'binding' | 'override' | undefined;
-  readonly refs: Set<Unit>;
-}
-
-interface Edit {
-  readonly start: number;
-  readonly end: number;
-  readonly text: string;
-}
-
-interface Piece {
-  readonly at: number;
-  readonly length: number;
-  readonly file: ProgramFile | undefined;
-  readonly from: number;
-  readonly anchor?: { readonly start: number; readonly end: number };
-}
-
-const ENTRY_DECORATORS = new Set(['vertex', 'fragment', 'compute']);
+import type {
+  ImportHooks,
+  LinkedFile,
+  MappedSpan,
+  LinkedProgram,
+  SilencedUse,
+  LinkRoot,
+  ProgramFile,
+  Unit,
+  Edit,
+  Piece,
+} from './link/types.js';
+import { stemOf, shownPath } from './link/generated-names.js';
+import {
+  topStatementOf,
+  isTopLevelDeclaration,
+  declaredNames,
+  hasModifier,
+  fixedNameOf,
+} from './link/statements.js';
+import { isUse, identifiersIn } from './link/identifiers.js';
+import { beginsWithDirective, pureAliasSpecifier } from './link/module-syntax.js';
+export { hasModuleReference } from './link/module-syntax.js';
+export type {
+  ImportHooks,
+  LinkedFile,
+  LinkedExport,
+  MappedSpan,
+  LinkedProgram,
+  SilencedUse,
+  LinkRoot,
+} from './link/types.js';
 
 const isRefused = (d: TsCompilerDiagnostic): boolean => d.code === TS_CODES.IMPORT;
-
-function wordOf(text: string): string {
-  const word = text.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+/, '');
-  if (word === '') return 'module';
-  return /^[0-9]/.test(word) ? `m${word}` : word;
-}
-
-function stemOf(file: Pick<ProgramFile, 'name' | 'pkg'>): string {
-  const base = file.name
-    .slice(file.name.lastIndexOf('/') + 1)
-    .replace(/(\.shade)?\.[mc]?tsx?$/, '');
-  return file.pkg === undefined ? wordOf(base) : `${wordOf(file.pkg)}_${wordOf(base)}`;
-}
-
-function beginsWithDirective(fileName: string, text: string): boolean {
-  const probe = ts.createSourceFile(
-    fileName,
-    text,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.TS,
-  );
-  return findUseTypeshadeDirective(probe) !== undefined;
-}
-
-function pureAliasSpecifier(sf: ts.SourceFile): string | undefined {
-  const [directive, star] = sf.statements;
-  return sf.statements.length === 2 &&
-    directive !== undefined &&
-    isUseTypeshadeDirective(directive) &&
-    star !== undefined &&
-    ts.isExportDeclaration(star) &&
-    !star.isTypeOnly &&
-    star.exportClause === undefined &&
-    star.attributes === undefined &&
-    star.assertClause === undefined &&
-    star.moduleSpecifier !== undefined &&
-    ts.isStringLiteral(star.moduleSpecifier)
-    ? star.moduleSpecifier.text
-    : undefined;
-}
-
-function shownPath(file: string): string {
-  const at = file.indexOf('node_modules/');
-  return at > 0 && file[at - 1] !== '/' ? file : at >= 0 ? file.slice(at) : file;
-}
-
-function topStatementOf(node: ts.Node): ts.Statement | undefined {
-  let n: ts.Node = node;
-  while (n.parent !== undefined && !ts.isSourceFile(n.parent)) n = n.parent;
-  return n.parent !== undefined && ts.isSourceFile(n.parent) ? (n as ts.Statement) : undefined;
-}
-
-function isTopLevelDeclaration(decl: ts.Node): boolean {
-  if (ts.isVariableDeclaration(decl) || ts.isBindingElement(decl)) {
-    const stmt = topStatementOf(decl);
-    return stmt !== undefined && ts.isVariableStatement(stmt);
-  }
-  return decl.parent !== undefined && ts.isSourceFile(decl.parent);
-}
-
-function declaredNames(stmt: ts.Statement): ts.Identifier[] {
-  if (
-    (ts.isFunctionDeclaration(stmt) ||
-      ts.isClassDeclaration(stmt) ||
-      ts.isInterfaceDeclaration(stmt) ||
-      ts.isTypeAliasDeclaration(stmt) ||
-      ts.isEnumDeclaration(stmt) ||
-      ts.isModuleDeclaration(stmt)) &&
-    stmt.name !== undefined &&
-    ts.isIdentifier(stmt.name)
-  ) {
-    return [stmt.name];
-  }
-  if (ts.isVariableStatement(stmt)) {
-    const out: ts.Identifier[] = [];
-    const visit = (name: ts.BindingName): void => {
-      if (ts.isIdentifier(name)) out.push(name);
-      else for (const e of name.elements) if (!ts.isOmittedExpression(e)) visit(e.name);
-    };
-    for (const d of stmt.declarationList.declarations) visit(d.name);
-    return out;
-  }
-  return [];
-}
-
-const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
-  ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((m) => m.kind === kind) ?? false);
-
-function fixedNameOf(stmt: ts.Statement): Unit['fixedName'] {
-  if (ts.isFunctionDeclaration(stmt)) {
-    // Why: a decorator on a function declaration is not TypeScript's grammar, so the parser
-    // leaves it among the modifiers rather than where `getDecorators` looks.
-    for (const m of stmt.modifiers ?? []) {
-      if (!ts.isDecorator(m)) continue;
-      const e = ts.isCallExpression(m.expression) ? m.expression.expression : m.expression;
-      if (ts.isIdentifier(e) && ENTRY_DECORATORS.has(e.text)) return 'entry point';
-    }
-    return undefined;
-  }
-  if (!ts.isVariableStatement(stmt)) return undefined;
-  const stage = stageCallOf(stmt);
-  if (stage !== undefined) return declaresEntry(stage.callee) ? 'entry point' : undefined;
-  const declared = hasModifier(stmt, ts.SyntaxKind.DeclareKeyword);
-  for (const d of stmt.declarationList.declarations) {
-    const t = d.type;
-    if (
-      t !== undefined &&
-      ts.isTypeReferenceNode(t) &&
-      ts.isIdentifier(t.typeName) &&
-      t.typeName.text === 'override'
-    ) {
-      return 'override';
-    }
-    const init = d.initializer;
-    if (
-      init !== undefined &&
-      ts.isCallExpression(init) &&
-      ts.isIdentifier(init.expression) &&
-      (init.expression.text === 'uniform' || init.expression.text === 'storage')
-    ) {
-      return 'binding';
-    }
-    const brand =
-      t !== undefined && ts.isTypeOperatorNode(t) && t.operator === ts.SyntaxKind.UniqueKeyword;
-    if (declared && t !== undefined && !brand) return 'binding';
-  }
-  return undefined;
-}
-
-function isUse(id: ts.Identifier): boolean {
-  const p = id.parent;
-  if (p === undefined) return false;
-  if (ts.isPropertyAccessExpression(p)) return p.name !== id;
-  if (ts.isQualifiedName(p)) return p.right !== id;
-  if (ts.isShorthandPropertyAssignment(p)) return true;
-  if (ts.isBindingElement(p)) return p.name !== id && p.propertyName !== id;
-  if (
-    ts.isPropertyAssignment(p) ||
-    ts.isPropertyDeclaration(p) ||
-    ts.isPropertySignature(p) ||
-    ts.isMethodDeclaration(p) ||
-    ts.isMethodSignature(p) ||
-    ts.isGetAccessorDeclaration(p) ||
-    ts.isSetAccessorDeclaration(p) ||
-    ts.isEnumMember(p) ||
-    ts.isParameter(p) ||
-    ts.isVariableDeclaration(p) ||
-    ts.isFunctionDeclaration(p) ||
-    ts.isFunctionExpression(p) ||
-    ts.isClassDeclaration(p) ||
-    ts.isClassExpression(p) ||
-    ts.isInterfaceDeclaration(p) ||
-    ts.isTypeAliasDeclaration(p) ||
-    ts.isEnumDeclaration(p) ||
-    ts.isModuleDeclaration(p) ||
-    ts.isTypeParameterDeclaration(p) ||
-    ts.isImportSpecifier(p) ||
-    ts.isExportSpecifier(p) ||
-    ts.isNamespaceImport(p) ||
-    ts.isNamespaceExport(p) ||
-    ts.isImportClause(p) ||
-    ts.isImportEqualsDeclaration(p) ||
-    ts.isLabeledStatement(p) ||
-    ts.isBreakOrContinueStatement(p)
-  ) {
-    return (p as { name?: ts.Node }).name !== id;
-  }
-  return true;
-}
-
-function identifiersIn(node: ts.Node, out: ts.Identifier[] = []): ts.Identifier[] {
-  if (ts.isIdentifier(node)) out.push(node);
-  ts.forEachChild(node, (child) => void identifiersIn(child, out));
-  return out;
-}
 
 function suggestedFile(specifier: string): string {
   const last = specifier.split('/').filter(Boolean).pop() ?? specifier;
