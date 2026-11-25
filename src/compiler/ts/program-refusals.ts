@@ -1,45 +1,3 @@
-// === Where an error of a linked program stands (Rule 3.9, Rule 12.4, #1186) ===
-//
-// A program is the file a compile starts from and the shader files it imports. Some errors are
-// true of the program and not of the file that holds what they name: an entry gives a field of
-// an imported struct no location, or a call makes an instance of an imported generic function
-// whose body refuses the type. The front end raises such an error at its SITE, the declaration
-// or the expression it refuses, and records its USES, innermost first: the entry's parameter or
-// result that takes the struct, the call or the type that makes the instance (`noteUse`).
-//
-// The rule:
-//
-// 1. The CHAIN of an error is the files that hold it, innermost first: the site's file, each
-//    use's file, then each file on the way of imports from there up to the file the compile
-//    starts from. Each file of the chain has a PLACE for the error: the site, in the site's
-//    file; else the file's outermost use; else its re-export of the entry point that holds the
-//    use; else its import of the file below.
-// 2. The OWNER is the first file of the chain that reports the same mistake at the same place
-//    when it is compiled as its own program: the same code and sentence as written, the same
-//    site, at the same place. Two spans are the same when they end together and start together
-//    or with only `export`, optionally `default`, and whitespace and comments between their
-//    starts (`samePlace`). The file the compile starts from is its own program, so it owns
-//    what reaches it. The program reports the error once, in the owner, at the owner's place.
-//    The site is the error's related place when the error does not stand on it.
-// 3. A document lists what is located in it. So the owner's document shows the error, and no
-//    other document does: a mistake of a file in the middle of a chain of imports is not
-//    reported again in each file above it.
-// 4. Two errors that stand on one use with one code and one sentence are one diagnostic, which
-//    keeps the site of each. On an import or a re-export they stay apart.
-//
-// So an error located in an imported file is one that file reports, at that place, when it is
-// compiled on its own.
-//
-// A file's own program makes an instance of a generic declaration once, at the first call that
-// asks for it. So when an imported file and the file the compile starts from both make the
-// same refused instance, the imported file reports it, at its own call, and the program's own
-// call adds nothing until that file is fixed (Rule 12.4).
-//
-// Known exception (#1212): an imported file that holds a struct and the fragment entry that
-// takes it reports, on its own, the same sentence at the same place for another reason (it has
-// no vertex stage). It owns the error, and the program that starts from another file shows it
-// only in that imported file.
-
 import ts from 'typescript';
 import type { TsCompilerDiagnostic } from './source-file.js';
 import type { LinkedFile, LinkedProgram } from './link.js';
@@ -47,7 +5,6 @@ import { relatedSitesOf, setRelatedSites, usesOf, type DiagnosticSite } from './
 import { attributeDecoratorsOf } from './attribute-types.js';
 import { stageCallOf } from './stage-call.js';
 
-/** A span of a file. */
 interface Span {
   readonly fileName: string;
   readonly start: number;
@@ -64,8 +21,6 @@ const samePlace = (a: Span, b: Span, textOf: (fileName: string) => string | unde
   return between !== undefined && onlyExportBetween(between);
 };
 
-/** Whether `text` holds the modifiers `export` and `default` and nothing else but trivia, with
- *  `export` among them. */
 function onlyExportBetween(text: string): boolean {
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ true);
   scanner.setText(text);
@@ -77,14 +32,9 @@ function onlyExportBetween(text: string): boolean {
   return exported;
 }
 
-/** What makes two reports, by two programs, one mistake: the code and the sentence with each
- *  name as its file writes it, and one site (`samePlace`). */
 const mistakeKey = (code: string | undefined, sentence: string): string =>
   [code ?? '', sentence].join('\u0000');
 
-/** The mistakes a program's errors report: for each code and sentence, each site with the
- *  places the program reports it at. The site is the error's related place where the program
- *  reports it at a use, else where it stands. */
 type Mistakes = ReadonlyMap<string, readonly { site: Span; places: readonly Span[] }[]>;
 
 function mistakesOf(diagnostics: readonly TsCompilerDiagnostic[]): Mistakes {
@@ -100,7 +50,6 @@ function mistakesOf(diagnostics: readonly TsCompilerDiagnostic[]): Mistakes {
   return out;
 }
 
-/** Whether `mistakes` holds the mistake `key` at `site`, reported at `place`. */
 const reports = (
   mistakes: Mistakes,
   key: string,
@@ -116,10 +65,8 @@ const reports = (
 // next keystroke in the importing file asks for none, so the key holds hashes and not texts.
 const OWN_PROGRAMS = new Map<string, Mistakes>();
 const OWN_PROGRAMS_HELD = 1024;
-/** The files whose own program is being compiled, outermost first. */
 const OWN_PROGRAMS_RUNNING = new Set<string>();
 
-/** A hash of `text` in 53 bits (cyrb53), for a cache key that does not hold the texts. */
 function hash53(text: string, seed = 0): string {
   let h1 = 0xdeadbeef ^ seed;
   let h2 = 0x41c6ce57 ^ seed;
@@ -133,21 +80,14 @@ function hash53(text: string, seed = 0): string {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-/** One error of the linked program: as the front end raised it over the linked source, and
- *  mapped to the file and offsets its site was written at. */
 interface ProgramError {
   readonly raised: TsCompilerDiagnostic;
   readonly mapped: TsCompilerDiagnostic;
 }
 
-/** Each word of a sentence that can be an identifier, as ECMAScript reads one: `lümen` and
- *  `Größe` as much as `lum` (Unicode `ID_Start` and `ID_Continue`, `$`, `_`, ZWNJ and ZWJ). */
 const IDENTIFIER_WORDS = /[\p{ID_Start}_$][\p{ID_Continue}$\u200c\u200d]*/gu;
-/** One whole identifier, by the same pattern as {@link IDENTIFIER_WORDS}. */
 const IDENTIFIER = /^[\p{ID_Start}_$][\p{ID_Continue}$\u200c\u200d]*$/u;
 
-/** Whether `node` is a declaration the linker may give an emitted name: a function, a class,
- *  an interface, a type alias, an enum, a namespace or a variable. */
 function declaresModuleName(node: ts.Node): boolean {
   return (
     ts.isFunctionDeclaration(node) ||
@@ -160,8 +100,6 @@ function declaresModuleName(node: ts.Node): boolean {
   );
 }
 
-/** Whether `statement` declares an entry point named `name`: a decorated function or a stage
- *  call. */
 function declaresEntry(statement: ts.Statement, name: string): boolean {
   if (stageCallOf(statement)?.declaration.name.text === name) return true;
   if (!ts.isFunctionDeclaration(statement) || statement.name?.text !== name) return false;
@@ -173,33 +111,19 @@ function declaresEntry(statement: ts.Statement, name: string): boolean {
   });
 }
 
-/**
- * Gives each error of a linked program its place by the rule at the head of this file, and
- * returns the program's diagnostics in the order they were raised.
- */
 export function locateProgramErrors(input: {
-  /** The file the compile starts from. */
   readonly entry: ts.SourceFile;
   readonly linked: LinkedProgram;
-  /** The linked source, as parsed. */
   readonly linkedSource: ts.SourceFile;
-  /** The files the compile starts from and keeps whole: the entry and `compileTsSources`'s
-   *  other roots. */
   readonly roots: ReadonlySet<string>;
   readonly errors: readonly ProgramError[];
   readonly resolve: (from: string, specifier: string) => string | undefined;
-  /** The diagnostics of `file` compiled as its own program. */
   readonly ownProgram: (file: LinkedFile) => readonly TsCompilerDiagnostic[];
-  /** What else an own program's diagnostics depend on: the compile's options. */
   readonly optionsKey: string;
 }): TsCompilerDiagnostic[] {
   const { entry, linked, linkedSource, roots, errors } = input;
   const files = new Map(linked.files.map((f) => [f.name, f]));
 
-  // The sentence of each diagnostic as written: each name the linker emitted under another
-  // spelling, read back as the file that declares it writes it. Only a declaration's own name
-  // is read: the module has one namespace, so each emitted name has one declaration, and an
-  // import's alias (`lum as l2`), which declares nothing of the module, never renames it.
   let renames: ReadonlyMap<string, string> | undefined;
   const written = (message: string): string => {
     if (renames === undefined) {
@@ -224,7 +148,6 @@ export function locateProgramErrors(input: {
   };
 
   const edges = programEdges(linked, input.resolve);
-  /** The key of `file`'s own program in {@link OWN_PROGRAMS}, once per file of this program. */
   const ownKeys = new Map<string, string>();
   const textHashes = new Map<string, string>();
   const textHash = (name: string): string => {
@@ -256,11 +179,7 @@ export function locateProgramErrors(input: {
     return key;
   };
   const outermost = !OWN_PROGRAMS_RUNNING.has(entry.fileName);
-  // The entry file is the program being compiled: it is not compiled again to ask it.
   if (outermost) OWN_PROGRAMS_RUNNING.add(entry.fileName);
-  /** Whether `file`, compiled as its own program, reports the mistake `key` of `site` at
-   *  `place`. `undefined` for a file whose own program is being compiled further out: two files
-   *  that import each other. */
   const owns = (file: LinkedFile, key: string, site: Span, place: Span): boolean | undefined => {
     const id = ownKey(file);
     let own = OWN_PROGRAMS.get(id);
@@ -285,26 +204,19 @@ export function locateProgramErrors(input: {
 
   try {
     const out: TsCompilerDiagnostic[] = [];
-    /** The diagnostics that stand on a use, where a second one of the same sentence joins. */
     const onUse = new Set<TsCompilerDiagnostic>();
     let ways: ReturnType<typeof importWays> | undefined;
     for (const error of errors) {
       const { raised } = error;
-      // The sentence names each declaration as its file writes it, never as the module emits it
-      // (`lib_lum` for the `lum` of `lib.shade.ts` beside another `lum`): an emitted name is the
-      // compiler's, and no author wrote it (docs/language-design.md §2.1).
       const said = written(error.mapped.message);
       const mapped =
         said === error.mapped.message ? error.mapped : { ...error.mapped, message: said };
       const site = files.get(mapped.fileName);
-      // A warning, a span of text the linker wrote and what the entry file holds stay as they
-      // are.
       if (mapped.category !== 'error' || site === undefined || mapped.fileName === entry.fileName) {
         out.push(mapped);
         continue;
       }
       const key = mistakeKey(mapped.code, mapped.message);
-      // The chain after the site: each use's file with its outermost use, innermost first.
       const chain: Place[] = [];
       for (const use of usesOf(raised)) {
         const m = linked.map(use.start, use.end);
@@ -313,8 +225,6 @@ export function locateProgramErrors(input: {
         if (had === undefined) chain.push({ file: m.file, start: m.start, end: m.end, use: true });
         else Object.assign(had, { start: m.start, end: m.end });
       }
-      // Then each file on the way of imports up to the entry file, with the re-export or the
-      // import that brings the file below it.
       const top = chain[chain.length - 1];
       ways ??= importWays(entry, linked, edges);
       for (const step of ways(top?.file.name ?? site.name, top?.start)) {
@@ -332,9 +242,7 @@ export function locateProgramErrors(input: {
           : (chain.find(
               (c) =>
                 c.file.name === entry.fileName || owns(c.file, key, mapped, placeOf(c)) === true,
-            ) ??
-            // No file of the chain owns it: a use in another file the compile starts from.
-            chain.find((c) => c.use && roots.has(c.file.name)));
+            ) ?? chain.find((c) => c.use && roots.has(c.file.name)));
       if (owner === undefined) {
         out.push(mapped);
         continue;
@@ -361,8 +269,6 @@ export function locateProgramErrors(input: {
         endLine: mapped.endLine,
         endCharacter: mapped.endCharacter,
       };
-      // Only a diagnostic that stands on a use takes another in (sentence 4): `onUse` holds no
-      // diagnostic on an import or a re-export, and a use never has an import's span.
       const same = out.find(
         (x) =>
           onUse.has(x) &&
@@ -395,32 +301,18 @@ export function locateProgramErrors(input: {
   }
 }
 
-/** A file of an error's chain, with where the error stands when that file owns it. */
 interface Place {
   readonly file: LinkedFile;
   readonly start: number;
   readonly end: number;
-  /** Whether the place is a use the front end recorded, and not an import or a re-export. */
   readonly use: boolean;
 }
 
-/**
- * For the entry file of `linked`: the function that gives, for a file of the program, the files
- * on the way of imports from it up to the entry file, nearest first, each with the place that
- * brings in the file below it. The place is the name of a re-export that names the entry point
- * which holds `at`, through any re-exports between (`fs` in
- * `export { fs } from "./frag.shade.ts"`); else the module specifier of the file's first import
- * or re-export of the file below. The way is the shortest one, the first in each file's order.
- * A file the entry file does not reach has no way.
- */
-/** An import or a re-export of one file of a linked program, and the file it names. */
 interface Edge {
   readonly node: ts.ImportDeclaration | ts.ExportDeclaration;
   readonly to: string;
 }
 
-/** For a file of `linked`, its imports and re-exports of other files of the program, in the
- *  file's order. */
 function programEdges(
   linked: LinkedProgram,
   resolve: (from: string, specifier: string) => string | undefined,
@@ -449,7 +341,6 @@ function importWays(
   targets: (from: string) => readonly Edge[],
 ): (file: string, at: number | undefined) => Place[] {
   const byName = new Map(linked.files.map((f) => [f.name, f]));
-  // The file each file is first reached from, breadth first from the entry file.
   const above = new Map<string, string>();
   const queue = [entry.fileName];
   for (let i = 0; i < queue.length; i++) {
@@ -459,8 +350,6 @@ function importWays(
       queue.push(t.to);
     }
   }
-  /** Whether the name `name` that `from` exports is the entry point `entryName` of `file`,
-   *  declared there or re-exported on the way. */
   const names = (
     from: string,
     name: string,
@@ -488,7 +377,6 @@ function importWays(
     return false;
   };
   return (file, at) => {
-    // The entry point that holds `at`, when one does.
     const source = byName.get(file)?.sourceFile;
     const holder =
       at === undefined

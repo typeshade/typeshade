@@ -265,7 +265,6 @@
   "src/compiler/ts/pack.test.ts": 4,
   "src/compiler/ts/packed-4x8.test.ts": 46,
   "src/compiler/ts/pow-remedies.test.ts": 14,
-  "src/compiler/ts/program-refusals.ts": 110,
   "src/compiler/ts/pure-alias-host.test.ts": 1,
   "src/compiler/ts/pure-alias.test.ts": 5,
   "src/compiler/ts/random-hash.ts": 2,
