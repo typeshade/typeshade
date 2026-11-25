@@ -474,8 +474,7 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-/** The WGSL a call dispatches: the subgroup variant where the owner selects it and the face has
- *  one (change 0119, Rule 11.23), under the owner's flavor of the emulated double (change 0073). */
+// Implements: Rule 11.23
 function textOf(v: Variant, integer: boolean, subgroup: boolean): string {
   if (subgroup && v.wgslSubgroup !== undefined)
     return integer && v.wgslSubgroupInteger !== undefined ? v.wgslSubgroupInteger : v.wgslSubgroup;
@@ -637,15 +636,15 @@ function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = fa
   return entry;
 }
 
-/** The slot of the uniform's `_at<j>` that says loop `j` ran no iteration: the finish entry then
- *  combines the operator's identity, as the tail does (change 0094). */
+// Why: NO_FOLD is the value the finish entry of the lowered WGSL tests for "no iteration"; the
+// lowering and this file must agree.
 const NO_FOLD = 0xffffffff;
 
 /** The storage buffers a device allows a stage when it reports none: WebGPU's default. */
 const STORAGE_BUFFERS = 8;
 
-/** The words of the trip buffer each loop whose range the device holds has (change 0094): the
- *  lowering's `TRIP_WORDS`. */
+// Why: typeshade/runtime imports no compiler, so TRIP_WORDS repeats the value of
+// core/passes/kernel-lower.
 const TRIP_WORDS = 8;
 
 /** The layout of a held length's array: `u32`s, 4 bytes each (change 0094). */
@@ -1357,7 +1356,7 @@ export function checkCall(
           : checkArray(k, p, hosts[i], states[i]),
   );
   // Each loop's range, and each array against the indices it writes, before anything runs: the
-  // loops write no scalar the ranges read (Rule 8.22), so every range that reads no element is
+  // Implements: Rule 8.22
   // known up front. A range that reads one is the device's (change 0094).
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
   return {
@@ -1905,8 +1904,7 @@ export function orderWord(key: 'u32' | 'i32' | 'f32', k: number): number {
 }
 
 /** What a loop that reads a Map or Set searches (change 0080): the count, then each key's order
- *  word, sorted, and a Map's values in the same order. An empty Map's values hold one value
- *  nobody reads, since a binding is not empty. */
+ *  word, sorted, and a Map's values in the same order. */
 function lookupTable(
   k: KernelFace,
   p: KernelParam & { k: 'collection' },
@@ -1930,7 +1928,7 @@ function lookupTable(
   keys[0] = rows.length;
   rows.forEach((r, i) => (keys[i + 1] = r.word));
   if (values === undefined) return { keys: keys.buffer };
-  // Each value packed at its stride; an empty Map's binding holds one value nobody reads.
+  // Why: a binding cannot be empty, so an empty Map still binds one value.
   const bytes = new ArrayBuffer(Math.max(1, rows.length) * values.st);
   const dv = new DataView(bytes);
   rows.forEach((r, i) =>
@@ -2477,7 +2475,7 @@ export async function reduceOnGpu(
     slots += next.slots;
     count = Math.ceil(count / KERNEL_TREE);
   }
-  // A new buffer holds zeros, as the partials of a loop always started.
+  // Why: a new GPUBuffer is zero-filled by the WebGPU spec; the partials of a loop rely on it.
   const layouts = r.vars.map((v) => v.binding.layout as Layout & { readonly k: 'a' });
   const partials = layouts.map((l) => zeroedBuffer(d, slots * l.st));
   const free = (): void => partials.forEach((b) => b.destroy());
