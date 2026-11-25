@@ -345,10 +345,9 @@ the CPU, loop 1 reduces, which WebGL2 has no workgroup memory for`. The plan set
   gzip over the 121 packable examples (measured by the proposal). A host that reads
   `emittedGlsl ?? emitted` keeps working on a schema-3 manifest. Baked again:
   `src/random/face.ts`, `src/algorithms/face.ts` and `src/__api__/surface.md`. Measured bundle
-  budgets move (`scripts/bundle-budget.json`, gzip bytes), measured on `origin/main` at
-  `0e7cecf`: `typeshade/runtime` split initial 52237 to 52246 and split total 181081 to 181082.
-  The runtime single bundle falls from 179118 to 179111 and `typeshade/emit` from 124662 to 124622,
-  so those budgets stay. The records of the draw, handle and kernel loop that read `glsl ?? name`
+  budgets move (`scripts/bundle-budget.json`, gzip bytes), measured on this branch merged with
+  `origin/main` at `ce81d83`: `typeshade/runtime` split initial 52237 to 52245. The split total
+  (181073), the single bundle (179133) and `typeshade/emit` stay under their budgets. The records of the draw, handle and kernel loop that read `glsl ?? name`
   follow in stage 2.
 
 - **An explicit `select` evaluates its three arguments left to right** (change 0150, Rule 7.9).
