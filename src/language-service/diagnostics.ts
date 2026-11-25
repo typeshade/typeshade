@@ -169,12 +169,7 @@ function isArraySizeValueTypeArgument(
   );
 }
 
-/**
- * The escaped name TypeScript gives a property whose key is a unique symbol, for example
- * `__@vecTag@15`. The trailing number is that symbol's internal id, which moves with the
- * TypeScript version (`api-surface.test.ts` records the same hazard about its own snapshot),
- * so only the tag name between the two `@` is ever matched.
- */
+// Why: TypeScript escapes a unique-symbol key as `__@tag@id`, and the id moves with its version.
 const UNIQUE_SYMBOL_PROPERTY = /^__@(.+)@\d+$/;
 
 /** `GPU_BRAND_TAGS` as a set, for the per-property lookup in `isGpuBrandedType`. */
@@ -2565,7 +2560,7 @@ function repeatsStrictModeRefusal(
     }
     if (ts.isIdentifier(node) && node.text === 'arguments') {
       const span = spanOfNode(node, context.sourceFile);
-      // The function's own object is the one `arguments` symbol with no declaration.
+      // Why: TypeScript gives a function's own `arguments` object a symbol with no declaration.
       const symbol = checker.getSymbolAtLocation(node);
       found =
         within(span, region) &&
@@ -2722,7 +2717,7 @@ function isAboutRefusedOperation(
   return subject !== undefined && fromRefusedOperation(context, subject, refusals);
 }
 
-// Rule 8.25 (docs/language-design.md).
+// Implements: Rule 7.10, Rule 8.25, Rule 12.4, Rule 12.7 (docs/language-design.md; traced in reqs/).
 const DECORATOR_REFUSALS: ReadonlySet<string> = new Set([
   TS_CODES.BUILTIN_NAME,
   TS_CODES.ATTRIBUTE_NAME,
