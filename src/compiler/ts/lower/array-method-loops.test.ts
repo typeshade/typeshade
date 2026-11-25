@@ -5,7 +5,7 @@ import { keepHelpers } from '../../../core/testing/keep-helpers.js';
 const STORAGE = `declare const cells: storage<array<Cell>, "read_write">;
 declare const out: storage<array<f32>, "read_write">;`;
 
-const inMain = (body: string, pre = ''): string => `"use typeshade"
+const inMain = (body: string, pre = ''): string => `"use typeshade";
 ${pre}
 ${STORAGE}
 @compute([1]) export function main(gid: builtin<"global_invocation_id">) {
@@ -13,7 +13,7 @@ ${body}
 }
 `;
 
-const fn = (body: string): string => `"use typeshade"
+const fn = (body: string): string => `"use typeshade";
 export function t(k: f32): f32 {
 ${body}
 }
@@ -50,7 +50,7 @@ describe('what the function handed over returns, and what it may leave off (Rule
   it('findIndex gives the first match and findLastIndex the last', () => {
     const run = (method: string): number =>
       bothTake(
-        `"use typeshade"\nexport function t(k: f32): i32 {\n  const xs = array<f32, 4>(1., 5., 3., 5.);\n` +
+        `"use typeshade";\nexport function t(k: f32): i32 {\n  const xs = array<f32, 4>(1., 5., 3., 5.);\n` +
           `  return xs.${method}((x) => x > k);\n}\n`,
       ).result.eval('t', [2]) as number;
     expect(run('findIndex')).toBe(1);
@@ -73,7 +73,7 @@ describe('a search for a value, on every target (change 0079, change 0045)', () 
     'includes tells a NaN by its bits, where indexOf has no such test',
     keepHelpers(() => {
       const source = (method: string, result: string): string =>
-        `"use typeshade"\nexport function t(v: f32): ${result} {\n` +
+        `"use typeshade";\nexport function t(v: f32): ${result} {\n` +
         `  const xs = array<f32, 3>(1., 2., 3.);\n  return xs.${method}(v);\n}\n`;
       const includes = bothTake(source('includes', 'bool')).result.wgsl;
       expect(includes).toContain('(bitcast<u32>(v) & 2147483647u) > 2139095040u');
