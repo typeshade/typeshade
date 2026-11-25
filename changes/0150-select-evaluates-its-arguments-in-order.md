@@ -6,6 +6,7 @@ rules:
   - '7.9'
 surface:
   - 10
+  - 19
   - 26
   - 27
 exports: []
@@ -123,13 +124,13 @@ Facts about today's code:
 
 The design in three steps (proposal):
 
-1. `lowerSelectCall` sets an optional field on the node, for example `ordered: true`.
+1. `lowerSelectCall` sets a marker on the node. Amendment A1, C(i), says where the marker lives: not in the public type `Expr`.
 2. The `select` case of `sequence.ts` reads the field. For a marked node it calls `seqList` on `ifFalse`, `ifTrue`, `cond`, in that order, and builds no `if`.
 3. A strip step removes the field from every marked node after sequencing, including a node with no call that writes.
 
 Step 3 is needed. `seqExpr` returns early when an expression holds no call that writes (`sequence.ts`, line 392: `if (!hasWrite(e, fn)) return e;`), so a pure `select(0., 1., hit)` never reaches the `select` case. Without step 3 its marker would reach every pass and backend. An unmarked node keeps the code of today.
 
-- Cost for the IR: one optional field of `Expr` in `src/core/ir/nodes.ts`. A consumer that does not read it is unchanged.
+- Cost for the IR: none in the public type. Amendment A1, C(i): the marker is a property that one new file sets, reads and deletes. A consumer that does not read it is unchanged.
 - Cost for the backends and the CPU oracle: none. After step 3 the WGSL writer, the GLSL writer, the CPU oracle, the codegen and the debugger see an ordinary `select`. Its arms hold no call that writes: each such call is a `let` ahead of the statement. This rests on the header claim quoted above (inference). `sequenceEffects` is called at `src/compiler/ts/source-file.ts`, line 463, after every function is lowered. The implementation must test it with the debugger and the codegen. It must also list the front-end passes that read the node before that line, such as the uniformity analysis of Rule 8.5.
 - Cost for the other producers of `select` (`??`, index select, array methods, `?:`): none. Every constructor of `select` other than `lowerSelectCall` leaves the field unset (25 sites by `grep -rn "op: 'select'" src`). So `v ?? d` keeps its `if` when `d` writes (Rule 7.9). A pass that copies a node with `...e` would copy a marker, which is one more reason for step 3.
 - A `select` without a call that writes in any argument emits the same text as today. The implementation holds this with the emit goldens of `examples/__emit-goldens__/` (`bool-select.wgsl`, `tile-pattern.wgsl` and the others that contain `select(`): the goldens must not change.
@@ -151,7 +152,7 @@ Step 3 is needed. `seqExpr` returns early when an expression holds no call that 
 
 Proposed new text, added to line 716 of `docs/language-design.md` after the sentence on `?:`, `&&` and `||`:
 
-> A call `select(f, t, c)` is a call, not a conditional: its three arguments are evaluated in the order they are written, `f`, `t`, then `c`, and a call that writes in any of them takes effect in that order on every target, whichever value `c` picks. Only `?:`, `&&` and `||` evaluate an operand conditionally.
+> A call `select(f, t, c)` is a call, not a conditional: its three arguments are evaluated in the order they are written, `f`, `t`, then `c`, and a call that writes in any of them takes effect in that order on every target, whichever value `c` picks. An operand is evaluated conditionally only where TypeScript evaluates it conditionally, as in `?:`, `&&`, `||` and `??`.
 
 The Rationale of Rule 7.9 (line 720) stays true: it names the scalar `?:` as the operator that lowers to `select`. No other rule names `select` as a conditional form (`grep -nE "\bselect\b" docs/language-design.md`: Rule 5.1, the table rows at lines 618, 619 and 656, Rule 7.9's Rationale, and the bool-vector rows at lines 1282, 1336 and 1368). The rows at lines 618, 619 and 656 describe what `?:` and `??` lower to, and stay true.
 
@@ -167,7 +168,7 @@ The Rationale of Rule 7.9 (line 720) stays true: it names the scalar `?:` as the
 Read and kept, because each stays true (the sentence names the operator that `?:` lowers to, or the IR's own representation):
 
 - §13, lines 1403 and 1450 (`select` in a list of places a value keeps its origin).
-- §19, line 2778 (a `select` as a statement is refused).
+- §19, line 2778 (a `select` as a statement is refused). Amendment A1, B adds one sentence there.
 - §31, line 5034 and lines 5040 to 5058 (the cost rule and the hoisting of a costly arm). These sentences describe `?:`. A pure, costly arm of an explicit `select` may still be skipped by the optimizer, because no program can observe it. A call that writes is never skipped (inference from `select-composite.ts` and `sequence.ts`; the implementation must test it).
 - §49, lines 6657 to 6666 (what the editor accepts).
 - §54, lines 7502 and 7536 to 7538 ("A `?:` that picks a scalar or a vector is `select`, which evaluates both arms"). With Design 1 an explicit `select` evaluates all arms in the source too, so the sentence stays true.
@@ -190,7 +191,7 @@ The implementation adds one test file next to `src/compiler/ts/sequence.test.ts`
 1. Programs A, B, C and D2 with `bothTake`, and the values of the table above through `agree`-style checks of the oracle, the codegen and the debugger (the shape of `agree` in `sequence.test.ts`). B asserts two `Rng_next` calls in the WGSL and in the GLSL.
 2. The control: the test "an arm of ?: runs only when it is chosen, which select would not do" (`sequence.test.ts`, line 96) stays and passes unchanged.
 3. A pure-argument control: `select(0., 1., hit)` (`sequence.test.ts`, lines 113 and 122) still compiles to the text of today.
-4. A test that no `ordered` marker is left in the IR after sequencing, for each program and for a pure `select(0., 1., hit)`.
+4. A test that no marker is left in the IR after sequencing, for each program and for a pure `select(0., 1., hit)`.
 5. A hover test: `bothTake(...).hover('select')` contains "all evaluated, in that order".
 6. A test of `??` with a call that writes in `d`: it stays an `if`.
 
@@ -223,10 +224,10 @@ Not applicable: this proposal adds no author-facing name, rule, diagnostic code 
 ## What it touches
 
 - Rule 7.9: names an explicit `select` as a call whose arguments are evaluated in source order.
-- Surface §10, §26 and §27: the three places in the table above.
-- Compiler: `src/compiler/ts/lower/expression-call.ts` (`lowerSelectCall` sets the marker; the misplaced doc comment at lines 1396 to 1401 is rewritten), `src/core/ir/nodes.ts` (the optional field) and `src/compiler/ts/sequence.ts` (the `select` case).
+- Surface §10, §19, §26 and §27: the places in the table above, and the sentence that Amendment A1, B adds to §19.
+- Compiler: `src/compiler/ts/lower/expression-call.ts` (`lowerSelectCall` sets the marker; the misplaced doc comment at lines 1396 to 1401 is rewritten), and `src/compiler/ts/sequence.ts` (the `select` case), with the new file `src/compiler/ts/sequence/ordered-select.ts` that holds the marker (Amendment A1, C(i)). `src/core/ir/nodes.ts` does not change. <!-- doc-refs: skip — the file is added by the implementing pull request #1621 -->
 - Editor: `src/language-service/docs.ts` (`FUNCTION_DOCS.select`).
-- Doorstop items (`reqs/`): `RULE-0709` (the text changes; its `references` list `src/compiler/ts/sequence.ts` and `sequence.test.ts`, and the new test file carries `Verifies: Rule 7.9`), and `SURF-010`, `SURF-026` and `SURF-027`. The implementation runs `bun run reqs:sync` and `python scripts/doorstop-check.py -C`, and a person reads each flagged item before `doorstop review`.
+- Doorstop items (`reqs/`): `RULE-0709` (the text changes; its `references` list `src/compiler/ts/sequence.ts` and `sequence.test.ts`, and the new test file carries `Verifies: Rule 7.9`), and `SURF-010`, `SURF-019`, `SURF-026` and `SURF-027`. The implementation runs `bun run reqs:sync` and `python scripts/doorstop-check.py -C`, and a person reads each flagged item before `doorstop review`.
 - `CHANGELOG.md`: one entry, "an explicit `select` evaluates its three arguments left to right", with the cost to authors.
 - Examples: none changes. Command: `grep -rnE "(^|[^.A-Za-z_0-9])select\(" examples docs site README.md AGENTS.md src/__api__` outside `__emit-goldens__`, `docs/use-typeshade-surface.md` and `docs/language-design.md`. Found: `examples/gallery/packing-bitcast/packing-bitcast.shade.ts` (line 82) and `examples/gallery/bool-select/bool-select.shade.ts` (line 33), both with pure arguments, `examples/gallery/pick-composite/pick-composite.shade.ts` (line 16, a comment), and `examples/PORTING.md` (lines 562 and 565). No example has a call that writes in an argument of `select`. `examples/PORTING.md` line 565 says that `c ? 1. : 0.` "lowers to `select(...)`, so it is the spelling" of it. It stays true for `?:`. The implementation reads it and fixes it if it says an explicit `select` is the ternary.
 - Documents that call `select` with an argument that writes: none found, by the same command. Tests: `src/compiler/ts/sequence.test.ts` uses `select(0., 1., hit)` with pure arguments, and no test asserts an explicit `select` with a call that writes (the same command over `src`, filtered for `.next(`, `.bits(` and `()` calls).
@@ -247,6 +248,24 @@ Reviewer: a Sonnet sub-agent that did not write this proposal, on 2026-11-25. Re
 - Responsibilities: unassigned. The implementation pull requests are not yet assigned to an actor.
 - Milestones: not agreed. No schedule is set.
 - Required validation: stated in the tests section and in the next record.
+
+### Amendment A1. The Rule 7.9 sentence names `??`, §19 is read against `select`, and the marker is not a field of `Expr` (2026-11-25)
+
+- [fact] Why, the Rule 7.9 sentence. The last sentence that this proposal adds to Rule 7.9 says "Only `?:`, `&&` and `||` evaluate an operand conditionally." It is false. Surface §76 says of `v ?? d` "an `if` when `d` writes, so `d` runs only when `v` is absent (Rule 7.9)", and lowers `v ??= d` to `if (!v.present) { v = d; }`. The implementing session probed `compile()` on 2026-11-25. `const x = v ?? rng.next();` emits `if (v.present) { _seq0 = v.value; } else { _seq0 = Rng_next(&rng); }` on WGSL and the same shape on GLSL. `v ??= rng.next();` emits `if ((v.present == false)) { let _seq0 = Rng_next(&rng); v = _opt_f32_(_seq0, true); }`.
+- [fact] Why, §19. Surface §19 lists "a `select`" under "**A value that is not a call may not**", the statement form. The behaviour does not change. On the implementing tree `select(rng.next(), rng.next(), c);` is still `TS8099` ("... builds a value and drops it. Only a function call may stand alone as a statement; assign the value or remove the line.") and `_ = select(...)` is still `TS8099` ("... is not one, so there is nothing to drop; remove the line."). The wording reads against the new sentence "`select(f, t, c)` is a call".
+- [decision, owner, 2026-11-25] "추천대로" (English: as recommended), after the owner read the two sentences below with their before and after. The owner approved the merge of this amendment in advance.
+- A. Rule 7.9, the second added sentence.
+  - Before: "Only `?:`, `&&` and `||` evaluate an operand conditionally."
+  - After: "An operand is evaluated conditionally only where TypeScript evaluates it conditionally, as in `?:`, `&&`, `||` and `??`."
+  - The first added sentence does not change. The body above gives the new sentence.
+- B. Surface §19. After the sentence that ends "... with the two ways out, assign the value or remove the line.", add: "An explicit `select(f, t, c)` is a call for the order of its arguments (Rule 7.9); as a statement it is still refused, because it builds a value and drops it." The front matter `surface:` list gains `19`. "What it touches" gains §19 and `SURF-019`.
+- C. Deviations of the implementation that this amendment makes part of the approved text. The implementing session is `session_017fz53TkADmmzDGUZF8WKiC`. It holds the evidence. Its pull request is #1621.
+  1. The marker of Design 1 is not a field of the public type `Expr`. It is a property `__orderedSelect`. Only the new file `src/compiler/ts/sequence/ordered-select.ts` sets, reads and deletes it. The type is declared there and is absent from the public type. `src/core/ir/nodes.ts` and `src/__api__/surface.md` do not change, and `exports` stays `[]`. Reason: a field of `Expr` changes an export that this proposal does not declare. A symbol key is lost by `cloneIr` (`src/compiler/ts/context.ts`), which the implementing session reproduced with `for (let i = 0; i < 3; i++, s = select(rng.next(), rng.next(), uv.y > 0.5))`. "What it touches" drops `src/core/ir/nodes.ts` and names the new file. <!-- doc-refs: skip — the file is added by the implementing pull request #1621 -->
+  2. The hover text keeps its approved wording, with `cond ? trueValue : falseValue`. The prose-style check of `src/language-service/docs.test.ts` refused any `?`. It now exempts a `?` inside a backtick code span, with a control test.
+  3. The sentence of this proposal that says the API-surface bake changes only if `docs.ts` text reaches `src/__api__/surface.md` stays true with item 1.
+- D. Open item, not decided. Whether `select(...)` may stand as a statement like another value-returning builtin (`max(a, b);`), and the two `TS8099` sentences that call it "not a call". It is outside this proposal. A separate proposal follows if the owner asks.
+- Corrected places of the body. The Rule 7.9 sentence, the front matter `surface:` list, step 1 of Design 1, the cost for the IR, the compiler and Doorstop lines of "What it touches", and the §19 line of the kept list now follow A to C.
+- Status: `status: accepted` does not change. Delivery of this amendment is added to "Configuration and validation record" when the implementation merges.
 
 ### Configuration and validation record
 
