@@ -284,6 +284,20 @@ through the owner's account can too, so the rule is written here:
     the merge, the merging agent runs the checker of `main` on the range of the pull request and
     reads "pure". A pull request runs its own copy of the checker, so the run on `main` is the
     one that counts. The owner approved this on 2026-11-24: "승인".
+  - an internal cleanup: a pull request that changes the shape of code in `src/`, changes nothing
+    that an author or a host can read, and is not a pure move. An example is a contract type that
+    moves down to `src/core/` to remove a `KNOWN` edge of `src/layer-policy.test.ts`. The owner
+    approved this on 2026-11-25: "추천대로". All of these conditions hold:
+    - Tests hold the behaviour that the cleanup touches. A test that is missing comes first, in
+      a commit of its own, and it passes before the cleanup and after it.
+    - It changes no rule, surface section, diagnostic code or example. Each public export keeps
+      its name, its type and its import path.
+    - It raises no number of `scripts/bundle-budget.json`, `scripts/file-size-baseline.json` or
+      `scripts/comment-baseline.json`, and it adds no `KNOWN` edge.
+    - Its commits say `Change: none, <reason>`. Its body names each design problem that it
+      removes, and each one that it found and left.
+    - The session that orchestrates the structure refactoring reads the diff and merges it. It
+      reports the merge to the owner.
   - a pull request that raises a budget of `scripts/bundle-budget.json` because a `Move: pure`
     range adds modules to a bundle. The owner approved this on 2026-11-24 with the word "추천".
     A number here is `bytes`, `split.initial` or `split.total` of one bundle in that file. All

@@ -52,7 +52,7 @@ const shaderModulesUncached: Plugin = {
 // in the same worker has often loaded the mocked module already. `src/fuse.test.ts` mocks
 // `core/gl-context.js` and `core/gl-compute.js`, and in a shuffled order (seed 11) four of its
 // WebGL2-tier tests read the real `glContext` and failed. List such a file in `MOCKS`.
-const MOCKS = [
+export const MOCKS = [
   'src/fuse.test.ts',
   'src/core/fuse-loading.test.ts',
   'src/core/fuse-record-loading-invariants.test.ts',
@@ -65,18 +65,20 @@ const MOCKS = [
   'src/compiler/ts/host-face-subgroup.test.ts',
   'src/runtime/gl-compute-host.test.ts',
   'src/runtime/gl-compute-textures.test.ts',
+  'src/move-declarations-placement.test.ts',
+  'src/language-service/hover-definition-queries.test.ts',
 ];
 
 // This file ran slower after other tests in the shared-worker measurements.
 // Give this file a fresh worker; retain module reuse for the rest of the suite.
-const FP64 = ['src/core/fp64/df64-int-property.test.ts'];
+export const FP64 = ['src/core/fp64/df64-int-property.test.ts'];
 
 // These files read the emitted text of a helper function: its name, its signature or its place in
 // the emit. The inliner of `src/core/passes/inline-small.ts` removes such a helper, so the files run
 // with it off (`src/core/testing/no-inlining.ts`). A file that tests behaviour does not belong here.
-const NO_INLINING = ['src/compiler/ts/declared-builtin-names.test.ts'];
+export const NO_INLINING = ['src/compiler/ts/declared-builtin-names.test.ts'];
 
-const NO_INLINING_MOCKS = ['src/fuse.test.ts'];
+export const NO_INLINING_MOCKS = ['src/fuse.test.ts'];
 
 export default defineConfig({
   plugins: [typeshade(), shaderModulesUncached],
