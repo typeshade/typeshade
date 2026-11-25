@@ -1,3 +1,4 @@
+import type { ClassLayouts } from '../core/class-layouts.js';
 import type { Layout, LayoutNumber } from '../core/host-entry.js';
 import { describe, pack } from '../core/host-entry.js';
 import { handleOf, kernelQueue, makeResident, type ZeroedElement } from '../core/resident.js';
@@ -24,13 +25,7 @@ import { noteFailure, throwFailure } from '../core/submission.js';
 
 export const LAYOUT_KEY: unique symbol = Symbol.for('typeshade.layout') as never;
 
-export interface ClassLayouts {
-  readonly u?: Layout;
-  readonly un?: string;
-  readonly s?: Layout & { readonly k: 'a' };
-  readonly sn?: string;
-  readonly a?: 1;
-}
+export type { ClassLayouts } from '../core/class-layouts.js';
 
 type ShaderClass<T> = abstract new (...args: never) => T;
 

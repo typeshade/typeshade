@@ -1,11 +1,11 @@
 // Data shared by export analysis and the two host generators; no compilation or output generation.
+import type { ClassLayouts } from '../../core/class-layouts.js';
 import { type CpuValue } from '../../core/cpu-runtime.js';
 import type { FragmentEntry } from '../../core/host-draw.js';
 import { type ComputeEntry } from '../../core/host-entry.js';
 import type { KernelFace } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
 import type { FuncDecl } from '../../core/ir/nodes.js';
-import type { ClassLayouts } from '../../runtime/resource.js';
 
 /** One export of a shader module, as the host sees it. */
 export type HostExport =
