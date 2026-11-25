@@ -122,7 +122,7 @@
   "src/core/fuse-plan.ts": 532,
   "src/core/fuse-record.ts": 714,
   "src/core/gl-compute.test.ts": 514,
-  "src/core/gl-compute.ts": 918,
+  "src/core/gl-compute.ts": 500,
   "src/core/host-draw.ts": 886,
   "src/core/host-entry-program.ts": 501,
   "src/core/host-entry.ts": 2029,
