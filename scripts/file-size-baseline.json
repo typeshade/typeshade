@@ -192,7 +192,7 @@
   "src/fuse.test.ts": 7088,
   "src/language-service/ambient-parity.test.ts": 1111,
   "src/language-service/ambient.test.ts": 1639,
-  "src/language-service/ambient.ts": 1712,
+  "src/language-service/ambient.ts": 1399,
   "src/language-service/diagnostics.test.ts": 1512,
   "src/language-service/diagnostics.ts": 3222,
   "src/language-service/docs.ts": 560,
