@@ -84,7 +84,7 @@
   "src/compiler/ts/stage3.test.ts": 1618,
   "src/compiler/ts/storage-textures.test.ts": 629,
   "src/compiler/ts/struct-cycle.test.ts": 800,
-  "src/compiler/ts/structs.ts": 2884,
+  "src/compiler/ts/structs.ts": 2392,
   "src/compiler/ts/texture-dims.test.ts": 710,
   "src/compiler/ts/texture-sampler.test.ts": 472,
   "src/compiler/ts/texture-wgsl-only.test.ts": 474,
