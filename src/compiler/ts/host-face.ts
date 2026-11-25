@@ -462,8 +462,10 @@ function entryBindings(
   return { bindings, ...bindingsTypes(bindings, (n) => typeOfBinding(x.bindings, n)), closure };
 }
 
-const typeOfBinding = (bindings: readonly BindingDecl[], name: string): ShaderType | undefined =>
-  bindings.find((b) => b.name === name)?.type;
+export const typeOfBinding = (
+  bindings: readonly BindingDecl[],
+  name: string,
+): ShaderType | undefined => bindings.find((b) => b.name === name)?.type;
 
 function namedBindings(
   e: HostExport & { kind: 'compute' | 'fragment' },
@@ -977,7 +979,12 @@ function kernelFace(name: string, f: FuncDecl, c: FaceCtx): HostExport {
   };
 }
 
-function fuseRecord(f: FuncDecl, plan: KernelPlan, proof: KernelProof, origin: string): KernelFuse {
+export function fuseRecord(
+  f: FuncDecl,
+  plan: KernelPlan,
+  proof: KernelProof,
+  origin: string,
+): KernelFuse {
   const arrayParams = f.params
     .filter((p) => p.type.kind === 'array' && p.type.size === undefined)
     .map((p) => p.name);
