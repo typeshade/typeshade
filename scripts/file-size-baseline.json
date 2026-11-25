@@ -204,7 +204,7 @@
   "src/language-service/projection.test.ts": 520,
   "src/language-service/service.test.ts": 715,
   "src/rhi/rhi-conformance.ts": 1329,
-  "src/rhi/webgl2.ts": 845,
+  "src/rhi/webgl2.ts": 538,
   "src/rhi/webgpu.test.ts": 425,
   "src/rhi/webgpu.ts": 495,
   "src/runtime/buffer-kinds.test.ts": 804,
