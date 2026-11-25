@@ -1,5 +1,5 @@
 // === TypeShade source compiler entry point ===
-//
+// Implements: Rule 7.10
 // Implements: Rule 8.1 (docs/language-design.md; traced in reqs/): an entry point is a function
 // declaration with one stage attribute, which `lower/function.ts` reads (change 0130).
 
