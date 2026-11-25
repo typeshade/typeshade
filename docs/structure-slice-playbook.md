@@ -32,7 +32,26 @@ The opening prompt of the session lists them. Do them one at a time, smallest fi
   its results weak or wrong, and a review of a sample missed most of them: review all, not a sample.
 - If one file of a batch fails its review or a check, take that file out of the batch and go on.
 
+Rate of pull requests (decided by the orchestrating session on 2026-11-25; the measurement of 2026-11-25 in section Measurements of draft proposal 0152, pull request #1681; the proposal is a draft and not accepted):
+
+1. One pull request carries at least three slices, and more when they are ready.
+2. Never put a `Move: pure` range, a `Move: comments` range and an ordinary change in one pull request. Batch within the kind.
+3. Keep one ready pull request for each session. Keep the next one a draft until the one before it has merged.
+4. Merge at most once in 90 minutes for each session.
+5. Mark a pull request ready once. After that, push only to fix a check that is red for the change, or to resolve a real conflict.
+
+Reason: one merge costs about 128 runner minutes, and the account runs 20 jobs at a time. More than about nine merges an hour make the queue grow. Three and a half merges an hour keep it short.
+
 ## The three steps, one pull request for each step, in this order
+
+Before step A — the shape report (it changes no file).
+
+1. Run `bun run shape --file <file>`. The tool is `scripts/code-shape.ts`; it only reports (decision D16 of `docs/structure-refactoring-plan.md`, section 9.1).
+2. Read signals 3 (HOME), 4 (COHESION) and 5 (OWNERSHIP) for the file.
+3. Write the cut plan from these three signals into the body of the pull request.
+4. Name in the plan each cut line that signal 4 gives, and the declarations that signal 5 names.
+5. Read signals 1 (LAYER) and 2 (BREADTH) too. They name a file in the wrong place and a file with too many imports. Signal 2 points to signal 4 for the cut.
+6. Treat a finding as evidence with a pointed remedy. It is not a verdict.
 
 Step A — tests for the invariants the comments state (an ordinary pull request).
 
@@ -50,12 +69,35 @@ Step C — move the declarations (`Move: pure`).
 
 1. Plan first: list the top-level units (`bun scripts/move-purity.ts --clean-report --json`, or the TypeScript AST), group them by the shape rule above, order the moves so that what others depend on moves first.
 2. Move ONLY with `bun scripts/move-declarations.ts --from <file> --to <new file> --move <A,B,...> [--closure] [--dry-run] [--bake]`. Run `--dry-run` first. Never retype, rename or edit a body. If the tool refuses, read the reason and change the grouping (two declarations that need each other move together); never work around a refusal by hand. A group the tool cannot move stays in the original file: say so. Two classes that name each other, even in a type position only, are a cycle to the tool. To separate them, give one of them a narrow type of what it uses of the other, in an ordinary pull request between two `Move:` pull requests (tests first, then the change, with every body edit listed in the pull request), and move the classes after it.
+   A cut that adds a line to a file at its exact baseline is part of such a pull request. Examples: a cycle cut that adds a parameter, and an `export` that Prettier re-wraps. Do this:
+   1. Make one ordinary pull request. It holds the cut and its tool-made moves.
+   2. Give no commit a `Move:` line. Do not begin the title with "Move:".
+   3. List in the body the changed lines of each ordinary commit.
+   4. List in the body, for each move commit, the output of `bun scripts/move-purity.ts --base <commit>~1 --head <commit> --require`.
+   5. Run every gate.
+   6. Have the orchestrating session run the checker of `main` on each move commit and merge the pull request.
+
+   Reason: `src/file-size-policy.test.ts` holds each file of the baseline to its exact size. CI checks the whole range as soon as one commit declares `Move: pure`.
+
 3. One commit per moved group, each with `Change: none, declarations move between files without behaviour change` and `Move: pure`; after each, `bun scripts/move-purity.ts --base HEAD~1 --head HEAD --require` prints "pure". The pull request title starts with `Move:`.
-4. A `Move:` range may change nothing else: no test, no document sentence, no other file. If `src/AGENTS.md` or another document describes the file's inside and is now inexact, fix it in a later documentation-only pull request (`Change: none, documentation only`).
+4. A declaration that signal 5 (OWNERSHIP) names gets no file of its own. It stays where it is.
+   1. Add it to the list "Design problems found" in the body of the pull request.
+   2. Give for each entry the signal, the file, the line and the remedy that the signal points to.
+   3. Leave the fix to an internal cleanup that gives the rule to its owner (the item of `CLAUDE.md`, Merging, for a pull request that gives a rule of the code to its owner inside `src/`; pull request #1677 adds it).
+5. A file that signal 4 (COHESION) reports as one component under a giant declaration is "needs a design change".
+   1. Report it in the pull request under that name.
+   2. Do not cut it in step C to reach a number. `CLAUDE.md`, File size: "Do not split a responsibility only to reach the number".
+6. A part with one importer goes into "Design problems found". Add one line on why it is a concept of its own.
+7. A file that one function fills is reported. Do not cut it.
+8. Never re-key a `KNOWN` edge of `src/layer-policy.test.ts`. Do one of two things:
+   1. Remove the violation. Move the contract type down to `src/core/`.
+   2. Leave the edge for S1.
+9. A `Move:` range may change nothing else: no test, no document sentence, no other file. If `src/AGENTS.md` or another document describes the file's inside and is now inexact, fix it in a later documentation-only pull request (`Change: none, documentation only`).
 
 ## Before every push
 
 - Check the open pull requests for your file (`mcp__github__list_pull_requests`, then the files of any that might touch it). If another open pull request edits the file, skip to your next file and come back later; if it is still open when everything else is done, stop and list it.
+- For a pull request that declares `Move:`, run the purity check over the whole range as CI does: `bun scripts/move-purity.ts --base origin/main --require`. Do not run it on one commit only.
 - `bun run precommit --message-file <file>` for each commit; if it lists review items, read each location and add a truthful `Docs-Impact:` line. Never write that line without reading.
 - `bunx tsc --noEmit -p tsconfig.json`, `bunx tsc -p tsconfig.tests.json --noEmit`, `bun run lint`, `bun run format:check`, `bun run docs:refs`. `tsconfig.json` does not include the test files. `bun run build` runs the second command, so a type error in a test fails every job that builds; #1584 was red for that on 2026-11-24.
 - `bun scripts/bundle-boundary.ts` before step C is pushed. A split of a file that a bundle contains can raise the gzip size of that bundle (`docs/structure-refactoring-plan.md`, decision D14). If the check prints FAIL for a budget, follow "The bundle budget" below.
