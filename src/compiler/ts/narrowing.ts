@@ -1,59 +1,11 @@
-// ═══ Narrowing of an optional value (Rule 7.10, change 0088; decision D2) ═══
-//
-// TypeScript narrows `v: f32 | undefined` to `f32` after `if (v !== undefined)`, after an
-// assignment `v = 1.`, and on the paths an early `return` leaves. The compiler follows the same
-// forms, so a program TypeScript accepts compiles, and an un-narrowed read is refused where
-// TypeScript reports TS18048 (Rule 12.7). The compiler has no checker to ask (Rule 8.19), so the
-// flow is walked here, on the source, in TypeScript's terms, as `definite.ts` walks it for Rule
-// 7.6. The walk reads no types: it records, for every read of a local or a parameter, what the
-// flow says of the name, and the lowering consults the record for the names whose type is an
-// optional and ignores it for every other.
-//
-// What the walk records for a read:
-//
-//   - a state mask (undefined = 1, null = 2, present = 4), intersected along tests and
-//     unioned at branch joins (change 0098); a presence test `v !== undefined` (and `v != undefined`, in either operand order, and
-//     `!` of `v === undefined`) held true on the path here, or `v ??= d` ran;
-//   - `absent`: the opposite test held, `v = undefined` ran, or `let v: T | undefined;` declared
-//     it with no initializer (the absent value, Rule 7.10);
-//   - `{ from }`: an assignment or an initializer `v = e` ran last, and what `e` lowered to says
-//     whether `v` is present (a `T`) or unknown (an optional);
-//   - nothing: the paths disagree, a loop may have changed it, or nothing narrowed it.
-//
-// The forms followed are those of the proposal: the conditions of `if`, `?:`, `&&`, `||`,
-// `while` and `for`, an early `return`, `break`, `continue` or `discard`, an assignment and
-// `??=`. Inside a local function or an arrow function, TypeScript 5.4's rule for a closure: a
-// `const` keeps its narrowing, and a `let` or a parameter keeps it only when nothing assigns it
-// after the closure. A user type guard, an aliased condition, `typeof v === "undefined"` and
-// `switch (true)` are not followed; each is a recorded divergence (Rule 7.2).
-//
-// A member path rooted at a local or a parameter, `h.n` and `h.a.n`, is narrowed by the same
-// forms (change 0093, decision D2), and keyed by the path's text under its root. An assignment
-// to the path narrows it; an assignment to a prefix of it or to the root, a compound assignment
-// or `++` on any of them, and a call that takes the root by reference (an object parameter that
-// a function of the file writes, or a method of a class of the file that writes through
-// `this`) clear every path under the target. Inside a closure a path keeps nothing: TypeScript
-// keeps a path's narrowing there only for a `readonly` field, which this walk does not read
-// (a recorded divergence, Rule 7.2). An element access `xs[i]` is not narrowed, with a literal
-// index either (a recorded divergence); the un-narrowed sentence names the copy to write.
-//
 // Implements: Rule 7.10 (docs/language-design.md; traced in reqs/).
 
 import ts from 'typescript';
 import { referenceOf } from './lower/references.js';
 import { isUndefinedLiteral, optionalTestOperand, writesUndefinedUnion } from './optional.js';
 
-/** What the flow says of a name at a read: absent, or present when each of its sources is. A
- *  source is a test that held (`null`), or the expression an assignment or an initializer gave
- *  it, whose lowered type says whether it was a `T` (present) or an optional (unknown). Two
- *  paths that assigned different expressions join as both sources, as TypeScript joins the
- *  narrowed types of the two paths. */
-/** Numeric states are undefined (1), null (2), present (4), or their bitwise union. */
 export type Narrowing = 'absent' | number | { readonly sources: readonly (ts.Expression | null)[] };
 
-/** A variable the walk follows: a local or a parameter of the function being walked, or one a
- *  closure captures; or a member path under one (`path`, `n` or `a.n`), which is its own entry
- *  of the state, made once per root and path (`pathOf`). */
 interface Tracked {
   readonly name: string;
   readonly isConst: boolean;
@@ -62,7 +14,6 @@ interface Tracked {
   readonly paths?: Map<string, Tracked>;
 }
 
-/** The entry of the member path `path` under `root`, made the first time it is asked for. */
 function pathOf(root: Tracked, path: string): Tracked {
   const base = root.root ?? root;
   const paths = (base as { paths?: Map<string, Tracked> }).paths ?? new Map<string, Tracked>();
@@ -75,13 +26,11 @@ function pathOf(root: Tracked, path: string): Tracked {
   return t;
 }
 
-/** Whether `t` is a member path at or under `prefix` of `root` (`''` is every path). */
 const under = (t: Tracked, root: Tracked, prefix: string): boolean =>
   t.root === root &&
   t.path !== undefined &&
   (prefix === '' || t.path === prefix || t.path.startsWith(`${prefix}.`));
 
-/** `s` without every path at or under `prefix` of `root`. */
 const clearUnder = (s: State, root: Tracked, prefix: string): State => {
   if (s === null) return s;
   let out: Map<Tracked, Narrowing> | undefined;
@@ -94,11 +43,8 @@ const clearUnder = (s: State, root: Tracked, prefix: string): State => {
   return out ?? s;
 };
 
-/** The narrowing of each followed variable on every path that reaches a point, or `null`
- *  where no path does. A variable with no entry is not narrowed. */
 type State = ReadonlyMap<Tracked, Narrowing> | null;
 
-/** What a condition says when it holds (`t`) and when it does not (`f`). */
 interface Facts {
   readonly t: ReadonlyMap<Tracked, number>;
   readonly f: ReadonlyMap<Tracked, number>;
@@ -118,7 +64,6 @@ const same = (a: Narrowing, b: Narrowing): boolean =>
     a.sources.length === b.sources.length &&
     a.sources.every((x) => b.sources.includes(x)));
 
-/** The narrowing where two paths meet: absent on both, or the union of their sources. */
 const meet = (a: Narrowing, b: Narrowing): Narrowing | undefined => {
   if (typeof a === 'number' || typeof b === 'number')
     return typeof a === 'number' && typeof b === 'number' ? a | b : undefined;
@@ -182,9 +127,6 @@ const skipParens = (e: ts.Expression): ts.Expression => {
 
 const tables = new WeakMap<ts.SourceFile, ReadonlyMap<ts.Node, Narrowing>>();
 
-/** What the flow says of the variable `id` reads, or of the member path `id` spells (change
- *  0093), or undefined when nothing narrows it there, when `id` is no read of a local or a
- *  parameter, or when the read is inside a form the walk does not follow. */
 export function narrowingAt(
   sourceFile: ts.SourceFile,
   id: ts.Identifier | ts.PropertyAccessExpression,
@@ -197,9 +139,6 @@ export function narrowingAt(
   return table.get(id);
 }
 
-/** The names `body` assigns (`x = …`, `x ??= …`, `x++`, every compound form), at a position
- *  at or after `after`. An assignment through a member path, `x.n = …`, is one to `x` here: a
- *  closure keeps no path (see the header), and the root it writes through is what it names. */
 function assignedNames(body: ts.Node, after: number): Set<string> {
   const out = new Set<string>();
   const visit = (n: ts.Node): void => {
@@ -229,8 +168,6 @@ function assignedNames(body: ts.Node, after: number): Set<string> {
   return out;
 }
 
-/** The identifier a member path starts from, `h` of `h.a.n`, through parentheses; `h` itself
- *  for a bare name; undefined for an element access or any other base. */
 function rootOf(e: ts.Expression): ts.Identifier | undefined {
   let x = skipParens(e);
   while (ts.isPropertyAccessExpression(x) && x.questionDotToken === undefined) {
@@ -239,8 +176,6 @@ function rootOf(e: ts.Expression): ts.Identifier | undefined {
   return ts.isIdentifier(x) ? x : undefined;
 }
 
-/** The member path `e` spells under its root, `a.n` of `h.a.n`, or `''` for the root alone;
- *  undefined when `e` is no identifier or member chain. */
 function pathText(e: ts.Expression): string | undefined {
   const x = skipParens(e);
   if (ts.isIdentifier(x)) return '';
@@ -252,15 +187,12 @@ function pathText(e: ts.Expression): string | undefined {
   return undefined;
 }
 
-/** The functions of the file with a parameter that is the caller's object, by name, with the
- *  indexes of those parameters (Rule 8.25): a call that hands one a root writes the root. */
 function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, ReadonlySet<number>> {
   const out = new Map<string, Set<number>>();
   const visit = (n: ts.Node): void => {
     if (ts.isFunctionDeclaration(n) && n.name !== undefined) {
       const refs = new Set<number>();
       n.parameters.forEach((p, i) => {
-        // An object parameter that its function writes (change 0142).
         if (referenceOf(p, sourceFile) !== undefined) refs.add(i);
       });
       if (refs.size > 0) out.set(n.name.text, refs);
@@ -271,9 +203,6 @@ function referenceParams(sourceFile: ts.SourceFile): ReadonlyMap<string, Readonl
   return out;
 }
 
-/** The names of the methods of the file's classes that write through `this` (Rule 8.10): a
- *  call of one on a root writes the root. One set for the file, since the walk reads no types
- *  and cannot tell which class a root is. */
 function writingMethods(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const out = new Set<string>();
   const writesThis = (body: ts.Node): boolean => {
@@ -327,7 +256,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
   const references = referenceParams(sourceFile);
   const writers = writingMethods(sourceFile);
 
-  /** Walk one function body with `outer` as the narrowing of what it captures. */
   const walkFunction = (
     fn: ts.SignatureDeclaration & { body?: ts.Node },
     outerScopes: readonly Map<string, Tracked | null>[],
@@ -357,7 +285,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       scopes[scopes.length - 1]!.set(name, tracked);
     };
 
-    /** A closure met at `node` on `s`: walked with what it may keep of `s` (TypeScript 5.4). */
     const closure = (node: ts.SignatureDeclaration & { body?: ts.Node }, s: State): void => {
       const kept = new Map<Tracked, Narrowing>();
       if (s !== null) {
@@ -424,7 +351,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       return NO_FACTS;
     };
 
-    /** The entry `e` names: a followed variable, or a member path under one. */
     const trackedOf = (e: ts.Expression): Tracked | null => {
       const root = rootOf(e);
       const path = pathText(e);
@@ -441,8 +367,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       if (n !== undefined) result.set(id, n);
     };
 
-    /** The state after a write to `target`: a path or a root assigned `n` (undefined for a
-     *  write the walk cannot read, a compound form), with every path under it cleared. */
     const written = (target: ts.Expression, s: State, n: Narrowing | undefined): State => {
       const t = trackedOf(target);
       if (t === null) return s;
@@ -451,8 +375,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       return set(cleared, t, n);
     };
 
-    /** A call that takes a root by reference writes it: `f(h)` where `f` writes its
-     *  parameter, and `h.m()` where `m` writes through `this`. */
     const callWrites = (e: ts.CallExpression, s: State): State => {
       let after = s;
       const callee = skipParens(e.expression);
@@ -473,7 +395,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
     const assigned = (e: ts.Expression): Narrowing =>
       isUndefinedLiteral(e) ? 'absent' : { sources: [e] };
 
-    /** `e` evaluated on `s`; the state after it. Conditions narrow their right operands. */
     const expr = (e: ts.Node | undefined, s: State): State => {
       if (e === undefined || s === null) return s;
       if (ts.isTypeNode(e)) return s;
@@ -493,7 +414,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
         return expr(e.expression, s);
       }
       if (ts.isPropertyAccessExpression(e)) {
-        // The path's own read, then the reads along it (`h.a.n` reads `h.a` and `h`).
         if (e.questionDotToken === undefined) read(e, s);
         return expr(e.expression, s);
       }
@@ -512,7 +432,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
         if (op === ts.SyntaxKind.EqualsToken) {
           const target = skipParens(e.left);
           if (ts.isIdentifier(target) || ts.isPropertyAccessExpression(target)) {
-            // The path's prefixes are read (`h.a.n = …` reads `h.a`), not the path itself.
             const after = expr(
               ts.isPropertyAccessExpression(target) ? target.expression : target,
               expr(e.right, s),
@@ -627,8 +546,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
       return undefined;
     };
 
-    /** A loop: its head is where the entry and the back edge meet, run to a fixed point. The
-     *  lattice has one step below a narrowing, so two rounds settle it; a third is a guard. */
     const loop = (
       label: string | undefined,
       entry: State,
@@ -779,8 +696,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
   };
 
   const visit = (node: ts.Node): void => {
-    // A top-level function, method, constructor or accessor starts a walk of its own; a closure
-    // inside a body is walked by the body's walk, with what it captures.
     if (
       (ts.isFunctionDeclaration(node) ||
         ts.isMethodDeclaration(node) ||
@@ -802,7 +717,6 @@ function walkFile(sourceFile: ts.SourceFile): ReadonlyMap<ts.Node, Narrowing> {
   return result;
 }
 
-/** Declare each name of a binding pattern as a followed variable nothing narrows. */
 function declarePattern(
   pattern: ts.BindingName,
   into: Map<string, Tracked | null>,
