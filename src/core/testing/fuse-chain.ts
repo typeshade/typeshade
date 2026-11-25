@@ -1,39 +1,3 @@
-// ═══ A generated chain of kernel calls, grouped by the fuse planner and run apart (change 0058) ═══
-//
-// `generateChain` (`random-ir.ts`) draws a chain: kernel functions in one module, and the calls to
-// make over arrays the caller keeps. A chain may hold scratch arrays, intermediates the host never
-// reads, and may reduce in one of its calls. This file turns one into what the fuse scope works on,
-// and into what holds the scope to account, with no browser:
-//
-//   faces    `lowerFace`: the face of each kernel function with its fuse record, built from the IR
-//            the way `fuseRecord` (`compiler/ts/host-face.ts`) builds it from a compiled source.
-//            The generator writes IR and no source, so the face cannot come from `hostFace`.
-//            `random-chain.test.ts` holds the two to each other on a source both can read.
-//   planner  `groupCallsOf` feeds the planner (`core/fuse-group.ts`) the faces, the arrays and the
-//            ranges the range functions give, as the scope's plan does. `planChain` adds the
-//            scratch arrays of the scope, which the planner holds as locals where it may.
-//   model    `modelGroups` gives the groups the facts F1 to F6 allow, from the chain as the
-//            generator BUILT it, and the scratch arrays each fused group holds as locals. It reads
-//            no fact the compiler wrote, so a fact the proof gets wrong, or a planner that reads
-//            one wrong, makes the two disagree. `dispatchesOf` gives the dispatches those groups
-//            make, the fold levels of a reduction among them.
-//   apart    `runApart` runs the calls one after another on the oracle, in `f32` or `f64`. The
-//            CPU tier never fuses, so this is what a fused plan must give (Rule 11.7). A scratch
-//            array holds zeros when the plan starts, and the outcome leaves it out: the host never
-//            reads it.
-//   fused    `fuseGroup` builds the entry of a group, `fusedRun` gives the dispatches of that entry
-//            (a reduction's loop, and then one fold for each level of partials), and `runGrouped`
-//            runs a plan's groups on the oracle: a fused group as the entry the builder made, the
-//            others as their own lowered plans. A group the planner refused can be run fused
-//            anyway, a scratch array can be held as a local against the facts, and a fault can be
-//            run on purpose, so that a comparison can be shown to see them.
-//   built    `stencilChain` and `foldChain` are chains written as source, for what the generator
-//            draws rarely (a stencil read of a scratch array that changes a value) or cannot
-//            afford (a reduction over 65,537 iterations or more, which the f32 oracle takes
-//            seconds to run).
-//
-// `scripts/gpu-differential.ts` runs the same groups on WebGPU. Test code only.
-
 import { emitModule, lowerWgsl } from '../backends/wgsl.js';
 import type { CpuValue } from '../cpu-runtime.js';
 import { fusedFor, uniformFor, type Fused } from '../fuse-entry.js';
@@ -78,10 +42,6 @@ import {
   type ChainCorpus,
 } from './random-ir.js';
 
-// ─── faces ───────────────────────────────────────────────────────────────────────────────────
-
-/** A kernel function as the call layer holds it: its face, with the fuse record, and the plan the
- *  face was made from, which runs the call on its own. */
 export interface Lowered {
   readonly face: KernelFace;
   readonly m: ModuleDecl;
@@ -89,7 +49,6 @@ export interface Lowered {
   readonly plan: KernelPlan;
 }
 
-/** A type as the face spells it: `array<f32>`, a struct by name. */
 function spell(t: ShaderType): string {
   if (t.kind === 'struct') return t.name;
   if (t.kind === 'array')
@@ -97,9 +56,8 @@ function spell(t: ShaderType): string {
   return authorTypeText(t);
 }
 
-/** The lowered module without the helpers its entries do not reach, and without the spans:
- *  `reachedBy` of `host-face.ts`. A helper has no identity but its name, and the planner shares
- *  one by its origin and name. */
+// Why: this is `reachedBy` of `compiler/ts/host-face.ts`, written again over IR: the generator
+// makes no source, and the planner shares a helper by its origin and name.
 function reachedBy(m: ModuleDecl): ModuleDecl {
   const helpers = new Set(m.funcs.filter((g) => g.stage === undefined).map((g) => g.name));
   const callees = new Map(m.funcs.map((g) => [g.name, calleesOf(g, helpers)]));
@@ -114,13 +72,8 @@ function reachedBy(m: ModuleDecl): ModuleDecl {
   };
 }
 
-/**
- * The face of kernel function `fn` of `m` under `typeshade({ fuse: true })`, or why it has none.
- * It follows `kernelFace` and `fuseRecord` of `compiler/ts/host-face.ts` for a function whose
- * loops lower, as `random-chain.test.ts` holds: the parameters, what the WebGPU tier dispatches
- * (the partials of a loop that reduces among it), and the fuse record, which is the facts of each
- * loop in the author's words and the lowered module cut to what its entries reach, as portable IR.
- */
+// Why: this follows `kernelFace` and `fuseRecord` of `compiler/ts/host-face.ts`, because the
+// generator writes IR and no source, so `hostFace` cannot make the face.
 export function lowerFace(m: ModuleDecl, fn: string, origin: string): Lowered | { none: string } {
   const f = m.funcs.find((x) => x.name === fn);
   if (f === undefined) return { none: `no function "${fn}"` };
@@ -157,7 +110,6 @@ export function lowerFace(m: ModuleDecl, fn: string, origin: string): Lowered | 
     authorTypeText,
   );
   if ('none' in argsLayout) return { none: argsLayout.none };
-  // The partials of a loop that reduces are bindings of the module, and no parameter's.
   const partNames = new Set(
     plan.loops.flatMap((l) => (l.reduce?.vars ?? []).map((v) => v.binding)),
   );
@@ -279,8 +231,6 @@ export function lowerFace(m: ModuleDecl, fn: string, origin: string): Lowered | 
   return { face, m, fn, plan };
 }
 
-/** The faces of every call of `c`, or why one call has none. A chain the generator draws has
- *  none that fails; the test holds that. */
 export function lowerChain(c: ChainCorpus): Lowered[] | { none: string } {
   const out: Lowered[] = [];
   for (const call of c.calls) {
@@ -291,9 +241,6 @@ export function lowerChain(c: ChainCorpus): Lowered[] | { none: string } {
   return out;
 }
 
-/** The face of `low` as a compiler would write it if it took every read of an array the loop does
- *  not write for a read at the loop's counter: a wrong fact, to show that a comparison reports a
- *  planner fed one. The builder then reads the producer's element in the place of the consumer's. */
 export function readsAtCounter(low: Lowered): Lowered {
   const fuse = low.face.fuse!;
   return {
@@ -313,9 +260,6 @@ export function readsAtCounter(low: Lowered): Lowered {
   };
 }
 
-/** The face of `low` as a compiler would write it if it took no loop for one that reduces: a wrong
- *  fact, to show that a comparison reports a planner fed one. The planner then lets a call join
- *  after the reduction, and does not count its partials in the buffers a dispatch binds. */
 export function forgetsReduction(low: Lowered): Lowered {
   const fuse = low.face.fuse!;
   return {
@@ -330,9 +274,6 @@ export function forgetsReduction(low: Lowered): Lowered {
   };
 }
 
-/** The face of `low` as a compiler would write it if it never noticed that an iteration names the
- *  length of an array (`t.length`): a wrong fact, to show that a comparison reports a planner fed
- *  one. The planner then holds a scratch array as a local that the entry cannot measure. */
 export function forgetsLength(low: Lowered): Lowered {
   const fuse = low.face.fuse!;
   return {
@@ -344,41 +285,29 @@ export function forgetsLength(low: Lowered): Lowered {
   };
 }
 
-// ─── inputs ──────────────────────────────────────────────────────────────────────────────────
-
-/** The two array lengths a chain runs at: `n`, and `m` for the calls that run over another count. */
 export interface Sizes {
   readonly n: number;
   readonly m: number;
 }
 
-/** How many elements array `a` holds. */
 export const lengthOf = (a: ChainArray, s: Sizes): number => s[a.length.of] * a.length.times;
 
-/** How many iterations call `call` runs: the loop counts from its start by its step while it is
- *  below the length of the array that bounds it. */
 export function tripsOf(call: ChainCall, s: Sizes): number {
   const length = s[call.over];
   return length <= call.start ? 0 : Math.ceil((length - call.start) / call.step);
 }
 
-/** One scalar of `kind`, a boundary value when `boundary`. A corpus brings its own pool, so that
- *  a unit test draws every float and the GPU differential draws only the ones it can hold bit
- *  for bit. */
 export type ScalarOf = (
   kind: 'f32' | 'i32' | 'u32',
   rnd: () => number,
   boundary: boolean,
 ) => number;
 
-/** What a chain starts with: the contents of every array, by id, and the scalars each call is
- *  given, in the order of its scalar parameters. */
 export interface Inputs {
   readonly arrays: ReadonlyMap<string, readonly CpuValue[]>;
   readonly scalars: readonly (readonly CpuValue[])[];
 }
 
-/** A value of type `t`, drawn with `scalarOf`. */
 function valueOf(
   t: ShaderType,
   c: ChainCorpus,
@@ -398,10 +327,6 @@ function valueOf(
   throw new Error(`no generated value of ${t.kind}`);
 }
 
-/** The starting contents of a chain of lengths `s`. Every array starts with values, the ones a
- *  call writes included: where a call writes nothing, the old contents are what a later call
- *  reads. A scratch array starts with zeros, as the scope makes it, and so reads where no call
- *  wrote. `variant` tells apart the runs of one chain; half the draws are at the boundaries. */
 export function inputsOf(c: ChainCorpus, s: Sizes, variant: number, scalarOf: ScalarOf): Inputs {
   const rnd = mulberry32(c.seed * 7919 + s.n * 31 + s.m * 5 + variant);
   const boundary = variant % 2 === 1;
@@ -421,8 +346,6 @@ export function inputsOf(c: ChainCorpus, s: Sizes, variant: number, scalarOf: Sc
   return { arrays, scalars };
 }
 
-/** `inputs` with the scratch arrays of `c` holding values in the place of zeros, drawn with
- *  `scalarOf`: what a plan that does not zero a scratch buffer would start from. */
 export function withScratchContents(
   c: ChainCorpus,
   inputs: Inputs,
@@ -442,8 +365,6 @@ export function withScratchContents(
   return { arrays, scalars: inputs.scalars };
 }
 
-/** The arguments of call `j`, in the order of its parameters: the arrays of `store`, or by
- *  default the arrays the chain starts with, and the call's scalars. */
 export function callArgs(
   c: ChainCorpus,
   j: number,
@@ -458,17 +379,11 @@ export function callArgs(
   );
 }
 
-// ─── apart ───────────────────────────────────────────────────────────────────────────────────
-
-/** What a chain left: every array a call writes that the host reads, by id, and every result a call
- *  returns, by the call's function. A scratch array is not among them: the host never reads it. */
 export interface Outcome {
   readonly arrays: Readonly<Record<string, CpuValue>>;
   readonly results: Readonly<Record<string, CpuValue>>;
 }
 
-/** The final contents of the arrays a call writes and the host reads, and the results, from the
- *  store a run left. */
 function outcomeOf(
   c: ChainCorpus,
   store: ReadonlyMap<string, CpuValue>,
@@ -482,8 +397,6 @@ function outcomeOf(
   };
 }
 
-/** The calls of `c` one after another, each as the kernel function itself on the oracle at
- *  `precision`: the CPU tier, which never fuses (Rule 11.7). */
 export function runApart(c: ChainCorpus, inputs: Inputs, precision: 'f32' | 'f64'): Outcome {
   const cpu = compileModule(c.module, { precision });
   const store = new Map<string, CpuValue>(
@@ -497,10 +410,6 @@ export function runApart(c: ChainCorpus, inputs: Inputs, precision: 'f32' | 'f64
   return outcomeOf(c, store, results);
 }
 
-// ─── the planner, and the model of it ────────────────────────────────────────────────────────
-
-/** What the planner reads of each call: its face, its arrays by identity (the `ChainArray`
- *  object), the range its range function gives, and the tier. */
 export function groupCallsOf(
   c: ChainCorpus,
   lows: readonly Lowered[],
@@ -522,14 +431,10 @@ export function groupCallsOf(
   });
 }
 
-/** The groups the planner makes of `calls` (from {@link groupCallsOf}) with the scratch arrays of
- *  the scope, which a fused group holds as locals where Rule 11.13 allows. */
 export function planChain(c: ChainCorpus, calls: readonly GroupCall[], limit: number): Group[] {
   return groupCalls(calls, limit, new Set(c.arrays.filter((a) => a.scratch)));
 }
 
-/** Why the planner keeps a call out of the group before it: the fact that fails, in the order the
- *  planner checks them. */
 export type Reason =
   | 'continues'
   | 'empty'
@@ -543,27 +448,19 @@ export type Reason =
   | 'write'
   | 'limit';
 
-/** A group the model expects, as indices into the chain's calls. */
 export interface ModelGroup {
   readonly calls: readonly number[];
-  /** Why the group stands apart from the one before it; absent for the first group. */
   readonly because?: Reason;
-  /** The scratch arrays, by id, that the entry of the group holds as locals: none for a group of
-   *  one call, which runs as it runs outside a scope. */
   readonly contracted: readonly string[];
 }
 
-/** How a call reaches one array, from the chain as it was built. */
 interface Reach {
   readonly reads: boolean;
   readonly writes: boolean;
   readonly atI: boolean;
-  /** The iteration names the array's length. */
   readonly measures: boolean;
 }
 
-/** The arrays call `call` is given, with how it reaches each. An array it only measures is in
- *  the list, since the fused entry binds it. */
 function reaches(call: ChainCall): Map<string, Reach> {
   const out = new Map<string, Reach>();
   for (const a of call.access)
@@ -576,17 +473,6 @@ function reaches(call: ChainCall): Map<string, Reach> {
   return out;
 }
 
-/**
- * The groups the facts F1 to F6 give for chain `c` at sizes `s`, on a device that binds `limit`
- * storage buffers to a dispatch, and the scratch arrays each group holds as locals. It restates
- * the rules of `core/fuse-group.ts` over what the generator recorded, and reads no fact of any
- * face.
- *
- * A scratch array is a local of a fused group when every call of the chain that names it is in
- * the group, exactly one of them writes it, every access of it is at exactly `i`, and none names
- * its length (Rule 11.13). F5 counts the array as a buffer until the last call that names it has
- * joined, and counts one partials binding for each variable a call that reduces folds.
- */
 export function modelGroups(c: ChainCorpus, s: Sizes, limit: number): ModelGroup[] {
   const info = c.calls.map((call) => {
     const trips = tripsOf(call, s);
@@ -615,7 +501,6 @@ export function modelGroups(c: ChainCorpus, s: Sizes, limit: number): ModelGroup
     const last = info[members[members.length - 1]!]!;
     if (n.apart !== undefined) return n.apart;
     if (last.apart !== undefined) return last.apart;
-    // F6: a call that reduces is the last of its group.
     if (last.call.reduces > 0) return 'reduces';
     const first = info[members[0]!]!;
     if (first.trips !== n.trips) return 'trips';
@@ -650,7 +535,6 @@ export function modelGroups(c: ChainCorpus, s: Sizes, limit: number): ModelGroup
   }));
 }
 
-/** The reason in the words of a `why` the planner gave, or undefined for words it does not give. */
 export function reasonOf(why: string | undefined): Reason | undefined {
   if (why === undefined) return undefined;
   const m = /^\S+ and \S+ run as two dispatches because (.*)$/.exec(why);
@@ -670,13 +554,9 @@ export function reasonOf(why: string | undefined): Reason | undefined {
   return undefined;
 }
 
-/** The groups as lists of call indices, for a comparison. */
 export const shapeOf = (gs: readonly { readonly calls: readonly number[] }[]): number[][] =>
   gs.map((g) => [...g.calls]);
 
-/** How many dispatches reduce a loop of `trips` iterations to one value after its own: a loop
- *  makes one partial for each 256 iterations (Rule 7.2), and a dispatch folds 256 partials into
- *  one, until one is left. */
 export function foldLevels(trips: number): number {
   let levels = 0;
   for (let partials = Math.ceil(trips / KERNEL_TREE); partials > 1; levels++)
@@ -684,8 +564,6 @@ export function foldLevels(trips: number): number {
   return levels;
 }
 
-/** The dispatches the groups of `model` make at sizes `s`: one for each group that runs an
- *  iteration, and one for each level of partials of a group that ends in a call that reduces. */
 export function dispatchesOf(c: ChainCorpus, s: Sizes, model: readonly ModelGroup[]): number {
   let n = 0;
   for (const g of model) {
@@ -696,13 +574,8 @@ export function dispatchesOf(c: ChainCorpus, s: Sizes, model: readonly ModelGrou
   return n;
 }
 
-/** What becomes of a scratch array by the facts: a local of one fused group, or a buffer, and for
- *  a buffer the first clause of Rule 11.13 that keeps it one. `outside`: a call that is not in
- *  one fused group with the others names it. `writers`: not exactly one call writes it. `offset`:
- *  an access of it is not at `i`. `measured`: a call names its length. */
 export type Fate = 'local' | 'outside' | 'writers' | 'offset' | 'measured';
 
-/** The fate of each scratch array of `c` under `groups`, the groups the facts give. */
 export function scratchFates(c: ChainCorpus, groups: readonly ModelGroup[]): Map<string, Fate> {
   const fates = new Map<string, Fate>();
   for (const a of c.arrays) {
@@ -728,17 +601,11 @@ export function scratchFates(c: ChainCorpus, groups: readonly ModelGroup[]): Map
   return fates;
 }
 
-// ─── fused ───────────────────────────────────────────────────────────────────────────────────
-
-/** A group of a plan to run: the calls, and the scratch arrays (the `ChainArray` objects) its entry
- *  holds as locals. A planner's {@link Group} is one. */
 export interface PlannedGroup {
   readonly calls: readonly number[];
   readonly contracted?: readonly object[];
 }
 
-/** The entry of the calls `idx` of a chain as one group, with `contracted` held as locals, and the
- *  array each of its slots binds. The planner is not asked: a group it refused can be built too. */
 export function fuseGroup(
   lows: readonly Lowered[],
   calls: readonly GroupCall[],
@@ -753,19 +620,9 @@ export function fuseGroup(
   return 'none' in fused ? fused : { fused, arrays };
 }
 
-/** A fault to run on purpose: the first iteration of every fused group skipped, so that its entry
- *  is dispatched for one iteration fewer, starting one step later; the last level of partials of a
- *  fused group that reduces not folded; its partials zeroed after the loop's dispatch and before
- *  the first fold; or each scratch local of a fused entry starting at one, not zero. */
 export type GroupFault =
   'skip-first-iteration' | 'drop-last-level' | 'zero-partials' | 'local-starts-at-one';
 
-/**
- * The WGSL of a fused entry with each scratch local it holds started at one, not zero (the fault
- * `local-starts-at-one`). The entry declares a scratch local as `var _fs<at>: f32;` (Rule 11.13:
- * a `var` starts at zero), and the fault gives each one an initial value. `locals` is how many the
- * group holds, and a different count of declarations is an error.
- */
 export function localsStartingAtOne(wgsl: string, locals: number): string {
   let n = 0;
   const out = wgsl.replace(/var (_fs\d+): f32;/g, (_, name: string) => {
@@ -777,7 +634,6 @@ export function localsStartingAtOne(wgsl: string, locals: number): string {
   return out;
 }
 
-/** The uniform of a fused group, with its fault, and how many invocations it dispatches. */
 export function fusedUniform(
   c: ChainCorpus,
   lows: readonly Lowered[],
@@ -802,8 +658,6 @@ export function fusedUniform(
   return { values, n: calls[idx[0]!]!.range!.n - (skip ? 1 : 0) };
 }
 
-/** One step of the dispatch of a fused group: a dispatch of an entry of its module with the values
- *  of its uniform, or the partials of the reduction zeroed (the fault `zero-partials`). */
 export type GroupStep =
   | {
       readonly entry: string;
@@ -812,22 +666,12 @@ export type GroupStep =
     }
   | { readonly clear: readonly string[] };
 
-/** What a fused group dispatches, in order, and for a group that ends in a call that reduces the
- *  partials it folds into and where the folded values are once the steps have run. */
 export interface FusedRun {
   readonly steps: readonly GroupStep[];
   readonly partials: PlanSchedule['partials'];
   readonly folds: readonly PlanFold[];
 }
 
-/**
- * The dispatches of the fused group `idx` of chain `c`, built as `fused`. A group of maps is one
- * dispatch. A group that ends in a call that reduces is that call's reduction as the runtime runs
- * it: the loop's dispatch, and then one dispatch of the fold entry for each level of partials,
- * with the uniform's `_n`, `_in` and `_out` of the last call (`c<m>__n`, `c<m>__in`, `c<m>__out`)
- * set for the level. The dispatches are the same whatever submits them, one at a time or together.
- * With a fault, the group is dispatched wrong on purpose.
- */
 export function fusedRun(
   c: ChainCorpus,
   lows: readonly Lowered[],
@@ -874,12 +718,6 @@ export function fusedRun(
   return { steps, partials: schedule.partials, folds: schedule.folds };
 }
 
-/**
- * The dispatches the plan `groups` of chain `c` makes: the steps of a fused group (`fusedRun`), and
- * for every other call the steps of its own lowered plan (`scheduleKernelPlan`), a loop that
- * reduces with one step for each level of partials. `dispatchesOf` gives the same count from the
- * facts alone, which a test holds to this one.
- */
 export function plannedDispatches(
   c: ChainCorpus,
   lows: readonly Lowered[],
@@ -902,18 +740,9 @@ export function plannedDispatches(
   return n;
 }
 
-/** The zero of one element of a partials array. */
 const zeroOf = (t: ShaderType): CpuValue =>
   (t.kind === 'vec' ? new Array<number>(t.n).fill(0) : 0) as CpuValue;
 
-/**
- * The plan `groups` of chain `c` on the oracle at `f32`: a group of more than one call as the
- * fused entry the builder made, run as its dispatches (at `level`, the passes the writer runs
- * first), and every other call as its own lowered plan. A scratch array that a group holds as a
- * local (`contracted`) has no store entry, so a call that runs apart and names it is an error. The
- * results are the CPU tail's, as the runtime gives them, over what the folds of a reduction left.
- * With a fault, every fused group is run wrong on purpose.
- */
 export function runGrouped(
   c: ChainCorpus,
   lows: readonly Lowered[],
@@ -940,7 +769,6 @@ export function runGrouped(
         opts.level === undefined ? fused.module : lowerWgsl(fused.module, opts.level),
         { precision: 'f32' },
       );
-      // An array the entry holds as a local has no slot, so nothing is bound to it.
       fused.slots.forEach((slot) =>
         cpu.setBinding(
           slot.name,
@@ -996,15 +824,11 @@ export function runGrouped(
   return outcomeOf(c, store, results);
 }
 
-/** Where a chain has a scratch array that a stencil keeps in storage: the groups `at - 1` and `at`
- *  stand apart because the call `q` that opens group `at` reads `array` at another index (F3), the
- *  call `p` that is alone in group `at - 1` wrote it at `i`, and only `p` and `q` name it. */
 export interface Stencil {
   readonly at: number;
   readonly array: ChainArray;
 }
 
-/** The first {@link Stencil} of chain `c`, by the groups the facts give. */
 export function scratchStencil(c: ChainCorpus, model: readonly ModelGroup[]): Stencil | undefined {
   for (let at = 1; at < model.length; at++) {
     if (model[at]!.because !== 'read' || model[at - 1]!.calls.length !== 1) continue;
@@ -1029,11 +853,6 @@ export function scratchStencil(c: ChainCorpus, model: readonly ModelGroup[]): St
   return undefined;
 }
 
-/**
- * The plan `groups` with the pair of `stencil` run as one group that holds the scratch array as a
- * local, against the facts: the entry reads the element `p` wrote in the place of the one `q` asks
- * for. The calls of `q`'s group after `q` run apart. Every other group is the planner's.
- */
 export function contractAgainstFacts(
   groups: readonly PlannedGroup[],
   stencil: Stencil,
@@ -1047,7 +866,6 @@ export function contractAgainstFacts(
   ];
 }
 
-/** The access of one array parameter, for a chain built from source. */
 const accessOf = (
   param: string,
   array: string,
@@ -1055,7 +873,6 @@ const accessOf = (
   writes: ChainAccess['writes'],
 ): ChainAccess => ({ param, array, reads, writes, conditional: false, measures: false });
 
-/** An array of `n` elements of a chain built from source. */
 const arrayOfN = (id: string, o: { written: boolean; scratch: boolean }): ChainArray => ({
   id,
   elem: f32T,
@@ -1063,14 +880,6 @@ const arrayOfN = (id: string, o: { written: boolean; scratch: boolean }): ChainA
   ...o,
 });
 
-/**
- * A chain of two calls built from source, for an instrument that needs the shape of {@link Stencil}
- * and a value that depends on it, which the generator rarely draws together. `produce` writes the
- * scratch array `t` at `i`, and `stencil` reads it at `i` and at `i ^ 1`, an element another
- * invocation writes (F3). The planner keeps the two calls apart. A plan that holds `t` as a local
- * against the facts gives `stencil` the element `produce` wrote for `i` in the place of the pair's,
- * and `out` differs wherever the two hold other values. The pair is in range for an even length.
- */
 export function stencilChain(): ChainCorpus {
   const source = `"use typeshade";
 export function produce(t: array<f32>, a: array<f32>): void {
@@ -1119,15 +928,6 @@ export function stencil(out: array<f32>, t: array<f32>): void {
   };
 }
 
-/**
- * A chain that reduces over more iterations than one level of partials folds, built from source:
- * the generator cannot afford the size, since the f32 oracle takes seconds to run a generated body
- * over 65,537 iterations or more. `total` folds two variables, a sum and a maximum. With `fused`,
- * `scale` writes the scratch array `t` before it, and the planner fuses the two with `t` a local;
- * otherwise `total` is the only call and stands alone. At 70,000 iterations the loop makes 274
- * partials, a fold makes 2 of them and a second fold makes 1 (Rule 7.2), and the second reads
- * what the first wrote from the place `_out` says. The seeds are negative: they are not drawn.
- */
 export function foldChain(fused: boolean): ChainCorpus {
   const source = `"use typeshade";
 export function scale(t: array<f32>, a: array<f32>): void {
@@ -1198,14 +998,6 @@ export function total(t: array<f32>): f32 {
       };
 }
 
-/**
- * A chain of five calls built from source, for the instrument of the storage-buffer limit: four
- * maps over distinct arrays, and a sum over the output of the last of them. The four maps bind
- * eight arrays, which is exactly the limit of eight storage buffers, so the group of the four
- * fits without the partials. The sum binds no array the four do not, but its loop folds one
- * variable, so one partials binding joins the eight: nine, past the limit (F5). The facts give
- * two groups, `[0..3]` and `[4]`; a planner that does not count the partials fuses all five.
- */
 export function limitChain(): ChainCorpus {
   const source = `"use typeshade";
 export function scaleA(o: array<f32>, a: array<f32>): void {
@@ -1280,13 +1072,6 @@ export function sum(t: array<f32>): f32 {
   };
 }
 
-/**
- * A chain of two calls built from source, for the instrument of a scratch array that a fused
- * entry holds as a local and starts at zero. `accumulate` adds into the scratch array `t` at `i`,
- * so `t[i] += a[i]` reads the value `t` started with before it writes; it is the only writer of
- * `t`. `spread` reads `t` at `i` and writes `out` at `i`. The planner fuses the two with `t` a
- * local (Rule 11.13), and the initial value of `t` reaches `out` wherever `accumulate` adds to it.
- */
 export function localChain(): ChainCorpus {
   const source = `"use typeshade";
 export function accumulate(t: array<f32>, a: array<f32>): void {

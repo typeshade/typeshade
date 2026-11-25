@@ -304,6 +304,8 @@ through the owner's account can too, so the rule is written here:
     - Each new number is at most 0.2% above the number in the file on `origin/main`.
     - Each new number is at most 1% above the number in the file at
       `c4a12d3fa2d4847809eeba52a1278dbedee2346c`. A number that is absent there is not covered.
+      `src/bundle-ceiling-policy.test.ts` holds this limit: it reads `scripts/bundle-ceiling.json`,
+      which records each ceiling. Never raise a number of `scripts/bundle-ceiling.json`.
     - The split adds no module that the rules of File size do not ask for. The body lists the
       new modules, and says which shape of the split would avoid the rise or why none exists.
     - Before the merge, the merging agent runs the checker of `main` on the range of the moves
@@ -314,7 +316,23 @@ through the owner's account can too, so the rule is written here:
       moves do not merge, the session that merged the rise opens a pull request that sets the
       numbers back. That pull request is approved in advance too.
 
-    Past a limit, and for a rise from any other cause, the owner decides.
+    Past a limit, the owner decides.
+
+  - a rise of a budget of `scripts/bundle-budget.json` inside a pull request that implements a
+    proposal already `accepted` on `main`. The pull request sets each number that it exceeds to the
+    measured number, and its `CHANGELOG.md` entry gives the numbers. The rise needs no approval of
+    its own: the pull request merges as this section says for it. The owner approved this on
+    2026-11-25: "추천안대로".
+  - a pull request that sets numbers of `scripts/bundle-budget.json` to the measured size of
+    `main`, when `bun scripts/bundle-boundary.ts` fails on `origin/main` because merged pull
+    requests that each passed alone measure more together. It changes only that file and the record
+    of the rise in `CHANGELOG.md`. Its body names the measured commit of `origin/main`, the pull
+    requests that met, and each number before and after. The owner approved this on 2026-11-25:
+    "추천안대로".
+
+  No rise of these three kinds takes a number above its ceiling in `scripts/bundle-ceiling.json`:
+  `src/bundle-ceiling-policy.test.ts` fails first. A rise above a ceiling, and a rise from any other
+  cause, waits for the owner.
 
   Everything else waits for the owner to say "merge" in the conversation: a new proposal, and a
   change to a design rule, a public export, a surface section, a diagnostic code or the set of

@@ -1,5 +1,3 @@
-// === createTypeshadeLanguageService: the TypeshadeLanguageService of design doc §4 ===
-
 import { TS_CODES } from '../compiler/ts/codes.js';
 import {
   isAbstractDivisionRefusal,
@@ -115,21 +113,11 @@ export interface TypeshadeLanguageService {
   offsetAt(uri: string, position: TypeshadePosition): number;
 }
 
-/**
- * The front-end analysis of one document: `compileTsSource` over the program's own
- * `ts.SourceFile`, with `emit: false` so no shader text is produced and `requireDirective:
- * true` so a file without `"use typeshade"` reports that as a diagnostic (§8). Every method
- * that reads the front end (diagnostics, symbols, semantic tokens, hover, compiled output)
- * reads one cached result of this per document version instead of running it itself.
- */
 export type AnalyzeSourceFile = (
   sourceFile: ts.SourceFile,
   imports?: ImportHooks,
 ) => CompileTsSourceResult;
 
-/** The production `AnalyzeSourceFile`. `imports` reads the shader files the document imports,
- *  so its analysis is the program's (Rule 3.9), through the same resolution and the same texts
- *  as its TypeScript half. */
 export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile, imports) =>
   compileTsSource(sourceFile.text, {
     sourceFile,
@@ -138,19 +126,12 @@ export const analyzeSourceFile: AnalyzeSourceFile = (sourceFile, imports) =>
     ...imports,
   });
 
-/** Everything the service has computed about one document under one `dependencyKey`
- * (design doc §8): the front-end analysis, always, and the merged diagnostics once
- * `getDiagnostics` has asked for them. */
 interface DocumentCacheEntry {
-  /** The `dependencyKey` the entry was computed under. */
   readonly key: string;
   readonly analysis: CompileTsSourceResult;
   diagnostics?: readonly TypeshadeDiagnostic[];
 }
 
-/** Document order for the merged list: span start, then span length (the enclosed row before
- *  the enclosing one), then source, so the two halves interleave by position. Without it the
- *  TypeShade rows all followed the TypeScript rows, and a problem list read 28:1 before 27:3. */
 function byDocumentOrder(a: TypeshadeDiagnostic, b: TypeshadeDiagnostic): number {
   return (
     a.span.start - b.span.start ||
@@ -169,22 +150,10 @@ export function createTypeshadeLanguageService(
   return createTypeshadeLanguageServiceWith(host, analyzeSourceFile);
 }
 
-/** How a service built by `createTypeshadeLanguageServiceWith` differs from the production one. */
 export interface TypeshadeLanguageServiceTestOptions {
-  /** `false` to leave the two halves unmerged, so `getDiagnostics` lists every TypeScript
-   *  diagnostic the filters keep beside every compiler diagnostic, a mistake both report
-   *  included (`mergeDiagnostics`). What a test of the ambient lib or the filters reads, since
-   *  its subject is TypeScript's own view. Defaults to `true`. */
   readonly merge?: boolean;
 }
 
-/**
- * `createTypeshadeLanguageService` with the front-end analysis function supplied by the
- * caller. Not exported from the `./language-service` subpath: it exists so a test can wrap
- * `analyzeSourceFile` in a counter and assert the front end runs once per document version
- * (§8) without mocking the compiler module, and read the two halves unmerged
- * (`TypeshadeLanguageServiceTestOptions`).
- */
 export function createTypeshadeLanguageServiceWith(
   host: TypeshadeLanguageServiceHost,
   analyze: AnalyzeSourceFile,
@@ -210,39 +179,19 @@ export function createTypeshadeLanguageServiceWith(
       : uri;
   }
 
-  /** How the front end reads what a document imports: the text the TypeScript program holds for
-   *  it (an open document's, or one `readDocument` pulled in), resolved by the host's one rule,
-   *  so the two halves analyse the same program. What TypeScript does not hold, a package's
-   *  `package.json` or its JavaScript, is read as the rule read it, so a refused package import
-   *  is worded as `compile()` words it. */
   const imports: ImportHooks = {
     readDocument: (uri) =>
       sourceFileOf(uri)?.text ?? tsHost.getDocumentText(uri) ?? tsHost.readOutsideProgram(uri),
     resolveImport: (fromUri, specifier) => tsHost.resolveImportUri(fromUri, specifier),
   };
-  // An open document's text above is the projected one: the annotations the projection wrote
-  // into it are marked as no written type in the linked program (the third review of #1304).
   markProjectedReader(imports.readDocument!, (uri) => tsHost.projectionOf(uri)?.insertionStarts());
 
-  /**
-   * The cache key for everything computed about `uri` (design doc §8): its own script version
-   * followed by the version of every document it imports, transitively, each resolved through
-   * the host's `resolveImportUri` over the file's static import and export declarations. A
-   * key made of `uri`'s version alone went stale whenever an imported document changed or was
-   * closed, since neither touches the importing document's version; here a changed import
-   * bumps its own version and a closed one drops to `getScriptVersion`'s `'0'`, so both
-   * produce a different key and a fresh computation. An unresolvable specifier contributes
-   * nothing: TypeScript reports it as unresolved from the importing file itself, whose
-   * version the key already carries.
-   */
   function dependencyKey(uri: string): string {
     return dependenciesOf(uri)
       .map((u) => `${u}@${tsHost.getScriptVersion(u)}`)
       .join('|');
   }
 
-  /** `uri`, then every document it imports, transitively, in the order the imports name them:
-   *  the documents `dependencyKey` is made of. */
   function dependenciesOf(uri: string): string[] {
     const current = program();
     const seen = new Set<string>();
@@ -260,16 +209,6 @@ export function createTypeshadeLanguageServiceWith(
     return [...seen];
   }
 
-  /**
-   * The program of every open document other than `uri` that links `declaringUri` (Rule 3.9),
-   * with the document's uri: what the hover in `uri` reads for a field that `declaringUri`
-   * declares, where the program of `uri` gives the field no place among its entries
-   * (`hover.ts`, `entryLocationLines`) or no symbol at all (`getHover`, the signature of a
-   * field of a struct that its own file does not use).
-   * Each is that document's own cache entry, the one its diagnostics, symbols and tokens read,
-   * so a hover adds no analysis that the service does not keep: an open document is analysed
-   * once per version, here or at its own first request.
-   */
   function programsLinking(uri: string, declaringUri: string): HoverProgram[] {
     const out: HoverProgram[] = [];
     for (const open of tsHost.openUris()) {
@@ -281,9 +220,6 @@ export function createTypeshadeLanguageServiceWith(
     return out;
   }
 
-  /** The program of the open document `uri`, its own cache entry, or `undefined` when the
-   *  document is not open: what the hover reads for a name its document imports and its
-   *  program does not keep (`hover.ts`, `unlinkedSymbolAt`). No other document is analysed. */
   function programOf(uri: string): HoverProgram | undefined {
     if (!tsHost.hasDocument(uri)) return undefined;
     const sourceFile = sourceFileOf(uri);
@@ -292,14 +228,10 @@ export function createTypeshadeLanguageServiceWith(
       : { uri: sourceFile.fileName, analysis: entryOf(sourceFile.fileName, sourceFile).analysis };
   }
 
-  /** The cache entry for `uri` under its current `dependencyKey`, computing the front-end
-   * analysis of `sourceFile` when there is none or the key has moved on. */
   function entryOf(uri: string, sourceFile: ts.SourceFile): DocumentCacheEntry {
     const key = dependencyKey(uri);
     const cached = cache.get(uri);
     if (cached && cached.key === key) return cached;
-    // The annotations the projection wrote into this text are not the author's (change 0134
-    // item 2): a static field of written numbers keeps no fixed type under the analysis.
     const projection = tsHost.projectionOf(uri);
     if (projection !== undefined)
       markProjectedAnnotations(
@@ -312,7 +244,6 @@ export function createTypeshadeLanguageServiceWith(
     return entry;
   }
 
-  /** `uri`'s merged TypeScript and TypeShade diagnostics, computed once per cache entry. */
   function diagnosticsOf(uri: string, sourceFile: ts.SourceFile): readonly TypeshadeDiagnostic[] {
     const entry = entryOf(uri, sourceFile);
     entry.diagnostics ??= mergeDiagnostics(
@@ -322,12 +253,6 @@ export function createTypeshadeLanguageServiceWith(
       options.merge === false ? undefined : entry.analysis,
       languageService.getProgram()?.getTypeChecker(),
     ).sort(byDocumentOrder);
-    // A `/` over a constant of no fixed type is refused where another read makes the constant
-    // an integer (change 0134), and that read may stand in a document that imports this one.
-    // The refusal then stands on that read, with this file's `/` as its related site (#1186),
-    // and the mismatch this file raises alone around the `/` is the same mistake: `compile()`
-    // of the importing document reports it once (Rule 12.4). It is read from the importing
-    // documents that are open, at each request: it depends on them, so it is not cached here.
     const own = entry.diagnostics;
     const sites: { start: TypeshadePosition; end: TypeshadePosition }[] = [];
     for (const program of programsLinking(uri, uri)) {
@@ -369,9 +294,6 @@ export function createTypeshadeLanguageServiceWith(
 
     closeDocument(uri) {
       tsHost.closeDocument(uri);
-      // Symbols, tokens and hover answer for any file the program holds, a file pulled in
-      // only through readDocument included, and such a uri is never closed itself; its entry
-      // goes when a document closes, which is when the program's file set changes.
       for (const cached of cache.keys()) {
         if (!tsHost.hasDocument(cached)) cache.delete(cached);
       }
@@ -460,8 +382,6 @@ export function createTypeshadeLanguageServiceWith(
       if (!sourceFile) return undefined;
       const { analysis } = entryOf(uri, sourceFile);
       const diagnostics = [...diagnosticsOf(uri, sourceFile)];
-      // Document squiggles stay document-local (Rule 3.9), but output compiles the program.
-      // Preserve imported errors and their locations instead of showing unexplained empty text.
       for (const diagnostic of analysis.diagnostics) {
         if (diagnostic.fileName === sourceFile.fileName) continue;
         const imported = sourceFileOf(diagnostic.fileName);
@@ -473,9 +393,6 @@ export function createTypeshadeLanguageServiceWith(
         analysis.diagnostics.some((d) => d.category === 'error');
       let outputText = '';
       if (!hasError) {
-        // The module `compile()` emits (src/compiler/ts/compile.ts), field for field. Without
-        // the overrides the pane showed WGSL that reads an override it never declares (Rule
-        // 12.7).
         const moduleDecl = {
           consts: [...analysis.consts],
           structs: emittedStructDecls(analysis.structs),
@@ -485,8 +402,6 @@ export function createTypeshadeLanguageServiceWith(
           vars: [...analysis.vars],
           enables: [...analysis.enables],
         };
-        // WGSL is the program, even when this pane requests GLSL. A failure shared by both
-        // writers must remain an error rather than become a GLSL warning or disappear.
         let wgsl: string | undefined;
         try {
           wgsl = emitModule(moduleDecl);
@@ -507,8 +422,6 @@ export function createTypeshadeLanguageServiceWith(
                 target === 'glsl-vertex' ? 'vertex' : 'fragment',
               );
             } catch (e) {
-              // Rule 12.3: a GLSL-only shortfall warns when a render entry could use that
-              // target, and says nothing otherwise. Cached document diagnostics stay intact.
               if (hasRenderEntry)
                 diagnostics.push(
                   fromCompilerDiagnostic(
@@ -544,22 +457,12 @@ export function createTypeshadeLanguageServiceWith(
   return service;
 }
 
-/** Each service's way of reading what a document imports, as written: an open document's text,
- *  else the host's `readDocument`, by the host's one resolution rule. */
 const readers = new WeakMap<TypeshadeLanguageService, ImportHooks>();
 
-/** How `service` reads the files a document imports, so a compile beside it (`check.ts`) reads
- *  the program the service analyses (Rule 3.9, Rule 12.7). Not exported from the package. */
 export function importHooksOf(service: TypeshadeLanguageService): ImportHooks {
   return readers.get(service) ?? {};
 }
 
-/**
- * `inner`, answering in the documents as written while it computes on the program's projected
- * text (`projection.ts`, #162). A position the caller passes in moves to the projected text, and
- * every position, range and span in an answer moves back. `positionAt` and `offsetAt` convert
- * against the document as written, which is the text the caller holds.
- */
 function projected(
   inner: TypeshadeLanguageService,
   lookup: ProjectionLookup,
@@ -582,7 +485,6 @@ function projected(
       back(uri, inner.getSignatureHelp(uri, into(uri, position))),
     prepareRename: (uri, position) => back(uri, inner.prepareRename(uri, into(uri, position))),
     rename: (uri, position, newName) => {
-      // Keyed by the uri each edit list belongs to, so each maps through its own document.
       const edits = inner.rename(uri, into(uri, position), newName);
       return Object.fromEntries(Object.entries(edits).map(([u, list]) => [u, back(u, list)]));
     },
@@ -591,7 +493,6 @@ function projected(
         uri,
         range && { start: into(uri, range.start), end: into(uri, range.end) },
       );
-      // A token on an inserted annotation colours text the author never wrote.
       const projection = lookup(uri);
       const written = projection ? tokens.filter((t) => !projection.isInserted(t)) : tokens;
       return back(uri, written);
