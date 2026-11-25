@@ -1,43 +1,8 @@
-// ═══ Shader DSL — which functions have an effect (Optimization context) ═══
-//
-// The optimizer's premise is that expressions are pure: CSE, GVN and LICM dedupe and hoist
-// them, DCE drops an unread binding. A `call` statement exists precisely because a call can
-// have an effect (a storage write inside the callee today; a barrier, `textureStore` or an
-// atomic later), so the passes need one answer to "does this call do anything besides
-// produce a value?". This file is that answer, computed once per module and cached on it.
-//
-// An effect is a write to a name the function does not own: a module binding (a
-// `read_write` storage array) reached through an `assign`/`assignOp` whose target root is
-// neither a param nor a local. It propagates through the call graph to a fixpoint, so a
-// function that only calls a writer is a writer too. Intrinsics with an effect are listed
-// in `EFFECTFUL_INTRINSICS`: the atomic builtins today (roadmap 0.2 item 4); barriers and
-// `textureStore` add their names on the commit that makes them authorable.
-//
-// The second table here is what each function READS of the module (`fnReads`). A call's
-// value depends on its arguments AND on every module name its callee reads, and the passes
-// that share or move a value see only the first: `h(b)` where `h` returns `q * gp` has the
-// roots {b} to a walk of the call, so a write to `gp` between two `h(b)` did not stop cse,
-// licm or gvn from treating them as one value. `refsLocal` and gvn's roots now add the
-// callee's reads from this table. Measured cost, over three emits of all 107 examples
-// (medians of 12 interleaved runs, otherwise idle machine): the whole emit 2281 -> 2383 ms.
-// Building the table is 35-40 ms of that, over 861 builds, one for each module object the
-// write table is also built for (which takes 71-88 ms); the rest is the passes asking it.
-
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/index.js';
 import { eachExpr, eachStmtExpr } from '../ir/visit.js';
 import { ATOMIC_INTRINSICS, BARRIER_INTRINSICS, isAtomicIntrinsic } from '../intrinsics.js';
 import { bodyHasRaw, collectLocals } from './opt/expr-utils.js';
 
-/** Intrinsic ids whose call has an effect beyond its value: the atomic builtins, `atomicLoad`
- *  included, since two loads must not be shared across a store to the same location; the
- *  barriers, which order every read and write around them and must never be dropped, merged or
- *  moved; `workgroupUniformLoad`, which is a read with a barrier on each side of it
- *  (wgsl.txt:26057), so the same holds for it — two of them with the same argument are two
- *  barriers, and sharing one value between them deleted the second from a loop body whose
- *  neighbour reads it ordered; and `textureStore`, which writes a texel and returns nothing, so
- *  an optimizer that treated it as a pure call would drop every one of them (roadmap 0.4 item
- *  10). A kernel function's `push` appends to its array and `pushCount` reads how many it has
- *  appended (change 0078), so neither is dropped, shared or moved across the other. */
 export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...Object.keys(ATOMIC_INTRINSICS),
   ...BARRIER_INTRINSICS,
@@ -45,8 +10,6 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   'textureStore',
   'push',
   'pushCount',
-  // A kernel function's Map and Set (change 0080): an add or a set changes what a has, a get
-  // and a size read, so none is dropped, shared or moved across another.
   'collectionAdd',
   'collectionSet',
   'collectionHas',
@@ -54,46 +17,22 @@ export const EFFECTFUL_INTRINSICS: ReadonlySet<string> = new Set<string>([
   'collectionSize',
 ]);
 
-/** The intrinsics that SYNCHRONISE the workgroup: the barriers, and `workgroupUniformLoad`
- *  for the two it carries. Unlike an atomic store they write no location of their own, so the
- *  write table used to hold nothing for a helper that calls one, and a call to that helper was
- *  taken for a pure one: `sync();` wrapping a `workgroupBarrier()` was dropped by DCE, and two
- *  `ld()` wrapping a `workgroupUniformLoad` were shared by cse. `atomicLoad` is not here: two
- *  loads with no store between them in this invocation may read one value. */
 const SYNC_INTRINSICS: ReadonlySet<string> = new Set<string>([
   ...BARRIER_INTRINSICS,
   'workgroupUniformLoad',
 ]);
 
-/** What a function that synchronises the workgroup WRITES, in the table: the memory the other
- *  invocations share, which a barrier is where their writes land. No program can spell the
- *  name, so it never meets a root, and its only work is to make the function's write set
- *  non-empty — which is what {@link exprHasEffect} reads for every call to it, and what the
- *  call-graph fixpoint below carries to every caller. */
 export const SYNC_WRITE = '<workgroup sync>';
 
-/** The module-level names each function writes, itself or through the functions it calls, and
- *  {@link SYNC_WRITE} for one that synchronises the workgroup. */
 export type FnWrites = ReadonlyMap<string, ReadonlySet<string>>;
 
 const memo = new WeakMap<ModuleDecl, FnWrites>();
 
-/** The parameters of every function a table was computed over, keyed by the table itself, so a
- *  per-function view that inherits the table ({@link inheritEffects}) can still translate a
- *  callee's write through one of its own `inout` parameters into the argument passed there.
- *  The view holds one function; the table, and so this, describes them all. */
 const paramsOf = new WeakMap<FnWrites, ReadonlyMap<string, FuncDecl['params']>>();
 
 const targetRoot = (e: Expr): Expr =>
   e.op === 'index' || e.op === 'member' ? targetRoot(e.base) : e;
 
-/** The name an atomic builtin call writes: the root of its location argument, for every
- *  atomic but `atomicLoad`. Also the storage texture a `textureStore` writes, which is the same
- *  shape — the binding is the call's first argument (roadmap 0.4 item 10) — and the array a
- *  kernel function's `push` appends to (change 0078), and the Map or Set an add or a set writes
- *  (change 0080). `undefined` for any
- *  other expression, and for a call that resolved to a function the module declares under one
- *  of those names. */
 export function atomicWriteRoot(x: Expr): string | undefined {
   if (x.op !== 'call' || x.declRef !== undefined) return undefined;
   if (
@@ -114,17 +53,10 @@ export function atomicWriteRoot(x: Expr): string | undefined {
 }
 
 function directWrites(f: FuncDecl, out: Set<string>): void {
-  // A parameter the callee writes THROUGH (`mode: 'inout'`) is not owned: the write lands in
-  // the caller's own value, which is the whole point of it. Writing to any other parameter is
-  // local and invisible outside. Before `inout` existed every parameter was owned, and a
-  // method that changed its object took it by value and returned it, so this list was complete.
   const owned = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name));
   collectLocals(f.body, owned);
   const walk = (body: readonly Stmt[]): void => {
     for (const s of body) {
-      // An atomic store or read-modify-write anywhere in the statement's own expressions
-      // writes the binding at its location's root, the way an `assign` to it would. A
-      // barrier or a `workgroupUniformLoad` writes what the other invocations share.
       eachStmtExpr(
         s,
         (e) => {
@@ -156,18 +88,6 @@ function directWrites(f: FuncDecl, out: Set<string>): void {
   walk(f.body);
 }
 
-/** What one call adds to its CALLER's write set, given what the callee writes.
- *
- *  A name the callee writes that is one of its own `inout` parameters means nothing to the
- *  caller — `self_` is the callee's word for it — so it is translated into the root of the
- *  argument passed there: `ps[gid.x].tick(dt)` writes `ps`, because `tick` writes its receiver
- *  and the receiver is reached through `ps`. Every other name the callee writes is a module
- *  name already, and passes through as it is.
- *
- *  A translated name the caller owns (its own local) is dropped from what the caller writes,
- *  because a write to a local is invisible outside it. The CALL still has an effect — the
- *  callee's own write set is non-empty, which is what {@link exprHasEffect} reads — so the
- *  statement is never dropped. */
 function inheritedWrites(
   call: Expr & { op: 'call' },
   callee: FuncDecl,
@@ -205,13 +125,6 @@ function calleesOf(f: FuncDecl, declared: ReadonlySet<string>, out: Set<string>)
   }
 }
 
-/** Hand `to` the effect table already computed for `from`, when `to` is a view of the same
- *  module: the fixpoint optimizes each function in a module holding that function alone, and
- *  every pass returns a new module object, so without this a pass would see a table computed
- *  from one function and take every call to a helper for a pure one. A stale table is only
- *  ever an over-approximation (no pass adds a binding write to a function that had none), so
- *  carrying it forward is safe. The read table ({@link fnReads}) rides along the same way and
- *  for the same reason: a view cannot see what `h` reads, only that it is called. */
 export function inheritEffects(from: ModuleDecl, to: ModuleDecl): void {
   if (to === from) return;
   const table = memo.get(from);
@@ -220,24 +133,10 @@ export function inheritEffects(from: ModuleDecl, to: ModuleDecl): void {
   if (reads !== undefined && !readMemo.has(to)) readMemo.set(to, reads);
 }
 
-/** The module-level names each function READS, itself or through the functions it calls. */
 export type FnReads = ReadonlyMap<string, ReadonlySet<string>>;
 
 const readMemo = new WeakMap<ModuleDecl, FnReads>();
 
-/** The names each function of `m` reads that it does not own, transitively: every name a
- *  `varref`, `constref` or `externref` in its body spells that is neither one of its
- *  parameters nor one of its locals, and every such name of every function it calls. That is
- *  its bindings, its `var<private>` and `var<workgroup>` variables, its host globals, and its
- *  module constants (which nothing writes, so they never meet a mutated set). An `inout`
- *  parameter is owned here although it is not owned in {@link fnWrites}: what the callee reads
- *  through one is the caller's argument, which the caller's own walk of the call already sees.
- *  A function with a `raw` statement reads every module-scope name, since its text is opaque.
- *
- *  Cached per module object and handed to views by {@link inheritEffects}, like the write
- *  table, and computed once for the whole module by `fixpoint`. A name a caller also uses for
- *  a local of its own over-approximates (a write to the local retires the call too), which is
- *  the safe direction. */
 export function fnReads(m: ModuleDecl): FnReads {
   const hit = readMemo.get(m);
   if (hit !== undefined) return hit;
@@ -283,9 +182,6 @@ export function fnReads(m: ModuleDecl): FnReads {
   return reads;
 }
 
-/** Does `x`, a call, read any of `names` through its callee (the module names the callee
- *  reads, per {@link fnReads})? Its ARGUMENTS are not looked at: the caller's own walk of the
- *  expression reaches them. */
 export function callReadsAny(
   x: Expr,
   names: ReadonlySet<string>,
@@ -298,9 +194,6 @@ export function callReadsAny(
   return false;
 }
 
-/** The names each function of `m` writes, transitively. Cached per module object; the IR is
- *  immutable, so a pass that rewrites builds a new module and gets a fresh answer, unless
- *  {@link inheritEffects} handed it the table of the module it is a view of. */
 export function fnWrites(m: ModuleDecl): FnWrites {
   const hit = memo.get(m);
   if (hit !== undefined) return hit;
@@ -316,16 +209,12 @@ export function fnWrites(m: ModuleDecl): FnWrites {
     calleesOf(f, declared, c);
     callees.set(f.name, c);
   }
-  // What each function owns, for translating a callee's parameter writes below.
   const owned = new Map<string, Set<string>>();
   for (const f of m.funcs) {
     const o = new Set<string>(f.params.filter((p) => p.mode !== 'inout').map((p) => p.name));
     collectLocals(f.body, o);
     owned.set(f.name, o);
   }
-  // Fixpoint over the call graph: a function inherits what its callees write, with a name a
-  // callee writes through one of its own `inout` parameters translated into the argument this
-  // caller passed there.
   let changed = true;
   while (changed) {
     changed = false;
@@ -342,9 +231,6 @@ export function fnWrites(m: ModuleDecl): FnWrites {
           });
         });
       }
-      // A call inside a nested block reaches the walk above through `eachStmtExpr`'s own
-      // recursion into the statement's expressions only, so the plain-name inheritance below
-      // keeps a callee's MODULE writes flowing through a branch or a loop.
       for (const callee of callees.get(f.name)!) {
         const decl = byName.get(callee);
         const through = new Set(
@@ -362,11 +248,6 @@ export function fnWrites(m: ModuleDecl): FnWrites {
   return writes;
 }
 
-/** The names one call writes, in its CALLER's words: what the callee writes of the module, the
- *  root of each argument it writes through (`Random_gen(&rng)` writes `rng`, since the callee's
- *  `self_` is that argument), and the location an atomic or `textureStore` writes. Empty for a
- *  call that writes nothing, `atomicLoad` included, which reads. The callee's own word for an
- *  `inout` parameter means nothing where the call stands and is never returned. */
 export function callWrites(x: Expr & { op: 'call' }, writes: FnWrites): ReadonlySet<string> {
   const out = new Set<string>();
   const params = paramsOf.get(writes)?.get(x.fn);
@@ -385,11 +266,6 @@ export function callWrites(x: Expr & { op: 'call' }, writes: FnWrites): Readonly
   return out;
 }
 
-/** Does evaluating `e` WRITE something: a call to a function that writes a module name or its
- *  caller's value through an `inout` parameter, or an atomic or `textureStore` that writes a
- *  location? Narrower than {@link exprHasEffect}, which also counts `atomicLoad` and the
- *  barriers: a read and a fence order what is around them, and only a write leaves something
- *  behind that dropping the expression would lose. */
 export function exprWrites(e: Expr, writes: FnWrites): boolean {
   let found = false;
   eachExpr(e, (x) => {
@@ -399,8 +275,6 @@ export function exprWrites(e: Expr, writes: FnWrites): boolean {
   return found;
 }
 
-/** Does evaluating `e` do anything besides produce a value: a call to a function that writes
- *  a binding, or to an intrinsic in {@link EFFECTFUL_INTRINSICS}? */
 export function exprHasEffect(e: Expr, writes: FnWrites): boolean {
   let found = false;
   eachExpr(e, (x) => {
@@ -412,9 +286,6 @@ export function exprHasEffect(e: Expr, writes: FnWrites): boolean {
   return found;
 }
 
-/** Does any statement of `body`, nested blocks included, contain an effectful call? The
- *  value-hoisting passes leave such a function alone: deduping or moving a call that writes
- *  a binding would change how many times, or when, it writes. */
 export function bodyHasEffectfulCall(body: readonly Stmt[], writes: FnWrites): boolean {
   let found = false;
   const walk = (s: Stmt): void => {
@@ -431,12 +302,6 @@ export function bodyHasEffectfulCall(body: readonly Stmt[], writes: FnWrites): b
   return found;
 }
 
-/** The names the calls inside one statement's own expressions write (not its nested blocks,
- *  which `collectMutatedRoots` recurses into itself), each as the caller knows it
- *  ({@link callWrites}). Until the translation, a method that changes its object reported the
- *  callee's `self_` here rather than the receiver, so `const before = p; p.bump()` let copy
- *  propagation read `p` where `before` was written: the GPU saw the bumped value, the oracle the
- *  one before it. */
 export function calleeWritesOf(s: Stmt, writes: FnWrites, out: Set<string>): void {
   eachStmtExpr(
     s,
