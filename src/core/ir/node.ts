@@ -94,15 +94,9 @@ export type CmpArg<K extends string> = ReadonlyNode<KindScalar<K>> | number;
  *  not a union, so the conditional does not distribute and passes it through unchanged. */
 export type NonComposite<K extends string> = K extends `vec${string}` | `mat${string}` ? never : K;
 
-// NB — the `.and`/`.or` RECEIVER is deliberately NOT `this:`-bounded. A
-// `this: ReadonlyNode<K extends 'bool' ? K : never>`-style bound was tried and
-// broke `Node<'vec4<f32>'> → ReadonlyNode<string>` / `Node<'u32'> →
-// ReadonlyNode<ScalarKey>` assignability ACROSS the d.ts boundary (the compiler
-// package went red while shader-dsl's own build stayed green) — the same
-// never-`this` shape the comparisons' NonComposite bound survives, tipped over
-// by one more such member. The receiver is guarded at AUTHOR-RUN time instead
-// (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
-// GPU compiler would.
+// Why: a this: bound on and/or breaks Node<'vec4<f32>'> -> ReadonlyNode<string> assignability
+// across the d.ts boundary (seen only by the compiler package build); the receiver is checked
+// at run time (SD0004).
 
 // Returns ReadonlyNode<string>, not <any> (X-GIS #763 X12): `<any>` was assignable to
 // EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
@@ -167,9 +161,7 @@ export const NODE_BRAND: unique symbol = Symbol.for('typeshade.node') as never;
 export const isNodeValue = (v: unknown): v is ReadonlyNode =>
   v !== null && typeof v === 'object' && (v as Record<symbol, unknown>)[NODE_BRAND] === true;
 
-/** Statement sink — the builder installs how `node.assign(v)` pushes its Stmt to the
- *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
- *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
+// Why: node.ts cannot import builder.ts (import cycle); builder.ts installs the sink.
 type StmtSink = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a sink takes any element kind
   assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void;

@@ -685,7 +685,7 @@ export const BUILTINS: Record<string, Builtin> = {
     }
     return acc | 0;
   },
-  // ── The subgroup family (change 0117, Rule 11.21): a subgroup of one invocation. ──
+  // Implements: Rule 11.21
   //
   // The oracle runs invocations one after another, so the only lane a subgroup function can
   // see is its own: a fold of one value is the value, a scan before it is the identity, a vote
@@ -776,7 +776,7 @@ export const BUILTINS: Record<string, Builtin> = {
   // itself (or the struct member holding it), and its length is the answer the GPU gives.
   // Computable, so it lives here and not among the GPU_STUBS below.
   arrayLength: (xs) => (xs as readonly CpuValue[]).length,
-  // `out.push(v)` in a kernel function's loop (change 0078, Rule 8.23): the array starts empty
+  // Implements: Rule 8.23
   // in the function, and the host array is the capacity. Each push stores `v` while the count is
   // inside the capacity, counts it either way, and gives the new count. A call binds a fresh copy
   // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call, or at the held

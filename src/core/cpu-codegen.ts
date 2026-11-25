@@ -1174,7 +1174,7 @@ function emitCall(e: Call, S: FnCtx): Js {
   }
   // An `inout` argument that is a field or an element is resolved ONCE into two temporaries,
   // its base and its key: the callee is handed what is there, and what the callee leaves goes
-  // back to the same place, as the interpreter's `storeBack` does (Rule 8.25).
+  // Implements: Rule 8.25
   const params = S.mod.params.get(e.fn);
   const places: (string | undefined)[] = [];
   const args = e.args.map((a, i) => {

@@ -674,11 +674,8 @@ type FnBodyValue<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>;
-// #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
-// for the guard-style body X-GIS #2458 turned away, so the separation cannot be made at the type
-// level; it is made at run time instead, by `assertInferredVoid` below. The declared
-// parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
-// matching the value overloads first — `void` as a return type accepts any value.
+// Why: FnBodyVoid takes undefined, not void: void accepts any value and would steal bodies that
+// return a node from the value overloads.
 type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void;
 
 // #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
@@ -858,13 +855,8 @@ export function fn<P extends FnParamSpec, R extends string>(
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>;
-// #8 B1 — the void-body overloads. They sit AFTER the value overloads, so a body that returns
-// a value still matches those first and only a body TypeScript reads as returning nothing
-// falls through to here, where the handle lands on `'void'` with no `voidT` token written. The
-// guard-style body that shares that TypeScript shape is separated at run time (SD0113).
-// They sit BEFORE the explicit-`ret` overloads so the LAST signature stays the one it has
-// always been: `ReturnType<typeof fn>` reads the last overload, and moving it would retype
-// every `ReturnType<typeof fn>` annotation in the tree.
+// Why: the void-body overloads follow the value overloads and precede the explicit-ret
+// overloads, so ReturnType<typeof fn> still reads the last (explicit-ret) signature.
 export function fn<P extends FnParamSpec>(
   params: P,
   body: FnBodyVoid<P>,
