@@ -13,10 +13,9 @@
 // The private space is never spelled on this surface at all. `perInvocation<T>` (#83) was the
 // wrapper for it and was removed (§24): a second spelling of the variable a plain `let`
 // already declares is two ways to write one thing, so a file that still writes it is refused
-// at the annotation with the plain `let` to write instead. WGSL's own name for the space could
-// not be the spelling either: `private` is a reserved word in strict mode, every module is
-// strict, and the checker reports "Identifier expected" on `let seed: private<u32>`. The
-// parser alone accepts it, which is why that name survived to a measurement.
+// at the annotation with the plain `let` to write instead.
+//
+// Why: WGSL's own name for the space, `private`, is a reserved word in strict mode, so no spelling.
 
 import { logicalTypeKey as typeKey } from './optional.js';
 import { moduleIndexConst } from './index-bound.js';
