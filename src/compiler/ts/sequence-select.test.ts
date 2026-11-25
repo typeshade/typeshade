@@ -2,7 +2,12 @@
 import { describe, expect, it } from 'vitest';
 import { compileModuleJs } from '../../core/cpu-codegen.js';
 import { startDebugSession } from '../../core/debug/session.js';
-import { bothTake } from '../../core/testing/both-halves.js';
+import { mapChildren } from '../../core/ir/visit.js';
+import type { Expr } from '../../core/ir/nodes.js';
+import { f32T, boolT } from '../../core/ir/types.js';
+import { bothRefuse, bothTake } from '../../core/testing/both-halves.js';
+import { cloneIr } from './context.js';
+import { isOrderedSelect, markOrderedSelect } from './sequence/ordered-select.js';
 
 const RNG = `"use typeshade";
 class Rng {
@@ -62,7 +67,10 @@ const D2 = fragment(
   '  const x = select(rng.next(), 5., uv.y > 0.5)\n  return vec4(x, rng.next(), 0., 1.)',
 );
 const PURE = fragment('  const hit = uv.y > 0.5\n  return vec4(select(0., 1., hit), 0., 0., 1.)');
-const PROGRAMS = { A, B, C, D2, PURE };
+const FOR_UPDATE = fragment(
+  '  let s = 0.\n  for (let i = 0; i < 3; i++, s = select(rng.next(), rng.next(), uv.y > 0.5)) {\n    s += 0.\n  }\n  return vec4(s, 0., 0., 1.)',
+);
+const PROGRAMS = { A, B, C, D2, PURE, FOR_UPDATE };
 
 const [a, b] = draws(500, 2);
 
@@ -126,6 +134,37 @@ describe('what stays as it is', () => {
     near(agree(src, [[0.5, 0.75]]), [0.75, a!, 0, 1]);
     near(agree(src, [[0.5, 0.25]]), [a!, b!, 0, 1]);
   });
+
+  it('??= with a call that writes stays under an if on both targets', () => {
+    const src = fragment(
+      '  let v = opt(uv.y)\n  v ??= rng.next()\n  return vec4(v ?? 0., 0., 0., 1.)',
+      'function opt(k: f32): f32 | undefined { if (k < 0.5) { return undefined; } return k; }\n',
+    );
+    const r = bothTake(src).result;
+    expect(r.wgsl).toContain('  if ((v.present == false)) {\n    let _seq0 = Rng_next(&rng);');
+    expect(r.glsl!.fragment).toContain(
+      '  if ((v.present == false)) {\n    float _seq0 = Rng_next(rng);',
+    );
+    near(agree(src, [[0.5, 0.75]]), [0.75, 0, 0, 1]);
+    near(agree(src, [[0.5, 0.25]]), [a!, 0, 0, 1]);
+  });
+
+  it('a select stays refused as a statement and as the right side of _ =', () => {
+    bothRefuse(
+      fragment(
+        '  const c = uv.y > 0.5\n  select(rng.next(), rng.next(), c)\n  return vec4(0., 0., 0., 1.)',
+      ),
+      'TS8099',
+      '"select(rng.next(), rng.next(), c)" builds a value and drops it. Only a function call may stand alone as a statement; assign the value or remove the line.',
+    );
+    bothRefuse(
+      fragment(
+        '  const c = uv.y > 0.5\n  _ = select(rng.next(), rng.next(), c)\n  return vec4(0., 0., 0., 1.)',
+      ),
+      'TS8099',
+      '"_ = ..." drops the result of a call. "select(rng.next(), rng.next(), c)" is not one, so there is nothing to drop; remove the line.',
+    );
+  });
 });
 
 const markedSelects = (root: unknown): number => {
@@ -133,10 +172,7 @@ const markedSelects = (root: unknown): number => {
   const walk = (node: unknown): number => {
     if (typeof node !== 'object' || node === null || seen.has(node)) return 0;
     seen.add(node);
-    const marked =
-      !Array.isArray(node) &&
-      (node as { op?: unknown }).op === 'select' &&
-      Object.prototype.hasOwnProperty.call(node, 'ordered');
+    const marked = Object.prototype.hasOwnProperty.call(node, '__orderedSelect');
     let n = marked ? 1 : 0;
     for (const v of Object.values(node)) n += walk(v);
     return n;
@@ -154,8 +190,57 @@ describe('no ordered marker survives sequencing', () => {
   }
 });
 
+describe('a select in the update of a for loop', () => {
+  const d = draws(500, 6);
+
+  it('runs f then t on every update, whichever value c picks', () => {
+    near(agree(FOR_UPDATE, [[0.5, 0.25]]), [d[4]!, 0, 0, 1]);
+    near(agree(FOR_UPDATE, [[0.5, 0.75]]), [d[5]!, 0, 0, 1]);
+    expect(bothTake(FOR_UPDATE).result.wgsl).not.toContain('} else {\n    _seq0 = Rng_next');
+  });
+});
+
+describe('the ordered marker of a select', () => {
+  const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value });
+  const picked: Expr = markOrderedSelect({
+    op: 'select',
+    type: f32T,
+    cond: { op: 'lit', type: boolT, value: true },
+    ifTrue: lit(1),
+    ifFalse: lit(0),
+  });
+
+  it('is found by the walker of this file, so a zero count means no marker', () => {
+    expect(markedSelects({ body: [picked] })).toBe(1);
+    expect(markedSelects({ body: [{ ...picked, ifTrue: lit(2) }] })).toBe(1);
+  });
+
+  it('survives an object spread and the child map of the IR visitors', () => {
+    expect(isOrderedSelect({ ...picked })).toBe(true);
+    expect(isOrderedSelect(mapChildren(picked, (c) => c))).toBe(true);
+  });
+
+  it('survives the deep copy the front end makes of a statement', () => {
+    expect(isOrderedSelect(cloneIr(picked))).toBe(true);
+  });
+
+  it('is not carried by an unmarked select', () => {
+    const plain: Expr = {
+      op: 'select',
+      type: f32T,
+      cond: { op: 'lit', type: boolT, value: true },
+      ifTrue: lit(1),
+      ifFalse: lit(0),
+    };
+    expect(isOrderedSelect(plain)).toBe(false);
+    expect(markedSelects({ body: [plain] })).toBe(0);
+  });
+});
+
 describe('the editor says what select does', () => {
   it('the hover on select says all arguments are evaluated, in that order', () => {
-    expect(bothTake(B).hover('select')).toContain('all evaluated, in that order');
+    const hover = bothTake(B).hover('select');
+    expect(hover).toContain('all evaluated, in that order');
+    expect(hover).toContain('Write `cond ? trueValue : falseValue` to evaluate one arm.');
   });
 });
