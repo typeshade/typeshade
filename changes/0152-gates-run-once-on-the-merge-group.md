@@ -144,7 +144,7 @@ Option B alone saves nothing today. Option C reverses an approved rule of `0147`
 
 These are the limits of option A.
 
-1. The plan limits for a merge queue were not checked. The page "Managing a merge queue" gives no plan or ownership requirement (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). The page on rulesets says that rulesets are for "GitHub Team and GitHub Enterprise plans", which may limit them (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets; one fetch, not confirmed). The repository `typeshade/typeshade` is public (repository list, 2026-11-25). Whether an organization owns it was not checked. The second ruleset of Phase 1 shows whether the rule can be created.
+1. Whether the `merge_queue` rule type is available for this repository is open. The page "Managing a merge queue" gives no plan or ownership requirement (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). The page on rulesets says that rulesets are for "GitHub Team and GitHub Enterprise plans" (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets; one fetch, not confirmed). The orchestrating session read the live repository on 2026-11-25: the owner type is `Organization`, the repository is public, and the ruleset `main` exists. I did not read these. The `POST` of script 1 answers the open point at no cost.
 2. Every required check must report on the `merge_group` event. Otherwise the merge fails, because the check never reports (the same page, and https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows). A workflow that a branch filter skips leaves its checks "Pending". A pull request that requires them cannot merge (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax). `ci.yml` has no `merge_group` trigger today. So the trigger must reach `main` before the rule does (Phase 2). The four required checks are `typecheck + unit`, `traceability (Doorstop)`, `compile gate (Tint + WebGL2)` and `user journeys (packed tarball, WebGPU)`. They keep their names.
 3. The documentation does not say which file a `merge_group` run reads. The events page gives `GITHUB_SHA` as "SHA of the merge group" and says nothing about the workflow file. It does not say it for `pull_request` either. Not checked. Trial result T0 observes it.
 4. How the jobs behave on `merge_group`. Read from `ci.yml` at `d28e833a`, not from a run. The step `diff` of `change scope` sets `code=true` for every event except `pull_request`. The step `move` runs only on a `pull_request`, so `move` is `none`. The `draft` output reads `github.event.pull_request.draft`. It is empty on `merge_group`, so it is `false`. Result: every job runs on a merge group, as on a push to `main`.
@@ -152,13 +152,15 @@ These are the limits of option A.
 6. In `downstream.yml` and `package-smoke.yml` the `move scope` job runs the checker only on a `pull_request`. Neither workflow has a `merge_group` trigger, so neither runs on a merge group. They stay on the push to `main`, 6.3 runner minutes for one merge. Neither is a required check.
 7. A merge group of documents only still runs every gate, as a push to `main` does. Proposal `0055` gives documents-only pull requests a light scope. The proposal does not extend it to the merge group (decision D4).
 8. Whether the `main` commit after a merge queue merge has the SHA of the merge group was not checked. The design needs it. The `change scope` job on `main` looks for a successful merge group run at `github.sha`. The page names the branches of the merge queue "temporary branches". It does not say that `main` takes the tested commit. Trial result T2 observes it. If the SHAs differ, `tested` stays false, and the run on `main` is a full run as today.
-9. Whether a merge by an actor with bypass skips the merge queue was not checked. One fetch of https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/merging-a-pull-request-with-a-merge-queue reported that an administrator can "directly merge" with "bypass branch protections". A second fetch did not confirm the sentence. Not checked. The page does not say whether the merge queue is skipped. The REST page gives the `bypass_mode` values `always`, `pull_request` and `exempt` (https://docs.github.com/en/rest/repos/rules). The trial cannot show this, because its ruleset has no bypass actor. The first merge of Phase 2 observes it. `CLAUDE.md` (Merging) lets an agent bypass only the review requirement, on the owner's go-ahead. The agent's way to keep that rule is open until then.
-10. Whether `enable_pr_auto_merge` puts a pull request in the merge queue was not checked. The documentation says that "Merge when ready" turns on auto-merge if the pull request cannot enter the merge queue at once (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/automatically-merging-a-pull-request). One fetch of the page on merging with a merge queue reported the GraphQL mutation `enqueuePullRequest` for an immediate add. A second fetch did not confirm it. Not checked. Trial result T3 observes the MCP tool.
+9. Whether the REST `merge_pull_request` by a bypass actor passes the merge queue is open. The documentation confirms that an administrator can merge directly in the web UI, with a checkbox and under branch protection rules (https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/merging-a-pull-request-with-a-merge-queue; one fetch reported it, a second did not confirm it). It is silent on rulesets, on `bypass_mode` and on the REST call. The REST page gives the `bypass_mode` values `always`, `pull_request` and `exempt` (https://docs.github.com/en/rest/repos/rules). The trial shows it as result T7, because script 1 copies the bypass actors of `main` into the trial ruleset. The first merge of Phase 2 shows it again on `main`. `CLAUDE.md` (Merging) lets an agent bypass only the review requirement, on the owner's go-ahead. The agent's way to keep that rule is open until then.
+10. Whether `enable_pr_auto_merge` puts a pull request in the merge queue was not checked. The documentation says that the setting "Allow auto-merge" does not apply to a branch that requires a merge queue, and that "Merge when ready" can enable auto-merge on such a branch even when the setting is off (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-auto-merge-for-pull-requests-in-your-repository). Those sentences are about the web UI. The GraphQL page lists `enqueuePullRequest` ("Add a pull request to the merge queue") and `enablePullRequestAutoMerge` (https://docs.github.com/en/graphql/reference/pulls). The orchestrating session reports `allow_auto_merge` as false today. Which call the MCP tool makes was not checked. Trial result T3 observes it, in both states of the pull request.
 11. The queue settings are starting values. The measurements give no value for them. With `grouping_strategy: ALLGREEN`, every pull request in a group must pass. A failing group is removed and its entries are tested again. That costs more runs than the model counts.
 12. A merge queue adds a wait for a lone pull request: at most `min_entries_to_merge_wait_minutes`, plus one `ci` run (35 to 45 minutes, inference). The gain is capacity, not the wait of one pull request.
 13. A `merge_group` ref is not `refs/heads/main`, so `cancel-in-progress` is `true` for it in the `concurrency` of `ci.yml`. The behaviour of a rebuilt group was not checked.
 14. The ruleset, the queue and the plan are the owner's. An agent has no admin access.
 15. The data cover one window of 3.76 hours. The rate of 10.4 merges an hour is the rate of the refactoring, not a general rate.
+16. A called workflow cannot hold more permissions than its caller. The reuse page says: "permissions can only be maintained or reduced—not elevated—throughout the chain" (https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows). The sentence is in the note on nested workflows. The page does not state the direct case in those words. The workflow-syntax page says that permissions not specified in a `permissions` key are set to `none` (https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax). Whether `actions: read` is the permission that lists workflow runs was not confirmed on that page. Not checked. `publish.yml` calls `ci.yml` under `contents: read`, so the plan gives `verify` both permissions (section "What it touches").
+17. The REST contract of `bypass_actors`: the documentation returns the property only to a user with write access to the ruleset (https://docs.github.com/en/rest/repos/rules). Scripts 1 and 3 stop when it comes back null, so that a `PUT` does not drop the bypass actor that the agents rely on.
 
 ## Owner's decisions
 
@@ -166,7 +168,7 @@ This proposal rests on no entry of `docs/owner-decisions.md` and touches none. A
 
 ### Decisions for the owner
 
-- D1. Run script 1, so that an agent session can run the trial of Phase 1. This is the only owner action of Phase 1.
+- D1. Approve the trial of Phase 1. The owner actions of Phase 1 are listed in one place in section "Phase 1, the trial": the go-ahead for a workflow push to `ci-trial`, the setting `allow_auto_merge` if T3 needs it, script 1, a removal of a queue entry if T0 times out, and script 2.
 - D2. After the trial: amend the sentence of `0147` "Each skipped gate runs on `main` after the merge", as the text above says.
 - D3. After the trial: how an agent merges under the merge queue. Choose auto-merge on the owner's go-ahead. Or choose a direct merge by a bypass actor, if the first merge of Phase 2 shows that it skips the merge queue. The second choice goes beyond `CLAUDE.md` (Merging), which allows a bypass of the review requirement only. It needs a change of `CLAUDE.md`. D3 is decided after step 4 of Phase 2.
 - D4. Whether a merge group of documents only runs a light scope. Recommendation: no, in the first version. Every gate runs, as on a push to `main`.
@@ -185,7 +187,15 @@ Not applicable: this proposal adds no author-facing name, rule of the language, 
 
 Files of the implementation. None is changed by this proposal.
 
-- `.github/workflows/ci.yml`: the trigger `merge_group` with `types: [checks_requested]`. `change scope` gets the permission `actions: read` and an output `tested`. It is true on a push to `main` when a successful `ci` run of the event `merge_group` exists for `github.sha`. A failed lookup sets `tested` to false. The trial branch carries the same step. Every gate job gets `tested != 'true'` in its `if`. A ready pull request gets the light scope for the heavy gates, with the skipped-job rule of `0147`. The `LINT.IfChange` block of `ci.yml` names `AGENTS.md`, so `AGENTS.md` changes with it.
+- `.github/workflows/ci.yml`, in implementing pull request 1 (Phase 2, step 2):
+  - The trigger `merge_group` with `types: [checks_requested]`.
+  - The job `change scope` lists `contents: read` and `actions: read`.
+  - A new output `tested` of `change scope`. It is true on a push to `main` when a successful `ci` run of the event `merge_group` exists for `github.sha`. A failed lookup sets it to false.
+  - Every job except `change scope` gets `tested != 'true'` in its `if`. This includes the aggregators `check` (`typecheck + unit`), `typescript5` and `typescript6`, and `traceability`. Reason: `check` and the two others run under `always()` and fail when a need is `skipped` (`test "$QUALITY" = success`). Without the condition, every queue merge makes a red run on `main`.
+  - A push run on `main` then shows every job skipped except `change scope`. No required check applies to a push, so a skipped job blocks nothing.
+  - The `LINT.IfChange` block of `ci.yml` names `AGENTS.md`, so `AGENTS.md` changes with it.
+- `.github/workflows/ci.yml`, in implementing pull request 2: the light scope of a ready pull request for the heavy gates, with the skipped-job rule of `0147`.
+- `.github/workflows/publish.yml`. This workflow calls `ci.yml` (`verify: uses: ./.github/workflows/ci.yml`) under `permissions: contents: read` at the top. The documentation says a called workflow cannot have more permissions than its caller (see risk 16; the page is being re-read). If `change scope` asks for `actions: read`, a release or a manual dispatch fails at start. So the job `verify` of `publish.yml` gets `contents: read` and `actions: read`. The job-level block replaces the top-level block, so it lists both.
 - `.github/workflows/downstream.yml` and `.github/workflows/package-smoke.yml`: no change to the triggers. The implementer reads their `scope` jobs again for `merge_group`.
 - `docs/language-design.md` Rule 13.4 and `reqs/rules/RULE-1304.md`. `bun run reqs:sync` regenerates the item. A person runs `doorstop review RULE-1304`. An agent does not clear it.
 - `AGENTS.md` (Tests and CI) and `CLAUDE.md` (Merging, Waiting on a pull request): the merge step, and the meaning of "ready" for the light scope.
@@ -193,107 +203,175 @@ Files of the implementation. None is changed by this proposal.
 
 `docs/structure-slice-playbook.md` is not in this list. The tooling session owns it.
 
+Verification of pull request 1 for `publish.yml`: dispatch `publish.yml` with `dry_run: true` (the default) from the branch of pull request 1, and read that `verify` starts. This costs one full `ci` run. It is not done by this proposal.
+
 ## Phase 1, the trial
 
 **Purpose.** The trial answers the open questions of section "Risks and limits" without a merge queue on `main`. It changes no file on `main` and no ruleset of `main`.
 
+**Facts that shape it.** The orchestrating session read these on the live repository on 2026-11-25 with read-only `GET` calls. I did not read them. The owner type is `Organization` and the repository is public. The ruleset `main` (id 23876895) has the rules `deletion`, `non_fast_forward`, `pull_request` (`require_code_owner_review: true`) and `required_status_checks`. Its `bypass_actors` is one repository role (`actor_id` 5) with `bypass_mode: always`. Its `conditions` include `~DEFAULT_BRANCH`. The repository setting `allow_auto_merge` is false. `allow_merge_commit` is true.
+
 **Parts.**
 
-1. The branch `ci-trial`, cut from `main` by the trial session. Its `ci.yml` has the trigger `merge_group` and the output `tested`. Its `push` trigger names `ci-trial` instead of `main`. Its `concurrency` group and its `tested` condition treat `ci-trial` as `ci.yml` treats `refs/heads/main`. Without this, the second push run cancels the first, and T5 shows the opposite of what happens on `main`. It has one probe step that fails on `merge_group` when the file `trial-fail` exists in the tree. These edits stay on `ci-trial`. The branch never merges into `main`.
-2. A second ruleset `ci-trial`. It targets only `refs/heads/ci-trial`. It has the four required checks and the `merge_queue` rule. It has no bypass actor and no review rule.
-3. Trial pull requests. Each one targets `ci-trial`, changes one documents file, and so starts neither `downstream` nor `package compatibility`.
+1. The branch `ci-trial`, cut from `main` by the trial session. It carries every edit before the second ruleset exists (see "Order"). The `ci.yml` of `ci-trial` differs from `main` in these ways:
+   - It has the trigger `merge_group` and the output `tested`, as in pull request 1.
+   - Its `push` trigger names `ci-trial` instead of `main`.
+   - Its `concurrency` group and its `tested` condition treat `ci-trial` as `ci.yml` treats `refs/heads/main`. Without this, the second push run cancels the first.
+   - One probe step in the job `change scope` fails on `merge_group` when the file `trial-fail` exists in the tree. It sits in `change scope`, so a failing group stops early.
+     These edits stay on `ci-trial`. The branch never merges into `main`.
+2. A second ruleset `ci-trial`. It targets only `refs/heads/ci-trial`. It holds:
+   - the four required checks, with `do_not_enforce_on_create: true`;
+   - the `merge_queue` rule, with `max_entries_to_build` 1 (one group at a time, so that two groups cannot fill the 20-job limit), `max_entries_to_merge` 2, `min_entries_to_merge` 2 and a wait of 2 minutes;
+   - a copy of the `pull_request` rule and of the `bypass_actors` of the ruleset `main`, which script 1 reads from the live ruleset.
+3. Trial pull requests. Each one targets `ci-trial` and changes one documents file, so it starts neither `downstream` nor `package compatibility`. A documents-only pull request skips `compile gate` and `user journeys` on the pull request, which the ruleset reads as success. It runs all four required checks on the merge group.
 
-**What the trial shows.**
+**Order. This order is a requirement.** After script 1 the ruleset `ci-trial` refuses a direct push, so the session could no longer create the branch or push `ci.yml`.
 
-- T0. A `merge_group` run starts, and it reads the `ci.yml` of `ci-trial`, not that of `main`.
+1. The trial session cuts `ci-trial` and pushes every edit of part 1. It tells the owner.
+2. The owner runs script 1. It stops if the branch does not exist.
+3. After script 1, a fix of `ci.yml` on `ci-trial` goes through a trial pull request. Or the owner runs script 2, and then script 1 again.
+
+**What the trial shows.** Each result has its decisive read and its time limit in the table below.
+
+- T0. A `merge_group` run starts and reads the `ci.yml` of `ci-trial`, not that of `main`.
 - T1. A ready trial pull request runs the light scope and enters the merge queue. The merge group run reports the four required checks.
-- T2. The commit of `ci-trial` after a merge queue merge has the SHA of the merge group. The push run takes the `tested` path.
-- T3. `enable_pr_auto_merge` of the MCP tools puts a trial pull request in the merge queue.
+- T2. The commit of `ci-trial` after a merge queue merge has the SHA of the merge group. The push run takes the `tested` path: every job skipped except `change scope`.
+- T3. `enable_pr_auto_merge` of the MCP tools, with the repository setting `allow_auto_merge` as it is. The session tries it on a pull request that is clean and on one that is not clean.
 - T4. A merge group that fails (the file `trial-fail` is present) removes its pull request. `ci-trial` does not move.
-- T5. Two trial pull requests merged one after the other: the first run on `ci-trial` is not cancelled by the second.
-- T6. A `pull_request` run starts for a base other than `main` (the documentation says that no `branches` filter excludes it; not checked in a run).
+- T5. Two trial pull requests enqueued together form one merge group. The branch gets one push event. `tested` is looked up for the head only. The first push run is not cancelled.
+- T6. A `pull_request` run starts for a base other than `main`.
+- T7. The session calls the REST `merge_pull_request` as a bypass actor on a trial pull request that needs a Code Owner review. The result is one of: refused, queued, or merged past the queue. The result also shows whether a pull request that needs a Code Owner review can enter the queue. Agents pass the review today only by bypass.
 
-**What the trial cannot show.** The trial is not `main`. It cannot show six things. First, the bypass actors of the ruleset `main` (risk 9). Second, the review rule and the Code Owner rule of `main`. Third, the ruleset of `main` aggregated with the new rule. Fourth, the real load of the refactoring. Fifth, the light scope of a code pull request. Sixth, `downstream` and `package compatibility` on `main`. The ruleset of `main` and the ruleset `ci-trial` are separate. When several rulesets target one branch, their rules are aggregated, and the most restrictive version of a rule applies (https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets). The documentation does not say that a `merge_queue` rule stays on the branches its ruleset targets. This is not checked. Script 1 stops if the ruleset `main` could match `ci-trial`.
+| Result | Decisive read (tools of the session)                                                                                                        | Time limit                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0     | `actions_list` `list_workflow_runs` with `event: merge_group`, then `list_workflow_jobs`: the probe step exists only in the `ci-trial` file | 10 minutes after the enqueue. If no such run appears, the owner removes the entry in the web UI. The session has no tool to dequeue (not checked). |
+| T1     | `list_workflow_jobs` of the merge group run: the four required job names with `conclusion: success`                                         | 60 minutes                                                                                                                                         |
+| T2     | `list_commits` on `ci-trial` against `head_sha` of the merge group run, then `list_workflow_runs` with `event: push`, `list_workflow_jobs`  | 15 minutes after the merge                                                                                                                         |
+| T3     | The return of `enable_pr_auto_merge`, then `pull_request_read` (state, merged)                                                              | 20 minutes                                                                                                                                         |
+| T4     | The conclusion of the merge group run, `pull_request_read` (still open), `list_commits` (unchanged)                                         | 15 minutes                                                                                                                                         |
+| T5     | `list_workflow_runs` with `event: push` (one run for the head), `list_commits`                                                              | 40 minutes                                                                                                                                         |
+| T6     | `list_workflow_runs` with `event: pull_request` for the trial pull request                                                                  | 5 minutes                                                                                                                                          |
+| T7     | The status code and body of `merge_pull_request`, then `pull_request_read`                                                                  | Immediate                                                                                                                                          |
 
-**Cost.** Model: five trial pull requests (T1 and T2 share one, T3, T4, and two for T5). Each one costs about 86 runner minutes. The light scope is 18.3. One full `ci` on the merge group is 66.7. One short push run is about 1. The total is about 430 runner minutes. This is 36% of one hour of capacity at 20 jobs. The trial should start after the backlog of `main` has drained under Phase 0. The wall time is not measured. Inference: one to three hours.
+The session has no GraphQL tool. The pull request object of the REST API may have no queue field, and GraphQL `mergeQueueEntry` may be needed. Not checked. The session infers the queue state from runs and the pull request state.
 
-**Who does what.**
+**Rehearsal of script 3.** Script 3 runs first against the ruleset `ci-trial`, as a round trip with no change and a read-back (its variable `$name`). Its first run is not on `main`. The rollback block is rehearsed the same way.
 
-1. The owner runs script 1 once (D1). This is the only step that needs the owner.
-2. The trial session cuts `ci-trial` from `main` and pushes the edited `ci.yml` to it.
-3. The trial session opens the trial pull requests with `create_pull_request`, base `ci-trial`.
-4. The trial session reads each run and records T0 to T6 in this proposal ("Configuration and validation record").
-5. The trial session closes its pull requests when it is done. It does not delete the ruleset or the branch.
-6. The owner runs script 2 when the record is complete.
+**What the trial cannot show.** The trial is not `main`. It cannot show: the ruleset of `main` aggregated with a new rule, the real load of the refactoring, the light scope of a code pull request, `downstream` and `package compatibility` on `main`, and a group of more than two entries. The copy of the bypass actors and of the `pull_request` rule shows the behaviour of those rules on a queue branch. It does not show the ruleset `main` itself.
 
-An open point: pushing a file of `.github/workflows/` may need a permission that the session's token does not have. Not checked. If the push is refused, the trial session reports it, and the owner pushes the branch. The task that produced this proposal said: do not edit a file of `.github/workflows/` on a branch that has a pull request. That rule binds the session that wrote this proposal. The trial session needs the owner's go-ahead for such an edit (D1).
+**Cost.** Model: seven trial pull requests (T1 and T2 share one, T3 two, T4 one, T5 two, T7 one). The cost has these parts:
+
+- One push of `ci.yml` to `ci-trial` is a full run: about 67 runner minutes, each time.
+- Each pull request runs the light scope: 18.3 runner minutes.
+- Each merge group runs a full `ci`: 66.7 runner minutes. T5 shares one group for two pull requests.
+- Each push run on `ci-trial` costs about 1 runner minute if T2 holds, and about 67 if it fails.
+
+The model gives about 530 runner minutes. The reviewers' range for the worst case is 500 to 830. I did not re-derive their basis. The worst case is a failed T2 (a full push run after each merge) and two fixes of `ci.yml`. At 20 jobs, 830 runner minutes are 69% of one hour. Run the trial when the backlog of `main` has drained under Phase 0, and when the refactoring leaves slots free.
+
+**Owner actions of Phase 1, in one place.**
+
+1. Give the go-ahead for the trial session to push a file of `.github/workflows/` to `ci-trial` (D1). The session first tries a one-line workflow push. If the token is refused, the owner pushes the branch.
+2. Turn on the repository setting `allow_auto_merge`, if T3 needs it. T3 shows whether the exemption for queue branches covers the mutation of the MCP tool. Not checked.
+3. Run script 1 once, after the branch exists.
+4. Remove a queue entry in the web UI if T0 times out.
+5. Run script 2 when the record is complete.
+
+The session does everything else: it cuts and pushes the branch, opens the pull requests, reads the runs, and writes T0 to T7 into this proposal ("Configuration and validation record"). It closes its pull requests when it is done. It does not delete the ruleset or the branch.
+
+The task that produced this proposal said: do not edit a file of `.github/workflows/` on a branch that has a pull request. That rule binds the session that wrote this proposal. The trial session needs the owner's go-ahead for such an edit (D1).
 
 ## Phase 2, the order on `main`
 
 1. The owner decides D2 to D4 with the observed results of the trial.
-2. Implementing pull request 1 adds the `merge_group` trigger and the `tested` output to `ci.yml` on `main`. It changes nothing else. `tested` is never true before a merge group exists, and a failed lookup gives false, so the run on `main` is unchanged. It merges under today's rules.
-3. The owner runs script 3. It adds the `merge_queue` rule to the ruleset `main`. A merge group now finds the trigger on `main`.
-4. The first merge under the queue is a documents-only pull request. It shows whether an actor with bypass skips the merge queue (risk 9). The owner decides D3 with that result.
+2. Implementing pull request 1 changes `ci.yml` and `publish.yml` as the list of files says: the trigger, the permissions, `tested` and the conditions. It changes nothing else. `tested` is never true before a merge group exists, and a failed lookup gives false, so the run on `main` is unchanged. It merges under today's rules. Verify `publish.yml` with the dry-run dispatch.
+3. The orchestrating session sends one message to every session (below). The owner runs script 3 with `$name = 'main'`. It adds the `merge_queue` rule. A merge group now finds the trigger on `main`.
+4. The first merge under the merge queue is a documents-only pull request, while the other sessions wait. It shows whether the REST `merge_pull_request` by a bypass actor passes the queue (risk 9). The owner decides D3 with that result.
 5. Implementing pull request 2 gives the ready pull request the light scope, and edits Rule 13.4, `AGENTS.md` and `CLAUDE.md`. Until it merges, a ready pull request runs the full scope and the merge group runs it again. That is safe, and it costs more.
+
+**The message of step 3.** The orchestrating session sends it to every session before script 3. It says:
+
+1. From the stated time, do not call `merge_pull_request`.
+2. Merge as the trial found: the procedure of T1 to T3 and T7.
+3. Do not push to a pull request that is in the merge queue.
+4. On an error, stop and report. Do not retry.
+
+**The trigger for the rollback.** Run the rollback when one of these holds. A merge call is refused for two sessions. Or a pull request waits in the merge queue for 90 minutes and no `merge_group` run exists for it. The rollback replaces the ruleset with the backup. The fate of queued entries is not checked. The orchestrating session reads the entries and tells their sessions to enqueue again or to merge by the old way.
 
 ## Evidence for the implementation
 
 Each item is a future result, not a completed one.
 
-- The results T0 to T6 of the trial.
-- A push to `main` with no merge group runs every gate.
+- The results T0 to T7 of the trial, and the rehearsal of script 3 on `ci-trial`.
+- The dry-run dispatch of `publish.yml` from the branch of pull request 1.
+- A push to `main` with no merge group runs every gate. A push to `main` after a queue merge shows every job skipped except `change scope`, and no red run.
 - A failing merge group on `main`: the pull request leaves the queue and `main` does not move.
 - `bun run reqs:sync`, `python scripts/doorstop-check.py -C` and `bun run docs:impact`, with the flagged items read by a person.
 
 ## Scripts for the owner (PowerShell, GitHub CLI)
 
-The scripts target Windows PowerShell 5.1 and later. They were not run: no `pwsh` was available. They use the `gh api` calls below.
+**Nobody ran these scripts.** No `pwsh` is installed in the sessions that wrote and reviewed them, and the orchestrating session's permission classifier refused to run a downloaded PowerShell. Reviewers read them line by line. The scripts target Windows PowerShell 5.1 and later.
+
+How to run a block: paste it into a PowerShell console. A saved `.ps1` file may meet the execution policy of Windows PowerShell 5.1. This is an inference and not checked. Run `gh auth login` once. Never paste a token in the conversation.
+
+The scripts use these `gh api` calls:
 
 - Create: `POST /repos/{owner}/{repo}/rulesets` (https://docs.github.com/en/rest/repos/rules, read verbatim).
-- Update: `PUT /repos/{owner}/{repo}/rulesets/{id}`. Delete: `DELETE /repos/{owner}/{repo}/rulesets/{id}`. The page read for them was a summary, not the verbatim text. Not checked.
-- The permission that creates a ruleset is not stated on the pages that were read. An administrator of the repository has it today (inference).
+- Update: `PUT /repos/{owner}/{repo}/rulesets/{id}`. Delete: `DELETE /repos/{owner}/{repo}/rulesets/{id}`. The page read for them was a summary. Not checked.
+- The permission that creates a ruleset is not stated on the pages that were read. An administrator has it today (inference).
 
-Common step, once: run `gh auth login`. Never paste a token in the conversation.
+The guard of script 1 checks every ruleset of the repository, disabled ones included. It stops when a ruleset includes `~ALL`, includes the name `refs/heads/ci-trial`, or has a pattern with `*`, `?` or `[`. It does not check classic branch protection rules.
 
 ### Script 1. Create the trial ruleset (Phase 1, D1)
 
-WARNING: this script creates a ruleset. It does not change the ruleset `main`. Script 2 removes it. The script stops before it creates anything if the ruleset `main` could match `ci-trial`.
+WARNING: this script creates a ruleset. It does not change the ruleset `main`. After it runs, the branch `ci-trial` refuses a direct push. Script 2 removes the ruleset.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'typeshade/typeshade'
+gh api "repos/$repo/branches/ci-trial" --silent
+if ($LASTEXITCODE -ne 0) { throw 'The branch ci-trial does not exist. Ask the trial session to push it first.' }
 $sets = gh api "repos/$repo/rulesets" | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Cannot list the rulesets.' }
 if ($sets | Where-Object { $_.name -eq 'ci-trial' }) { throw 'The ruleset ci-trial exists.' }
-foreach ($s in $sets) {
-  $d = (gh api "repos/$repo/rulesets/$($s.id)" | ConvertFrom-Json)
+$details = foreach ($s in $sets) {
+  $d = gh api "repos/$repo/rulesets/$($s.id)" | ConvertFrom-Json
   if ($LASTEXITCODE -ne 0) { throw "Cannot read the ruleset $($s.name)." }
-  $inc = @($d.conditions.ref_name.include)
-  if ($inc -contains '~ALL' -or $inc -contains 'refs/heads/ci-trial' -or ($inc | Where-Object { $_ -like '*`**' })) {
-    throw "The ruleset '$($d.name)' could match ci-trial. Stop and ask the agent."
+  $d
+}
+foreach ($d in $details) {
+  foreach ($inc in @($d.conditions.ref_name.include)) {
+    if ($inc -eq '~ALL' -or $inc -eq 'refs/heads/ci-trial' -or $inc -match '[\*\?\[]') {
+      throw "The ruleset '$($d.name)' could match ci-trial. Stop and ask the agent."
+    }
   }
 }
+$main = $details | Where-Object { $_.name -eq 'main' } | Select-Object -First 1
+if (-not $main) { throw 'No ruleset named main.' }
+if ($null -eq $main.bypass_actors) { throw 'bypass_actors of main is null. Stop and ask the agent.' }
+$prRule = @($main.rules | Where-Object { $_.type -eq 'pull_request' })
 $checks = @('typecheck + unit','traceability (Doorstop)','compile gate (Tint + WebGL2)','user journeys (packed tarball, WebGPU)') |
   ForEach-Object { @{ context = $_ } }
-$body = @{
+$rules = @(
+  @{ type = 'required_status_checks'; parameters = @{
+       do_not_enforce_on_create = $true
+       strict_required_status_checks_policy = $false
+       required_status_checks = @($checks) } },
+  @{ type = 'merge_queue'; parameters = @{
+       check_response_timeout_minutes = 90; grouping_strategy = 'ALLGREEN'
+       max_entries_to_build = 1; max_entries_to_merge = 2; merge_method = 'MERGE'
+       min_entries_to_merge = 2; min_entries_to_merge_wait_minutes = 2 } }
+) + $prRule
+$OutputEncoding = New-Object Text.UTF8Encoding($false)
+@{
   name = 'ci-trial'; target = 'branch'; enforcement = 'active'
-  bypass_actors = @()
+  bypass_actors = @($main.bypass_actors)
   conditions = @{ ref_name = @{ include = @('refs/heads/ci-trial'); exclude = @() } }
-  rules = @(
-    @{ type = 'required_status_checks'; parameters = @{
-         strict_required_status_checks_policy = $false
-         required_status_checks = @($checks) } },
-    @{ type = 'merge_queue'; parameters = @{
-         check_response_timeout_minutes = 90; grouping_strategy = 'ALLGREEN'
-         max_entries_to_build = 2; max_entries_to_merge = 2; merge_method = 'MERGE'
-         min_entries_to_merge = 1; min_entries_to_merge_wait_minutes = 1 } }
-  )
-} | ConvertTo-Json -Depth 20
-$body | gh api -X POST "repos/$repo/rulesets" --input -
-if ($LASTEXITCODE -ne 0) { throw 'The POST failed. Nothing was created. Send the error text to the agent.' }
+  rules = $rules
+} | ConvertTo-Json -Depth 20 | gh api -X POST "repos/$repo/rulesets" --input -
+if ($LASTEXITCODE -ne 0) { throw 'The POST failed. After a timeout or a 5xx, list the rulesets to see whether ci-trial exists. Then send the error text to the agent.' }
 ```
 
-1. Run the script.
+1. Paste the block and press Enter.
 2. If it throws, send the message to the agent.
 3. Tell the trial session that the ruleset exists.
 
@@ -304,63 +382,103 @@ WARNING: this script deletes the ruleset `ci-trial` and the branch `ci-trial`. A
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'typeshade/typeshade'
-$id = ((gh api "repos/$repo/rulesets" | ConvertFrom-Json) | Where-Object { $_.name -eq 'ci-trial' } | Select-Object -First 1).id
+$list = gh api "repos/$repo/rulesets" | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Cannot list the rulesets. Nothing was deleted.' }
+$id = ($list | Where-Object { $_.name -eq 'ci-trial' } | Select-Object -First 1).id
 if ($id) {
   gh api -X DELETE "repos/$repo/rulesets/$id"
   if ($LASTEXITCODE -ne 0) { throw 'The ruleset DELETE failed. The branch is kept.' }
-}
-gh api -X DELETE "repos/$repo/git/refs/heads/ci-trial"
-if ($LASTEXITCODE -ne 0) { throw 'The branch DELETE failed.' }
+  Write-Host "Deleted the ruleset ci-trial ($id)."
+} else { Write-Host 'No ruleset ci-trial found.' }
+gh api "repos/$repo/branches/ci-trial" --silent
+if ($LASTEXITCODE -eq 0) {
+  gh api -X DELETE "repos/$repo/git/refs/heads/ci-trial"
+  if ($LASTEXITCODE -ne 0) { throw 'The branch DELETE failed.' }
+  Write-Host 'Deleted the branch ci-trial.'
+} else { Write-Host 'No branch ci-trial found.' }
 ```
 
-### Script 3. Add the merge queue to `main` (Phase 2 only, step 3)
+### Script 3. Add the merge queue (rehearsal on `ci-trial`, then Phase 2 step 3 on `main`)
 
-WARNING: this script replaces the ruleset `main` (PUT). Run it only after implementing pull request 1 is merged. The script saves the old ruleset first, and the second block restores it. A merge queue with no `merge_group` trigger on `main` stops every merge.
+WARNING: with `$name = 'main'` this script replaces the ruleset `main` (PUT). Run it on `main` only after implementing pull request 1 is merged, and only after the rehearsal on `ci-trial` has passed. A merge queue with no `merge_group` trigger on `main` stops every merge. The script writes a backup with a time stamp and stops if the backup cannot be written.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'typeshade/typeshade'
-$id = ((gh api "repos/$repo/rulesets" | ConvertFrom-Json) | Where-Object { $_.name -eq 'main' } | Select-Object -First 1).id
-if (-not $id) { throw 'No ruleset named main.' }
+$name = 'ci-trial'   # Rehearsal: a round trip with no change. Set to 'main' for Phase 2, step 3.
+$list = gh api "repos/$repo/rulesets" | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Cannot list the rulesets.' }
+$id = ($list | Where-Object { $_.name -eq $name } | Select-Object -First 1).id
+if (-not $id) { throw "No ruleset named $name." }
 $raw = (gh api "repos/$repo/rulesets/$id") -join "`n"
-[IO.File]::WriteAllText("$PWD\ruleset-main-backup.json", $raw, (New-Object Text.UTF8Encoding($false)))
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($raw)) { throw 'Cannot read the ruleset.' }
 $rs = $raw | ConvertFrom-Json
-Write-Host ('Rules now: ' + (($rs.rules | ForEach-Object { $_.type }) -join ', '))
-if ($rs.rules | Where-Object { $_.type -eq 'required_linear_history' }) { throw 'The rule required_linear_history conflicts with merge_method MERGE. Stop and ask the agent.' }
+if ($null -eq $rs.bypass_actors) { throw 'bypass_actors is null. The token may not read it. Stop.' }
+Write-Host ('Rule types: ' + (($rs.rules | ForEach-Object { $_.type }) -join ', '))
+Write-Host ('Bypass actors: ' + (ConvertTo-Json @($rs.bypass_actors) -Compress -Depth 10))
+$backup = Join-Path $PWD ("ruleset-$name-backup-" + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.json')
+[IO.File]::WriteAllText($backup, $raw, (New-Object Text.UTF8Encoding($false)))
+if (-not (Test-Path $backup) -or (Get-Item $backup).Length -eq 0) { throw 'The backup is empty. Stop.' }
+Write-Host "Backup: $backup"
+$rules = @($rs.rules)
+if ($name -eq 'main') {
+  if ($rs.rules | Where-Object { $_.type -eq 'merge_queue' }) { throw 'The ruleset already has merge_queue.' }
+  if ($rs.rules | Where-Object { $_.type -eq 'required_linear_history' }) { throw 'required_linear_history conflicts with merge_method MERGE. Stop.' }
+  $file = gh api "repos/$repo/contents/.github/workflows/ci.yml?ref=main" | ConvertFrom-Json
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot read ci.yml on main.' }
+  $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($file.content -replace '\s', '')))
+  if ($text -notmatch '(?m)^\s*merge_group\s*:') { throw 'ci.yml on main has no merge_group trigger. Stop.' }
+  $queue = @{ type = 'merge_queue'; parameters = @{
+    check_response_timeout_minutes = 90; grouping_strategy = 'ALLGREEN'
+    max_entries_to_build = 2; max_entries_to_merge = 4; merge_method = 'MERGE'
+    min_entries_to_merge = 2; min_entries_to_merge_wait_minutes = 10 } }
+  $rules = @($rs.rules) + $queue
+}
 $OutputEncoding = New-Object Text.UTF8Encoding($false)
-$queue = @{ type = 'merge_queue'; parameters = @{
-  check_response_timeout_minutes = 90; grouping_strategy = 'ALLGREEN'
-  max_entries_to_build = 2; max_entries_to_merge = 4; merge_method = 'MERGE'
-  min_entries_to_merge = 2; min_entries_to_merge_wait_minutes = 10 } }
-$rules = @($rs.rules | Where-Object { $_.type -ne 'merge_queue' }) + $queue
 @{ name = $rs.name; target = $rs.target; enforcement = $rs.enforcement
    conditions = $rs.conditions; bypass_actors = $rs.bypass_actors; rules = $rules } |
   ConvertTo-Json -Depth 20 | gh api -X PUT "repos/$repo/rulesets/$id" --input -
-if ($LASTEXITCODE -ne 0) { throw 'The PUT failed. The ruleset is unchanged. Send the error text to the agent.' }
+if ($LASTEXITCODE -ne 0) { throw 'The PUT failed. Send the error text to the agent.' }
+$after = (gh api "repos/$repo/rulesets/$id") -join "`n" | ConvertFrom-Json
+$want = ($rules | ForEach-Object { $_.type } | Sort-Object) -join ','
+$got = ($after.rules | ForEach-Object { $_.type } | Sort-Object) -join ','
+if ($want -ne $got) { throw "Rule types differ after the PUT. Wanted $want. Got $got." }
+if ((ConvertTo-Json @($after.bypass_actors) -Compress -Depth 10) -ne (ConvertTo-Json @($rs.bypass_actors) -Compress -Depth 10)) { throw 'bypass_actors changed. Roll back.' }
+Write-Host 'The read-back matches.'
 ```
 
-Rollback, a second block. Run it only when the agent says so.
+WARNING for the rollback below: it replaces the ruleset with the backup file. It loses every edit made to the ruleset after the backup. The fate of queued entries is not checked. Run it in the folder of script 3, with the backup path that script 3 printed. Run it only when the agent says so.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'typeshade/typeshade'
-$id = ((gh api "repos/$repo/rulesets" | ConvertFrom-Json) | Where-Object { $_.name -eq 'main' } | Select-Object -First 1).id
-$old = Get-Content "ruleset-main-backup.json" -Raw | ConvertFrom-Json
+$name = 'ci-trial'   # The same value as in script 3.
+$backup = 'PASTE THE BACKUP PATH THAT SCRIPT 3 PRINTED'
+if (-not (Test-Path $backup)) { throw 'The backup file does not exist.' }
+$id = ((gh api "repos/$repo/rulesets" | ConvertFrom-Json) | Where-Object { $_.name -eq $name } | Select-Object -First 1).id
+if (-not $id) { throw "No ruleset named $name." }
+$old = Get-Content $backup -Raw | ConvertFrom-Json
 $OutputEncoding = New-Object Text.UTF8Encoding($false)
 @{ name = $old.name; target = $old.target; enforcement = $old.enforcement
    conditions = $old.conditions; bypass_actors = $old.bypass_actors; rules = $old.rules } |
   ConvertTo-Json -Depth 20 | gh api -X PUT "repos/$repo/rulesets/$id" --input -
 if ($LASTEXITCODE -ne 0) { throw 'The rollback failed. Send the error text to the agent.' }
+$after = (gh api "repos/$repo/rulesets/$id") -join "`n" | ConvertFrom-Json
+$want = ($old.rules | ForEach-Object { $_.type } | Sort-Object) -join ','
+$got = ($after.rules | ForEach-Object { $_.type } | Sort-Object) -join ','
+if ($want -ne $got) { throw "Rule types differ after the rollback. Wanted $want. Got $got." }
+Write-Host 'The rollback matches the backup.'
 ```
 
-The field names and limits of `merge_queue` come from https://docs.github.com/en/rest/repos/rules: `check_response_timeout_minutes` 1 to 360, `grouping_strategy` `ALLGREEN` or `HEADGREEN`, `max_entries_to_build` 0 to 100, `max_entries_to_merge` 0 to 100, `merge_method` `MERGE`, `SQUASH` or `REBASE`, `min_entries_to_merge` 0 to 100, `min_entries_to_merge_wait_minutes` 0 to 360. The page gives no default. The values in script 3 are starting values chosen from the measurements. A group of at most 4 gives at most 2.6 groups an hour at 10.4 merges. A `ci` run takes 32.5 minutes at the median, unloaded. The values of script 1 make a small group, so that a trial does not wait. The `GET` response may hold fields that the `PUT` body does not accept. Not checked: if a `PUT` is refused, remove the field the error names.
+The field names and limits of `merge_queue` come from https://docs.github.com/en/rest/repos/rules: `check_response_timeout_minutes` 1 to 360, `grouping_strategy` `ALLGREEN` or `HEADGREEN`, `max_entries_to_build` 0 to 100, `max_entries_to_merge` 0 to 100, `merge_method` `MERGE`, `SQUASH` or `REBASE`, `min_entries_to_merge` 0 to 100, `min_entries_to_merge_wait_minutes` 0 to 360. The page gives no default. The values in script 3 for `main` are starting values chosen from the measurements. A group of at most 4 gives at most 2.6 groups an hour at 10.4 merges. A `ci` run takes 32.5 minutes at the median, unloaded. The values of script 1 make a small group, so that a trial does not wait. The `GET` response may hold fields that the `PUT` body does not accept. Not checked. If a `PUT` is refused, remove the field that the error names.
 
 ### What was not checked
 
-- The plan of the account, and whether the queue is available. The ceiling of 20 jobs is observed. The Free value is from the documentation.
+- The availability of the `merge_queue` rule type for this repository. The owner type and the existing ruleset are known (reported by the orchestrating session). The `POST` of script 1 answers this at no cost.
+- The plan of the account. The ceiling of 20 jobs is observed. The Free value is from the documentation.
 - Which file a `merge_group` run reads (risk 3).
 - The push to `main` after a queue merge: its SHA, and whether `push` workflows run. The pages do not say.
-- Whether a bypass actor skips the queue, and whether `enable_pr_auto_merge` enters the queue.
+- Whether the REST `merge_pull_request` by a bypass actor passes the queue (risk 9), and whether `enable_pr_auto_merge` enters the queue.
 - Whether a `merge_queue` rule stays on the branches that its ruleset targets (the documentation is silent).
 - Whether the token of the trial session may push a workflow file.
 - The exact `ref_name` JSON for one branch. The documentation gives an example with `refs/heads/main`. `refs/heads/ci-trial` follows by analogy (inference).
@@ -369,8 +487,10 @@ The field names and limits of `merge_queue` come from https://docs.github.com/en
 - Whether the minutes cost money. The repository is public. This was not checked on a GitHub page. The limit that binds is the number of concurrent jobs.
 - The run time of a pull request of a larger batch (option D).
 - The speculative rebuilds of a merge queue with `max_entries_to_build` above 1.
+- The state of the merge queue through the tools of the session (risk in the table of results).
 - `downstream` and `package compatibility` times from creation to the last job: not computed.
-- The three scripts: not run.
+- The live settings quoted under "Facts that shape it": not read by the author.
+- All three scripts: not run.
 
 ### Draft impact estimate
 
@@ -415,13 +535,29 @@ Round 2. Date: 2026-11-25. Revision reviewed: commit `8f2e01f8`, the three-phase
 12. Phase 0 changes the merge cadence of every session on the authority of the orchestrating session. Kept: the proposal says so. The owner sees it before deciding on the rest.
 13. The reviewer could not read the full text of the pages, the plan and ownership of the repository, and PowerShell 5.1 behaviour. These stay in "What was not checked".
 
+Round 3. Date: 2026-11-25. Revision reviewed: commit `ea0635cb`. Reviewers: four Sonnet sub-agents of the orchestrating session (script 1; scripts 2 and 3; the REST contract against the documentation and read-only `GET` calls on the live repository; the trial design against the workflow files) and one skeptic for each defect above minor. The orchestrating session reported 21 standing defects, 2 uncertain, 3 refuted and 13 minor, and sent a work order (items A to K). I checked items C and D against `ci.yml` and `publish.yml` myself. Answers:
+
+- A (order of the trial). Fixed: the session pushes `ci-trial` with every edit before script 1. Script 1 stops if the branch does not exist. `do_not_enforce_on_create: true` is set. A later fix goes through a trial pull request, or script 2 and script 1 run again.
+- B (what the trial shows). Fixed: script 1 copies `bypass_actors` and the `pull_request` rule of `main` (result T7). Script 3 runs first as a round trip on `ci-trial`, with a read-back. Group formation is result T5 (`min_entries_to_merge` 2, two pull requests). `max_entries_to_build` is 1 in the trial.
+- C (`tested`). Confirmed in `ci.yml`: `check` fails when `quality` or `unit-pinned` is `skipped`. Fixed: every job except `change scope` carries the condition, aggregators included. A push run on `main` shows every job skipped except `change scope`. Pull request 1 carries the conditions.
+- D (`publish.yml`). Confirmed: its top-level `permissions` is `contents: read` and `verify` calls `ci.yml`. Fixed: `verify` gets `contents: read` and `actions: read`, `publish.yml` joins "What it touches", and a dry-run dispatch verifies it. The documentation sentence covers nested chains. The direct case and the `actions: read` need are not confirmed (risk 16).
+- E (owner actions). Fixed: one list in Phase 1. `allow_auto_merge` is a setting the owner may need to turn on. T3 runs in both states of the pull request.
+- F (script 3). Fixed: time-stamped backup, exit-code and empty-text checks, stop when `merge_queue` exists, stop when `bypass_actors` is null, print the bypass actors and rule types, a code guard that reads `ci.yml` on `main`, a read-back, and a rollback with its own WARNING.
+- G (script 2). Fixed: the list call is checked, each deletion is reported, and the branch is tested before the delete. I did not check the status that a missing ref returns (the page does not say).
+- H (Phase 2 for the agents). Fixed: the message, the trigger for the rollback and its effect on queued entries (not checked).
+- I (observations). Fixed: a table gives each result its decisive read and its time limit. The session has no GraphQL tool and no tool to dequeue.
+- J (text). Fixed: risks 1 and 9 and the cost range. The range is about 530 (model) to 830 (the reviewers' worst case, basis not re-derived).
+- K (minor). Fixed: how to run a block, the wording after a timeout, what the guard checks, the probe step in `change scope`, the skipped checks of a documents-only pull request, and an absolute path for the backup.
+- Refuted, no action: printing the new ruleset id, deleting `gh-readonly-queue/ci-trial/*` branches, and the claim that T3 cannot run while `allow_auto_merge` is false.
+- Not checked: the live facts of the work order (I did not read them), and all three scripts (nobody ran them).
+
 ### Approval and plan record
 
 This record does not yet apply. Acceptance will require the owner's decisions D1 to D4, the trial record, the independent review, and the merge of this file with `status: accepted`. No approval, schedule or responsibility is recorded here.
 
 ### Configuration and validation record
 
-This record does not yet apply. Delivery will require the accepted revision, the implementing commits and pull requests, the delivered configuration, the observed results of the trial results T0 to T6 and of the evidence listed above, and a record of each deviation from the approved text.
+This record does not yet apply. Delivery will require the accepted revision, the implementing commits and pull requests, the delivered configuration, the observed results of the trial results T0 to T7 and of the evidence listed above, and a record of each deviation from the approved text.
 
 ## What it owes downstream
 
