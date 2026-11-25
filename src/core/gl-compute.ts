@@ -2,7 +2,6 @@ import type { GlComputeProgram } from './passes/gl-compute.js';
 
 const FIRST_PASS = 1;
 const ALL_RUN = 2;
-const GUARD = '_fp64';
 import { atomicStep } from './scalar-arith.js';
 import { runPassesAsync, type PassInvocation } from './phase-schedule.js';
 import { byteSize, pack } from './host-entry.js';
@@ -14,6 +13,7 @@ import { BATCH_LAYERS, MAX_ROOT_WORDS, shape, wordTexture } from './gl-compute/w
 import { renderable, imageIn, imageOut } from './gl-compute/storage-textures.js';
 import { readBack, type Rect, type PackBuffer } from './gl-compute/read-back.js';
 import { NO_FRAGMENTS, scatterSources } from './gl-compute/scatter-program.js';
+import { GUARD, declaresGuard, guardTexture } from './gl-compute/fp64-guard.js';
 export { compile } from './gl-compute/program-cache.js';
 
 export { gpuDone };
@@ -45,30 +45,6 @@ export interface GlComputeReport {
 
 interface Inv extends PassInvocation {
   readonly index: number;
-}
-
-function declaresGuard(vertex: string): boolean {
-  return new RegExp(`^uniform (?:\\w+ )*sampler2D ${GUARD};$`, 'm').test(vertex);
-}
-
-function guardTexture(gl: WebGL2RenderingContext, t: WebGLTexture): WebGLTexture {
-  gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 1, 1);
-  gl.texSubImage2D(
-    gl.TEXTURE_2D,
-    0,
-    0,
-    0,
-    1,
-    1,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([255, 255, 255, 255]),
-  );
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  return t;
 }
 
 interface Chunk {
