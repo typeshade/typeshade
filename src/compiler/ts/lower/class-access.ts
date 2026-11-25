@@ -300,18 +300,10 @@ const callOf = (
   // asks for (Rule 8.19, change 0134 item 1).
   withSpan(userCallExpr(decl, args, at, sourceFile), sourceFile, at);
 
-/** Whether a parameter of the function being lowered has the name the writers print for the
- *  module value `b`, and the read cannot be made the value's. A parameter keeps the name its
- *  signature gives it, so the IR tells it from a constant by the node (`param`, `constref`) and
- *  the text does not: WGSL and GLSL print both as the bare name. The writers respell a helper's
- *  parameter that hides a constant its function reads (`sanitizeVariableNames`), and the spelling
- *  plan respells a constant that an entry reads under the name of one of its parameters
- *  (`planSpellings`). A module variable is a `varref`, and the IR holds a name once in a function:
- *  the oracle, the code generator and the debugger look a `param` and a `varref` up by name in one
- *  environment, and the optimizer's inliner substitutes by name. Beside a parameter of its name a
- *  read of the variable would read the parameter, whatever the writers print. Source parameters
- *  are separated from module variables before lowering (#1009); retain this guard for a
- *  synthesized parameter that would otherwise reintroduce that ambiguous IR slot. */
+// Why: the IR holds a name once in a function, and the oracle, the code generator, the debugger
+// and the inliner look a `param` and a `varref` up by name in one environment, so a module
+// variable beside a parameter of its name would read the parameter. Source parameters are
+// separated from module variables before lowering (#1009); this guard covers a synthesized one.
 function hiddenByParameter(b: Binding, scope: LoweringScope): boolean {
   const holder = scope.resolveIr(irNameOf(b));
   if (holder === undefined || holder === b || holder.kind !== 'param') return false;
