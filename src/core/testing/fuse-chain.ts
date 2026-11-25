@@ -1,7 +1,7 @@
 import { emitModule, lowerWgsl } from '../backends/wgsl.js';
 import type { CpuValue } from '../cpu-runtime.js';
 import { fusedFor, uniformFor, type Fused } from '../fuse-entry.js';
-import { assignSlots, groupCalls, type Group, type GroupCall } from '../fuse-group.js';
+import { assignSlots, type GroupCall } from '../fuse-group.js';
 import type { EntryBinding, Layout } from '../host-entry.js';
 import type {
   FuseArray,
@@ -12,13 +12,11 @@ import type {
   KernelParam,
 } from '../host-kernel.js';
 import type { FuncDecl, ModuleDecl, ShaderType } from '../ir/index.js';
-import { f32T } from '../ir/index.js';
 import { toPortable } from '../ir/portable.js';
-import { KERNEL_TREE } from '../kernel-tree.js';
 import { layoutOf, calleesOf, closureOf } from '../manifest.js';
 import { compileModule } from '../oracle.js';
 import { fnWrites } from '../passes/effects.js';
-import { lowerKernelPruned as lowerKernel, type KernelPlan } from '../passes/kernel-prune.js';
+import { lowerKernelPruned as lowerKernel } from '../passes/kernel-prune.js';
 import { proveKernels } from '../passes/parallel-loop.js';
 import type { OptLevel } from '../passes/opt/optimize.js';
 import { VERSION } from '../version.js';
@@ -26,28 +24,30 @@ import { compile } from '../../compiler/ts/compile.js';
 import { authorTypeText } from '../../compiler/ts/context.js';
 import { bareArrays, hostTypeOf } from '../../compiler/ts/host-face.js';
 import { describeRead } from '../../compiler/ts/kernel-loops.js';
-import {
-  copy,
-  runKernelPlan,
-  scheduleKernelPlan,
-  tailOf,
-  type PlanFold,
-  type PlanSchedule,
-} from './kernel-plan.js';
-import {
-  mulberry32,
-  type ChainAccess,
-  type ChainArray,
-  type ChainCall,
-  type ChainCorpus,
-} from './random-ir.js';
-
-export interface Lowered {
-  readonly face: KernelFace;
-  readonly m: ModuleDecl;
-  readonly fn: string;
-  readonly plan: KernelPlan;
-}
+import { copy, runKernelPlan, scheduleKernelPlan, tailOf } from './kernel-plan.js';
+import { type ChainArray, type ChainCorpus } from './random-ir.js';
+import { callArgs, type Inputs } from './fuse-chain/inputs.js';
+import { outcomeOf, type Outcome } from './fuse-chain/apart.js';
+import type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+import { accessOf, arrayOfN } from './fuse-chain/chain-parts.js';
+export { scratchStencil, contractAgainstFacts } from './fuse-chain/stencil.js';
+export type { Stencil } from './fuse-chain/stencil.js';
+export { groupCallsOf, planChain } from './fuse-chain/grouping.js';
+export { readsAtCounter, forgetsReduction, forgetsLength } from './fuse-chain/wrong-faces.js';
+export type { Lowered, PlannedGroup, GroupFault, GroupStep, FusedRun } from './fuse-chain/types.js';
+export {
+  modelGroups,
+  reasonOf,
+  shapeOf,
+  foldLevels,
+  dispatchesOf,
+  scratchFates,
+} from './fuse-chain/model.js';
+export type { Reason, ModelGroup, Fate } from './fuse-chain/model.js';
+export { runApart } from './fuse-chain/apart.js';
+export type { Outcome } from './fuse-chain/apart.js';
+export { lengthOf, tripsOf, inputsOf, withScratchContents, callArgs } from './fuse-chain/inputs.js';
+export type { Sizes, ScalarOf, Inputs } from './fuse-chain/inputs.js';
 
 function spell(t: ShaderType): string {
   if (t.kind === 'struct') return t.name;
@@ -241,371 +241,6 @@ export function lowerChain(c: ChainCorpus): Lowered[] | { none: string } {
   return out;
 }
 
-export function readsAtCounter(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: {
-        ...fuse,
-        facts: fuse.facts.map((f) => ({
-          ...f,
-          arrays: f.arrays.map((a) =>
-            a.access === 'read' ? { param: a.param, access: a.access, atI: true } : a,
-          ),
-        })),
-      },
-    },
-  };
-}
-
-export function forgetsReduction(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: {
-        ...fuse,
-        facts: fuse.facts.map(({ fold: _fold, ...f }) => ({ ...f, reduces: false })),
-      },
-    },
-  };
-}
-
-export function forgetsLength(low: Lowered): Lowered {
-  const fuse = low.face.fuse!;
-  return {
-    ...low,
-    face: {
-      ...low.face,
-      fuse: { ...fuse, facts: fuse.facts.map(({ bare: _bare, ...f }) => f) },
-    },
-  };
-}
-
-export interface Sizes {
-  readonly n: number;
-  readonly m: number;
-}
-
-export const lengthOf = (a: ChainArray, s: Sizes): number => s[a.length.of] * a.length.times;
-
-export function tripsOf(call: ChainCall, s: Sizes): number {
-  const length = s[call.over];
-  return length <= call.start ? 0 : Math.ceil((length - call.start) / call.step);
-}
-
-export type ScalarOf = (
-  kind: 'f32' | 'i32' | 'u32',
-  rnd: () => number,
-  boundary: boolean,
-) => number;
-
-export interface Inputs {
-  readonly arrays: ReadonlyMap<string, readonly CpuValue[]>;
-  readonly scalars: readonly (readonly CpuValue[])[];
-}
-
-function valueOf(
-  t: ShaderType,
-  c: ChainCorpus,
-  rnd: () => number,
-  boundary: boolean,
-  scalarOf: ScalarOf,
-): CpuValue {
-  if (t.kind === 'scalar') return scalarOf(t.scalar as 'f32', rnd, boundary);
-  if (t.kind === 'vec')
-    return Array.from({ length: t.n }, () => scalarOf(t.elem as 'f32', rnd, boundary));
-  if (t.kind === 'struct')
-    return Object.fromEntries(
-      c.module.structs
-        .find((s) => s.name === t.name)!
-        .fields.map((f) => [f.name, valueOf(f.type, c, rnd, boundary, scalarOf)]),
-    );
-  throw new Error(`no generated value of ${t.kind}`);
-}
-
-export function inputsOf(c: ChainCorpus, s: Sizes, variant: number, scalarOf: ScalarOf): Inputs {
-  const rnd = mulberry32(c.seed * 7919 + s.n * 31 + s.m * 5 + variant);
-  const boundary = variant % 2 === 1;
-  const arrays = new Map<string, readonly CpuValue[]>();
-  for (const a of c.arrays)
-    arrays.set(
-      a.id,
-      Array.from({ length: lengthOf(a, s) }, () =>
-        a.scratch ? (0 as CpuValue) : valueOf(a.elem, c, rnd, boundary, scalarOf),
-      ),
-    );
-  const scalars = c.calls.map((call) =>
-    call.args.flatMap((a) =>
-      'scalar' in a ? [valueOf(a.scalar, c, rnd, boundary, scalarOf)] : [],
-    ),
-  );
-  return { arrays, scalars };
-}
-
-export function withScratchContents(
-  c: ChainCorpus,
-  inputs: Inputs,
-  variant: number,
-  scalarOf: ScalarOf,
-): Inputs {
-  const rnd = mulberry32(c.seed * 104729 + variant);
-  const arrays = new Map(inputs.arrays);
-  for (const a of c.arrays)
-    if (a.scratch)
-      arrays.set(
-        a.id,
-        Array.from({ length: inputs.arrays.get(a.id)!.length }, () =>
-          valueOf(a.elem, c, rnd, false, scalarOf),
-        ),
-      );
-  return { arrays, scalars: inputs.scalars };
-}
-
-export function callArgs(
-  c: ChainCorpus,
-  j: number,
-  inputs: Inputs,
-  store?: ReadonlyMap<string, CpuValue>,
-): CpuValue[] {
-  let next = 0;
-  return c.calls[j]!.args.map((a) =>
-    'array' in a
-      ? (store?.get(a.array) ?? (inputs.arrays.get(a.array) as unknown as CpuValue))
-      : inputs.scalars[j]![next++]!,
-  );
-}
-
-export interface Outcome {
-  readonly arrays: Readonly<Record<string, CpuValue>>;
-  readonly results: Readonly<Record<string, CpuValue>>;
-}
-
-function outcomeOf(
-  c: ChainCorpus,
-  store: ReadonlyMap<string, CpuValue>,
-  results: Map<string, CpuValue>,
-): Outcome {
-  return {
-    arrays: Object.fromEntries(
-      c.arrays.filter((a) => a.written && !a.scratch).map((a) => [a.id, store.get(a.id)!]),
-    ),
-    results: Object.fromEntries(results),
-  };
-}
-
-export function runApart(c: ChainCorpus, inputs: Inputs, precision: 'f32' | 'f64'): Outcome {
-  const cpu = compileModule(c.module, { precision });
-  const store = new Map<string, CpuValue>(
-    [...inputs.arrays].map(([id, v]) => [id, copy(v as unknown as CpuValue)]),
-  );
-  const results = new Map<string, CpuValue>();
-  c.calls.forEach((call, j) => {
-    const r = cpu.fns[call.fn]!(...callArgs(c, j, inputs, store));
-    if (r !== undefined) results.set(call.fn, r);
-  });
-  return outcomeOf(c, store, results);
-}
-
-export function groupCallsOf(
-  c: ChainCorpus,
-  lows: readonly Lowered[],
-  inputs: Inputs,
-): GroupCall[] {
-  const byId = new Map(c.arrays.map((a) => [a.id, a]));
-  return c.calls.map((call, j) => {
-    const low = lows[j]!;
-    const first = scheduleKernelPlan(low.m, call.fn, low.plan, callArgs(c, j, inputs)).steps[0];
-    return {
-      k: low.face,
-      arrays: call.args.map((a) => ('array' in a ? byId.get(a.array) : undefined)),
-      range:
-        first === undefined
-          ? { start: 0, n: 0 }
-          : { start: first.args['_start'] as number, n: first.args['_n'] as number },
-      tier: 'webgpu',
-    };
-  });
-}
-
-export function planChain(c: ChainCorpus, calls: readonly GroupCall[], limit: number): Group[] {
-  return groupCalls(calls, limit, new Set(c.arrays.filter((a) => a.scratch)));
-}
-
-export type Reason =
-  | 'continues'
-  | 'empty'
-  | 'reduces'
-  | 'trips'
-  | 'start'
-  | 'step'
-  | 'waw'
-  | 'war'
-  | 'read'
-  | 'write'
-  | 'limit';
-
-export interface ModelGroup {
-  readonly calls: readonly number[];
-  readonly because?: Reason;
-  readonly contracted: readonly string[];
-}
-
-interface Reach {
-  readonly reads: boolean;
-  readonly writes: boolean;
-  readonly atI: boolean;
-  readonly measures: boolean;
-}
-
-function reaches(call: ChainCall): Map<string, Reach> {
-  const out = new Map<string, Reach>();
-  for (const a of call.access)
-    out.set(a.array, {
-      reads: a.reads !== 'none',
-      writes: a.writes !== 'none',
-      atI: a.reads !== 'shifted' && a.writes !== 'strided',
-      measures: a.measures,
-    });
-  return out;
-}
-
-export function modelGroups(c: ChainCorpus, s: Sizes, limit: number): ModelGroup[] {
-  const info = c.calls.map((call) => {
-    const trips = tripsOf(call, s);
-    return {
-      call,
-      trips,
-      apart: call.continues ? ('continues' as const) : trips === 0 ? ('empty' as const) : undefined,
-      by: reaches(call),
-    };
-  });
-  const scratch = c.arrays.filter((a) => a.scratch).map((a) => a.id);
-  const held = (members: readonly number[]): Set<string> => {
-    const out = new Set<string>();
-    for (const id of scratch) {
-      const users = info.flatMap((m, i) => (m.by.has(id) ? [i] : []));
-      if (users.length === 0 || !users.every((i) => members.includes(i))) continue;
-      const seen = users.map((i) => info[i]!.by.get(id)!);
-      if (seen.filter((r) => r.writes).length === 1 && seen.every((r) => r.atI && !r.measures))
-        out.add(id);
-    }
-    return out;
-  };
-  const groups: { calls: number[]; because?: Reason }[] = [];
-  const refusal = (members: readonly number[], next: number): Reason | undefined => {
-    const n = info[next]!;
-    const last = info[members[members.length - 1]!]!;
-    if (n.apart !== undefined) return n.apart;
-    if (last.apart !== undefined) return last.apart;
-    if (last.call.reduces > 0) return 'reduces';
-    const first = info[members[0]!]!;
-    if (first.trips !== n.trips) return 'trips';
-    if (first.call.start !== n.call.start) return 'start';
-    if (first.call.step !== n.call.step) return 'step';
-    for (const m of members.map((g) => info[g]!))
-      for (const [id, mine] of m.by) {
-        const theirs = n.by.get(id);
-        if (theirs === undefined) continue;
-        if (mine.writes && theirs.writes) return 'waw';
-        if (theirs.writes && mine.reads) return 'war';
-        if (mine.writes && theirs.reads) {
-          if (!theirs.atI) return 'read';
-          if (!mine.atI) return 'write';
-        }
-      }
-    const bound = new Set<string>();
-    for (const g of members) for (const id of info[g]!.by.keys()) bound.add(id);
-    for (const id of n.by.keys()) bound.add(id);
-    for (const id of held([...members, next])) bound.delete(id);
-    return bound.size + n.call.reduces > limit ? 'limit' : undefined;
-  };
-  info.forEach((_, i) => {
-    const last = groups[groups.length - 1];
-    const no = last === undefined ? undefined : refusal(last.calls, i);
-    if (last !== undefined && no === undefined) last.calls.push(i);
-    else groups.push({ calls: [i], ...(no !== undefined ? { because: no } : {}) });
-  });
-  return groups.map((g) => ({
-    ...g,
-    contracted: g.calls.length > 1 ? [...held(g.calls)] : [],
-  }));
-}
-
-export function reasonOf(why: string | undefined): Reason | undefined {
-  if (why === undefined) return undefined;
-  const m = /^\S+ and \S+ run as two dispatches because (.*)$/.exec(why);
-  if (m === null) return undefined;
-  const t = m[1]!;
-  if (/^the trip counts differ/.test(t)) return 'trips';
-  if (/^the loops start at different indices/.test(t)) return 'start';
-  if (/^the loops step by different amounts/.test(t)) return 'step';
-  if (/^one dispatch would bind \d+ storage buffers/.test(t)) return 'limit';
-  if (/^\S+ writes an array \S+ also writes$/.test(t)) return 'waw';
-  if (/^\S+ writes an array \S+ reads$/.test(t)) return 'war';
-  if (/^\S+ reads `/.test(t)) return 'read';
-  if (/^\S+ writes `/.test(t)) return 'write';
-  if (/^\S+ has a loop with a `continue`$/.test(t)) return 'continues';
-  if (/^\S+ has a loop that runs no iteration$/.test(t)) return 'empty';
-  if (/^\S+ reduces$/.test(t)) return 'reduces';
-  return undefined;
-}
-
-export const shapeOf = (gs: readonly { readonly calls: readonly number[] }[]): number[][] =>
-  gs.map((g) => [...g.calls]);
-
-export function foldLevels(trips: number): number {
-  let levels = 0;
-  for (let partials = Math.ceil(trips / KERNEL_TREE); partials > 1; levels++)
-    partials = Math.ceil(partials / KERNEL_TREE);
-  return levels;
-}
-
-export function dispatchesOf(c: ChainCorpus, s: Sizes, model: readonly ModelGroup[]): number {
-  let n = 0;
-  for (const g of model) {
-    const trips = tripsOf(c.calls[g.calls[0]!]!, s);
-    if (trips === 0) continue;
-    n += 1 + (c.calls[g.calls[g.calls.length - 1]!]!.reduces > 0 ? foldLevels(trips) : 0);
-  }
-  return n;
-}
-
-export type Fate = 'local' | 'outside' | 'writers' | 'offset' | 'measured';
-
-export function scratchFates(c: ChainCorpus, groups: readonly ModelGroup[]): Map<string, Fate> {
-  const fates = new Map<string, Fate>();
-  for (const a of c.arrays) {
-    if (!a.scratch) continue;
-    const users = c.calls.flatMap((call, j) =>
-      call.access.some((x) => x.array === a.id) ? [j] : [],
-    );
-    const seen = users.map((j) => reaches(c.calls[j]!).get(a.id)!);
-    const home = groups.find((g) => users.every((j) => g.calls.includes(j)));
-    fates.set(
-      a.id,
-      home?.contracted.includes(a.id) === true
-        ? 'local'
-        : home === undefined || home.calls.length < 2
-          ? 'outside'
-          : seen.filter((r) => r.writes).length !== 1
-            ? 'writers'
-            : seen.some((r) => !r.atI)
-              ? 'offset'
-              : 'measured',
-    );
-  }
-  return fates;
-}
-
-export interface PlannedGroup {
-  readonly calls: readonly number[];
-  readonly contracted?: readonly object[];
-}
-
 export function fuseGroup(
   lows: readonly Lowered[],
   calls: readonly GroupCall[],
@@ -619,9 +254,6 @@ export function fuseGroup(
   );
   return 'none' in fused ? fused : { fused, arrays };
 }
-
-export type GroupFault =
-  'skip-first-iteration' | 'drop-last-level' | 'zero-partials' | 'local-starts-at-one';
 
 export function localsStartingAtOne(wgsl: string, locals: number): string {
   let n = 0;
@@ -656,20 +288,6 @@ export function fusedUniform(
     }),
   );
   return { values, n: calls[idx[0]!]!.range!.n - (skip ? 1 : 0) };
-}
-
-export type GroupStep =
-  | {
-      readonly entry: string;
-      readonly wg: readonly [number, number, number];
-      readonly values: Record<string, unknown>;
-    }
-  | { readonly clear: readonly string[] };
-
-export interface FusedRun {
-  readonly steps: readonly GroupStep[];
-  readonly partials: PlanSchedule['partials'];
-  readonly folds: readonly PlanFold[];
 }
 
 export function fusedRun(
@@ -823,62 +441,6 @@ export function runGrouped(
   }
   return outcomeOf(c, store, results);
 }
-
-export interface Stencil {
-  readonly at: number;
-  readonly array: ChainArray;
-}
-
-export function scratchStencil(c: ChainCorpus, model: readonly ModelGroup[]): Stencil | undefined {
-  for (let at = 1; at < model.length; at++) {
-    if (model[at]!.because !== 'read' || model[at - 1]!.calls.length !== 1) continue;
-    const [p, q] = [model[at - 1]!.calls[0]!, model[at]!.calls[0]!];
-    const array = c.arrays.find((a) => {
-      if (!a.scratch) return false;
-      const users = c.calls.flatMap((call, j) =>
-        call.access.some((x) => x.array === a.id) ? [j] : [],
-      );
-      const by = (j: number): ChainAccess => c.calls[j]!.access.find((x) => x.array === a.id)!;
-      return (
-        users.length === 2 &&
-        users.every((j) => j === p || j === q) &&
-        by(p).writes === 'i' &&
-        by(q).reads === 'shifted' &&
-        !by(p).measures &&
-        !by(q).measures
-      );
-    });
-    if (array !== undefined) return { at, array };
-  }
-  return undefined;
-}
-
-export function contractAgainstFacts(
-  groups: readonly PlannedGroup[],
-  stencil: Stencil,
-): PlannedGroup[] {
-  const { at, array } = stencil;
-  return [
-    ...groups.slice(0, at - 1),
-    { calls: [groups[at - 1]!.calls[0]!, groups[at]!.calls[0]!], contracted: [array] },
-    ...groups[at]!.calls.slice(1).map((j) => ({ calls: [j] })),
-    ...groups.slice(at + 1),
-  ];
-}
-
-const accessOf = (
-  param: string,
-  array: string,
-  reads: ChainAccess['reads'],
-  writes: ChainAccess['writes'],
-): ChainAccess => ({ param, array, reads, writes, conditional: false, measures: false });
-
-const arrayOfN = (id: string, o: { written: boolean; scratch: boolean }): ChainArray => ({
-  id,
-  elem: f32T,
-  length: { of: 'n', times: 1 },
-  ...o,
-});
 
 export function stencilChain(): ChainCorpus {
   const source = `"use typeshade";

@@ -1,5 +1,5 @@
-import { consoleArgs, consoleTableRows, type ConsoleMethod, type ConsoleSink } from '../console.js';
-import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt, StructDecl } from '../ir/index.js';
+import { consoleArgs, consoleTableRows, type ConsoleMethod } from '../console.js';
+import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.js';
 import type { SourceSpan } from '../ir/span.js';
 import { parameterLocalsOf } from '../ir/parameter-locals.js';
 import {
@@ -13,7 +13,6 @@ import {
   matVecShaped,
   matTransposeShaped,
   matColumn,
-  setMatColumn,
   matMulShaped,
   vecMatShaped,
   f32ToU32Sat,
@@ -37,66 +36,19 @@ import { barrierOutsideDispatch, isAtomicIntrinsic, isBarrierIntrinsic } from '.
 import { kernelTree, reductionIdentity, ScatterRun } from '../kernel-tree.js';
 import { fnWrites } from '../passes/effects.js';
 import { treeCombine, type LoopReduction, type TreeLoop } from '../passes/parallel-loop.js';
-
-export interface StepFrame {
-  readonly fnName: string;
-  readonly fnSpan: SourceSpan | undefined;
-  readonly callSpan: SourceSpan | undefined;
-  readonly env: Map<string, CpuValue>;
-  readonly types: ReadonlyMap<string, ShaderType>;
-  readonly parameterLocals?: ReadonlyMap<string, string>;
-  readonly stubbed: Set<string>;
-  current: Stmt | undefined;
-}
-
-export interface StepEvent {
-  readonly stmt: Stmt;
-  readonly frames: readonly StepFrame[];
-  readonly afterCall?: true;
-  readonly atomic?: 'before' | 'after';
-}
-
-export interface StepCtx {
-  readonly consts: Map<string, CpuValue>;
-  readonly overrides: Map<string, CpuValue>;
-  readonly decls: Map<string, FuncDecl>;
-  readonly bindings: Record<string, CpuValue>;
-  readonly vars: Record<string, CpuValue>;
-  readonly privates: Record<string, CpuValue>;
-  readonly lockstep: boolean;
-  readonly structs: Map<string, StructDecl>;
-  readonly bindingNames: Set<string>;
-  readonly gpuStubs: boolean;
-  readonly consoleSink?: ConsoleSink;
-  readonly invocation?: readonly number[];
-  readonly frames: StepFrame[];
-  readonly stubbed: Set<string>;
-  stubHits: number;
-  readonly copies: Map<string, readonly boolean[]>;
-  readonly trees?: ReadonlyMap<Stmt, TreeLoop>;
-  readonly f32?: boolean;
-  readonly journal?: JournalEntry[];
-  readonly words?: WordMemory;
-}
-
-export interface WordMemory {
-  load(root: number, word: number): number;
-  store(root: number, word: number, bits: number): void;
-}
-
-export interface JournalEntry {
-  readonly undo: () => void;
-  readonly redo: () => void;
-}
-
-export type Step<T> = Generator<StepEvent, T, void>;
-
-export type Signal =
-  | { kind: 'normal' }
-  | { kind: 'return'; value: CpuValue | undefined }
-  | { kind: 'break' }
-  | { kind: 'continue' }
-  | { kind: 'discard' };
+import type { StepFrame, StepCtx, Step, Signal } from './interp/types.js';
+import { rootName, whole, markStub } from './interp/stub-marks.js';
+import { setSlot, setColumn } from './interp/memory-writes.js';
+import { declaredTypes } from './interp/declared-types.js';
+export type {
+  StepFrame,
+  StepEvent,
+  StepCtx,
+  WordMemory,
+  JournalEntry,
+  Step,
+  Signal,
+} from './interp/types.js';
 const NORMAL: Signal = { kind: 'normal' };
 
 const noValueFor = (name: string): Error =>
@@ -374,33 +326,6 @@ export function* runFunction(
   }
 }
 
-function rootName(target: Expr): string | undefined {
-  let e = target;
-  for (;;) {
-    if (e.op === 'varref' || e.op === 'param') return e.name;
-    if (e.op === 'member' || e.op === 'index') {
-      e = e.base;
-      continue;
-    }
-    return undefined;
-  }
-}
-
-function whole(target: Expr): boolean {
-  return target.op === 'varref' || target.op === 'param';
-}
-
-function markStub(
-  frame: StepFrame | undefined,
-  name: string | undefined,
-  derived: boolean,
-  canClear: boolean,
-): void {
-  if (!frame || name === undefined) return;
-  if (derived) frame.stubbed.add(name);
-  else if (canClear) frame.stubbed.delete(name);
-}
-
 function isMemoryRoot(root: string | undefined, env: Map<string, CpuValue>, ctx: StepCtx): boolean {
   return (
     root !== undefined &&
@@ -408,47 +333,6 @@ function isMemoryRoot(root: string | undefined, env: Map<string, CpuValue>, ctx:
     !(root in ctx.privates) &&
     (root in ctx.bindings || root in ctx.vars)
   );
-}
-
-function setSlot(
-  container: Record<string | number, CpuValue>,
-  key: string | number,
-  value: CpuValue,
-  ctx: StepCtx,
-  logged: boolean,
-): void {
-  if (ctx.journal !== undefined && logged) {
-    const before = container[key] as CpuValue;
-    const after = value;
-    ctx.journal.push({
-      undo: () => {
-        container[key] = before;
-      },
-      redo: () => {
-        container[key] = after;
-      },
-    });
-  }
-  container[key] = value;
-}
-
-function setColumn(
-  m: number[],
-  j: number,
-  rows: number,
-  v: number[],
-  ctx: StepCtx,
-  logged: boolean,
-): void {
-  if (ctx.journal !== undefined && logged) {
-    const before = matColumn(m, j, rows);
-    const after = [...v];
-    ctx.journal.push({
-      undo: () => setMatColumn(m, j, rows, before),
-      redo: () => setMatColumn(m, j, rows, after),
-    });
-  }
-  setMatColumn(m, j, rows, v);
 }
 
 function* refOf(
@@ -772,40 +656,6 @@ export function makeCtx(
     }
   }
   return ctx;
-}
-
-function declaredTypes(decl: FuncDecl): ReadonlyMap<string, ShaderType> {
-  const out = new Map<string, ShaderType>();
-  for (const p of decl.params) out.set(p.name, p.type);
-  const walk = (body: readonly Stmt[]): void => {
-    for (const s of body) {
-      switch (s.s) {
-        case 'let':
-          out.set(s.name, s.expr.type);
-          break;
-        case 'var':
-          out.set(s.name, s.type);
-          break;
-        case 'if':
-          for (const arm of s.arms) walk(arm.body);
-          if (s.elseBody) walk(s.elseBody);
-          break;
-        case 'for':
-          walk([s.init]);
-          walk([s.update]);
-          walk(s.body);
-          break;
-        case 'switch':
-          for (const c of s.cases) walk(c.body);
-          if (s.defaultBody) walk(s.defaultBody);
-          break;
-        default:
-          break;
-      }
-    }
-  };
-  walk(decl.body);
-  return out;
 }
 
 export function drain<T>(g: Step<T>): T {

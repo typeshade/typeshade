@@ -1,10 +1,12 @@
 import ts from 'typescript';
-import { isBuiltinTypeLiteral } from '../compiler/ts/attribute-types.js';
 import { ATTRIBUTE_NAMES, WGSL_BUILTIN_NAMES } from './ambient.js';
-import { ATTRIBUTE_DOCS, BUILTIN_DOCS } from './docs.js';
-import { nodeAtPosition } from './positions.js';
-import { isGpuBrandedType } from './diagnostics.js';
-import type { TypeshadeCompletionItem, TypeshadeCompletionKind } from './types.js';
+import type { TypeshadeCompletionItem } from './types.js';
+import { enclosingStage } from './completions/builtin-stage.js';
+import { tsCompletions } from './completions/typescript-entries.js';
+import { VEC_SNIPPETS, attributeItem, builtinItem, vecSnippetItem } from './completions/items.js';
+import { isBuiltinIdLiteral, isAttributeSlot, isExpressionSlot } from './completions/slots.js';
+import { slotAt } from './completions/slot-at.js';
+import { isInCommentAt, triviaStartAt } from './completions/comment-at.js';
 
 const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', readonly string[]>> = {
   vertex: ['vertex_index', 'instance_index'],
@@ -30,229 +32,10 @@ const BUILTINS_BY_STAGE: Readonly<Record<'vertex' | 'fragment' | 'compute', read
   ],
 };
 
-const VEC_SNIPPETS: readonly { readonly label: string; readonly insertText: string }[] = [
-  { label: 'vec2', insertText: 'vec2(${1:x}, ${2:y})' },
-  { label: 'vec3', insertText: 'vec3(${1:x}, ${2:y}, ${3:z})' },
-  { label: 'vec4', insertText: 'vec4(${1:x}, ${2:y}, ${3:z}, ${4:w})' },
-];
-
-function decoratorsOf(node: ts.Node): readonly ts.Decorator[] {
-  if (ts.canHaveDecorators(node)) return ts.getDecorators(node) ?? [];
-  const modifiers = (node as { modifiers?: readonly ts.ModifierLike[] }).modifiers ?? [];
-  return modifiers.filter(ts.isDecorator);
-}
-
-function enclosingStage(
-  sourceFile: ts.SourceFile,
-  offset: number,
-): 'vertex' | 'fragment' | 'compute' | undefined {
-  let node: ts.Node | undefined = nodeAtPosition(sourceFile, offset);
-  while (node !== undefined && !ts.isParameter(node)) node = node.parent;
-  const fn = node?.parent;
-  if (fn === undefined || !ts.isFunctionDeclaration(fn)) return undefined;
-  for (const d of decoratorsOf(fn)) {
-    const text = d.getText(sourceFile);
-    if (/^@vertex\b/.test(text)) return 'vertex';
-    if (/^@fragment\b/.test(text)) return 'fragment';
-    if (/^@compute\b/.test(text)) return 'compute';
-  }
-  return undefined;
-}
-
-function attributeItem(name: string): TypeshadeCompletionItem {
-  return {
-    label: `@${name}`,
-    kind: 'attribute',
-    detail: `TypeShade attribute`,
-    documentation: ATTRIBUTE_DOCS[name],
-  };
-}
-
-function builtinItem(name: string): TypeshadeCompletionItem {
-  return {
-    label: name,
-    kind: 'builtin',
-    detail: 'WGSL builtin',
-    documentation: BUILTIN_DOCS[name],
-  };
-}
-
-function vecSnippetItem(snippet: {
-  readonly label: string;
-  readonly insertText: string;
-}): TypeshadeCompletionItem {
-  return {
-    label: snippet.label,
-    kind: 'snippet',
-    detail: `Construct a ${snippet.label} value`,
-    insertText: snippet.insertText,
-    insertTextFormat: 'snippet',
-  };
-}
-
-function kindOfTsCompletion(kind: ts.ScriptElementKind): TypeshadeCompletionKind {
-  const k = kind as string;
-  if (k === 'keyword') return 'keyword';
-  if (k === 'method' || k.includes('function')) return 'function';
-  if (k === 'class' || k === 'interface' || k === 'type' || k === 'alias' || k === 'enum')
-    return 'type';
-  if (k === 'property') return 'field';
-  return 'variable';
-}
-
-const LISTED_SWIZZLES: ReadonlySet<string> = new Set([
-  'x',
-  'y',
-  'z',
-  'w',
-  'r',
-  'g',
-  'b',
-  'a',
-  'xy',
-  'xyz',
-  'xyzw',
-  'rg',
-  'rgb',
-  'rgba',
-]);
-const SWIZZLE = /^(?:[xyzw]{1,4}|[rgba]{1,4})$/;
-
-function completesVectorMembers(
-  languageService: ts.LanguageService,
-  uri: string,
-  offset: number,
-): boolean {
-  const program = languageService.getProgram();
-  const sourceFile = program?.getSourceFile(uri);
-  if (program === undefined || sourceFile === undefined) return false;
-  let receiver: ts.Expression | undefined;
-  const visit = (node: ts.Node): void => {
-    if (node.getFullStart() > offset || node.getEnd() < offset) return;
-    if (ts.isPropertyAccessExpression(node) && node.expression.getEnd() < offset) {
-      receiver = node.expression;
-    }
-    node.forEachChild(visit);
-  };
-  visit(sourceFile);
-  return (
-    receiver !== undefined && isGpuBrandedType(program.getTypeChecker().getTypeAtLocation(receiver))
-  );
-}
-
-function tsCompletions(
-  languageService: ts.LanguageService,
-  uri: string,
-  offset: number,
-): TypeshadeCompletionItem[] {
-  const result = languageService.getCompletionsAtPosition(uri, offset, {});
-  if (!result) return [];
-  const vector = result.isMemberCompletion && completesVectorMembers(languageService, uri, offset);
-  return result.entries
-    .filter((entry) => !vector || !SWIZZLE.test(entry.name) || LISTED_SWIZZLES.has(entry.name))
-    .map((entry) => ({
-      label: entry.name,
-      kind: kindOfTsCompletion(entry.kind),
-      sortText: entry.sortText,
-    }));
-}
-
 type CompletionContext =
   | { readonly kind: 'comment' }
   | { readonly kind: 'string'; readonly literal: ts.LiteralLikeNode }
   | { readonly kind: 'code'; readonly slot: ts.Node };
-
-function rightmostLeaf(node: ts.Node): ts.Node {
-  for (;;) {
-    let last: ts.Node | undefined;
-    node.forEachChild((child) => {
-      last = child;
-    });
-    if (last === undefined) return node;
-    node = last;
-  }
-}
-
-function isTriviaOnly(text: string, start: number, end: number): boolean {
-  const scanner = ts.createScanner(
-    ts.ScriptTarget.Latest,
-    false,
-    ts.LanguageVariant.Standard,
-    text,
-    undefined,
-    start,
-    end - start,
-  );
-  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
-    if (kind < ts.SyntaxKind.FirstTriviaToken || kind > ts.SyntaxKind.LastTriviaToken) return false;
-  }
-  return true;
-}
-
-function endsInMissingNodeBefore(node: ts.Node, sourceFile: ts.SourceFile, pos: number): boolean {
-  const end = node.getEnd();
-  if (end > pos) return false;
-  const leaf = rightmostLeaf(node);
-  if (leaf.getFullStart() !== leaf.getEnd() || leaf.getEnd() !== end) return false;
-  return isTriviaOnly(sourceFile.text, end, pos);
-}
-
-function slotAt(sourceFile: ts.SourceFile, pos: number): ts.Node {
-  let node: ts.Node = sourceFile;
-  for (;;) {
-    let inside: ts.Node | undefined;
-    let prev: ts.Node | undefined;
-    let before: ts.Node | undefined;
-    let last: ts.Node | undefined;
-    node.forEachChild((child) => {
-      const fullStart = child.getFullStart();
-      const start = child.getStart(sourceFile);
-      const end = child.getEnd();
-      if (inside === undefined && start < pos && pos <= end) inside = child;
-      if (start < pos && end <= pos) prev = child;
-      if (before === undefined && fullStart <= pos && pos <= start) before = child;
-      if (fullStart <= pos) last = child;
-    });
-    const next =
-      inside ??
-      (prev !== undefined && endsInMissingNodeBefore(prev, sourceFile, pos) ? prev : undefined) ??
-      before ??
-      (last !== undefined && last.getFullStart() === last.getEnd() ? last : undefined);
-    if (next === undefined) return node;
-    node = next;
-  }
-}
-
-function isInCommentAt(text: string, triviaStart: number, pos: number): boolean {
-  const ranges = [
-    ...(ts.getLeadingCommentRanges(text, triviaStart) ?? []),
-    ...(ts.getTrailingCommentRanges(text, triviaStart) ?? []),
-  ];
-  return ranges.some((r) => {
-    if (pos <= r.pos) return false;
-    if (r.kind === ts.SyntaxKind.SingleLineCommentTrivia) return pos <= r.end;
-    const closed = text.startsWith('*/', r.end - 2);
-    return closed ? pos < r.end : pos <= r.end;
-  });
-}
-
-function triviaStartAt(slot: ts.Node, sourceFile: ts.SourceFile, pos: number): number {
-  let start = slot.getFullStart();
-  let node = slot;
-  for (;;) {
-    let holder: ts.Node | undefined;
-    for (const child of node.getChildren(sourceFile)) {
-      if (ts.isJSDoc(child)) continue;
-      if (child.getEnd() <= pos) start = child.getEnd();
-      else if (child.getFullStart() <= pos) {
-        holder = child;
-        break;
-      }
-    }
-    if (holder === undefined) return start;
-    node = holder;
-  }
-}
 
 function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext {
   const slot = slotAt(sourceFile, offset);
@@ -270,44 +53,6 @@ function contextAt(sourceFile: ts.SourceFile, offset: number): CompletionContext
     if (inside) return { kind: 'string', literal: slot };
   }
   return { kind: 'code', slot };
-}
-
-function isBuiltinIdLiteral(literal: ts.Node): boolean {
-  if (isBuiltinTypeLiteral(literal)) return true;
-  const call = literal.parent;
-  return (
-    ts.isStringLiteralLike(literal) &&
-    call !== undefined &&
-    ts.isCallExpression(call) &&
-    ts.isIdentifier(call.expression) &&
-    call.expression.text === 'builtin' &&
-    call.arguments[0] === literal
-  );
-}
-
-function isAttributeSlot(slot: ts.Node): boolean {
-  if (ts.isDecorator(slot)) return true;
-  if (!ts.isIdentifier(slot)) return false;
-  const parent = slot.parent;
-  if (ts.isDecorator(parent) && parent.expression === slot) return true;
-  return ts.isCallExpression(parent) && parent.expression === slot && ts.isDecorator(parent.parent);
-}
-
-function isExpressionSlot(slot: ts.Node): boolean {
-  if (ts.isLiteralExpression(slot) || ts.isTemplateLiteralToken(slot)) return false;
-  if (ts.isClassLike(slot) || ts.isInterfaceDeclaration(slot) || ts.isTypeLiteralNode(slot))
-    return false;
-  for (let n: ts.Node | undefined = slot; n !== undefined && !ts.isSourceFile(n); n = n.parent) {
-    if (ts.isTypeNode(n) || ts.isDecorator(n)) return false;
-    if (ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return false;
-    if (ts.isTypeAliasDeclaration(n) || ts.isInterfaceDeclaration(n)) return false;
-  }
-  if (ts.isIdentifier(slot) && slot.parent !== undefined) {
-    const parent = slot.parent;
-    if (ts.isPropertyAccessExpression(parent) && parent.name === slot) return false;
-    if (ts.getNameOfDeclaration(parent as ts.Declaration) === slot) return false;
-  }
-  return true;
 }
 
 export function getCompletions(
