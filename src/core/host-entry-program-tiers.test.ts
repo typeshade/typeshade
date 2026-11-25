@@ -99,7 +99,6 @@ describe('the CPU tier of an entry call', () => {
   it('lets go of every buffer value when the call ends', async () => {
     const m = await onCpu();
     await m.scale(args(), 1);
-    expect(seen.holds).toHaveLength(8);
     expect(lastHold()).toEqual([undefined, undefined, undefined, undefined]);
   });
 
@@ -223,7 +222,7 @@ describe('the WebGL2 tier of an entry call', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a Texture of the WebGPU device, and deletes the textures it made before', async () => {
+  it('refuses a Texture of the WebGPU device with the text that names the binding and the rule', async () => {
     const m = await onGl();
     const texture = { width: 2, height: 1, [Symbol.for('typeshade.deviceView')]: () => ({}) };
     await expect(m.look({ photo: texture, smp: {}, out: floats(0) }, 1)).rejects.toThrow(

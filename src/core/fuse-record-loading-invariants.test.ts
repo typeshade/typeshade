@@ -2,6 +2,8 @@ import { expect, it, vi } from 'vitest';
 import { createDevice } from '../runtime/device.js';
 import { callKernel, type KernelFace } from './host-kernel.js';
 import type { GeneratedCpu } from './host-entry.js';
+import { residentState } from './resident.js';
+import type { ScratchState } from './fuse-record.js';
 
 const failure = vi.hoisted(() => ({ error: new Error('local executor chunk missing') }));
 vi.mock('./fuse-plan.js', () => {
@@ -34,6 +36,24 @@ it('leaves the host free to read what a plan that failed to load would have writ
     await plan.catch(() => undefined);
     expect(out.at(0).get()).toBe(7);
     await expect(out.read()).rejects.toHaveProperty('cause', failure.error);
+  } finally {
+    await owner.dispose();
+  }
+});
+
+it('frees a scratch array of a plan that failed to load', async () => {
+  const owner = await createDevice({ prefer: ['cpu'] });
+  try {
+    const out = owner.array(Float32Array.of(7, 8));
+    const cpu: GeneratedCpu = { F: { copy: () => 0 }, $: { bindings: {}, vars: {} } };
+    let scratch!: ScratchState;
+    const plan = owner.fuse((scope) => {
+      scratch = residentState(scope.scratch(2)) as ScratchState;
+      void callKernel(cpu, copy, 2, [out, scope.scratch(2)]);
+    });
+    expect(scratch.phase).toBe('open');
+    await plan.catch(() => undefined);
+    expect(scratch.phase).toBe('done');
   } finally {
     await owner.dispose();
   }

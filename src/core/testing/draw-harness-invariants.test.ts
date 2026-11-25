@@ -148,10 +148,10 @@ describe('draw harness: the entry, the table and the pixel', () => {
 
   it('refuses a signature type the table and the target cannot carry', () => {
     expect(() => drawnFunction(moduleOf([identity('b', boolT)]), 'b', 1, 1)).toThrow(
-      'draw-harness: no',
+      'draw-harness: no {"kind":"scalar","scalar":"bool"} in a generated function\'s signature',
     );
     expect(() => drawnFunction(moduleOf([identity('u2', vec2u)]), 'u2', 1, 1)).toThrow(
-      'draw-harness: no',
+      'draw-harness: no {"kind":"vec","n":2,"elem":"u32"} in a generated function\'s signature',
     );
   });
 });

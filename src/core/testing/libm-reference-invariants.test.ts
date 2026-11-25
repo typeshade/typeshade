@@ -195,12 +195,12 @@ describe('libm reference: hyperbolic functions', () => {
       const kinds = ['sinh', 'cosh', 'tanh'] as const;
       const [s, c, t] = kinds.map((k) => exactHyperbolic(k, x)) as [Exact, Exact, Exact];
       const [ns, nc, nt] = kinds.map((k) => exactHyperbolic(k, -x)) as [Exact, Exact, Exact];
-      expect([x, agree(sum(s, ns), integer(0n), 0n) || sum(s, ns).num === 0n]).toEqual([x, true]);
-      expect([
+      expect([x, sum(s, ns).num === 0n]).toEqual([x, true]);
+      expect([x, nc.num > 0n && agree(nc, c, 250n), nt.num < 0n && sum(t, nt).num === 0n]).toEqual([
         x,
-        nc.num > 0n && agree(nc, c, 250n),
-        nt.num < 0n && agree(sum(t, nt), t, 0n),
-      ]).toEqual([x, true, true]);
+        true,
+        true,
+      ]);
     }
     expect(exactHyperbolic('sinh', -0).num).toBe(0n);
   });
@@ -217,6 +217,19 @@ describe('libm reference: hyperbolic functions', () => {
     expect(ulps(Math.tanh(2), exactHyperbolic('tanh', 2))).toBeLessThan(1);
     expect(ulps(Math.tanh(39.9), exactHyperbolic('tanh', 39.9))).toBeLessThan(1);
     expect(exactHyperbolic('tanh', 0.5).num).toBeGreaterThan(0n);
+  });
+
+  it('computes tanh by series between 30 and 40, where it is below 1 by about 2 exp(-2x)', () => {
+    for (const x of [35, 39.9]) {
+      const t = exactHyperbolic('tanh', x);
+      const gapToOne = sum(integer(1n), { num: -t.num, scale: t.scale });
+      const two = exactExp(-2 * x);
+      expect([
+        x,
+        t.num < 1n << t.scale,
+        agree(gapToOne, { num: two.num, scale: two.scale - 1n }, 100n),
+      ]).toEqual([x, true, true]);
+    }
   });
 
   it('give inverse hyperbolic functions as logarithms, with the odd symmetry', () => {

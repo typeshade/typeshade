@@ -17,7 +17,7 @@ import {
 const magnitude = (e: Exact): bigint => (e.num < 0n ? -e.num : e.num);
 const significantBits = (e: Exact): number => magnitude(e).toString(2).length;
 const withScale = (e: Exact, scale: bigint): bigint => e.num << (scale - e.scale);
-const near = (a: Exact, b: Exact, bits: bigint): boolean => {
+const withinScale = (a: Exact, b: Exact, bits: bigint): boolean => {
   const scale = a.scale > b.scale ? a.scale : b.scale;
   const gap = withScale(a, scale) - withScale(b, scale);
   return (gap < 0n ? -gap : gap) * (1n << bits) <= 1n << scale;
@@ -64,8 +64,8 @@ describe('libm reference: inverse trigonometric functions', () => {
   it('give atan of zero as zero and keep the sign of the argument', () => {
     expect(exactAtan(0).num).toBe(0n);
     expect(exactAtan(-0).num).toBe(0n);
-    expect(near(exactAtan(1), multiple(1n, 4n), 250n)).toBe(true);
-    expect(near(exactAtan(-1), multiple(-1n, 4n), 250n)).toBe(true);
+    expect(withinScale(exactAtan(1), multiple(1n, 4n), 250n)).toBe(true);
+    expect(withinScale(exactAtan(-1), multiple(-1n, 4n), 250n)).toBe(true);
     expect(exactAtan(-0.25).num).toBeLessThan(0n);
     expect(exactAsin(-0.25).num).toBeLessThan(0n);
   });
@@ -74,12 +74,12 @@ describe('libm reference: inverse trigonometric functions', () => {
     for (const x of [1.0000000000000002, 3, 1e10, 1e300, 2 ** 1000, 2 ** 1023]) {
       expect([x, ulps64(Math.atan(x), exactAtan(x)) < 1]).toEqual([x, true]);
     }
-    expect(near(exactAtan(2 ** 1023), multiple(1n, 2n), 250n)).toBe(true);
+    expect(withinScale(exactAtan(2 ** 1023), multiple(1n, 2n), 250n)).toBe(true);
   });
 
   it('hold atan of a huge argument to 1000 bits of pi/2 less the inverse', () => {
     const expected: Exact = { num: piFixed(1300n) / 2n - (1n << 277n), scale: 1300n };
-    expect(near(exactAtan(2 ** 1023), expected, 1000n)).toBe(true);
+    expect(withinScale(exactAtan(2 ** 1023), expected, 1000n)).toBe(true);
   });
 
   it('keep the significant bits of atan for a tiny argument', () => {
@@ -111,7 +111,7 @@ describe('libm reference: inverse trigonometric functions', () => {
       [-0, -1, -1n, 1n],
     ];
     for (const [y, x, n, d] of cases) {
-      expect([y, x, near(exactAtan2(y, x), multiple(n, d), 250n)]).toEqual([y, x, true]);
+      expect([y, x, withinScale(exactAtan2(y, x), multiple(n, d), 250n)]).toEqual([y, x, true]);
     }
     expect(exactAtan2(0, 1).num).toBe(0n);
     expect(exactAtan2(-0, 1).num).toBe(0n);
@@ -133,15 +133,15 @@ describe('libm reference: inverse trigonometric functions', () => {
   it('give pi at 400 bits or more when the angle is pi', () => {
     const pi = exactAtan2(0, -1);
     expect(pi.scale).toBeGreaterThanOrEqual(400n);
-    expect(near(pi, multiple(1n, 1n), 390n)).toBe(true);
-    expect(near(exactAtan2(2 ** -1000, -1), multiple(1n, 1n), 390n)).toBe(true);
+    expect(withinScale(pi, multiple(1n, 1n), 390n)).toBe(true);
+    expect(withinScale(exactAtan2(2 ** -1000, -1), multiple(1n, 1n), 390n)).toBe(true);
   });
 
   it('give asin and acos from atan', () => {
-    expect(near(exactAsin(0.5), multiple(1n, 6n), 250n)).toBe(true);
-    expect(near(exactAcos(0.5), multiple(1n, 3n), 250n)).toBe(true);
-    expect(near(exactAcos(-0.5), multiple(2n, 3n), 250n)).toBe(true);
-    expect(near(exactAcos(0), multiple(1n, 2n), 250n)).toBe(true);
+    expect(withinScale(exactAsin(0.5), multiple(1n, 6n), 250n)).toBe(true);
+    expect(withinScale(exactAcos(0.5), multiple(1n, 3n), 250n)).toBe(true);
+    expect(withinScale(exactAcos(-0.5), multiple(2n, 3n), 250n)).toBe(true);
+    expect(withinScale(exactAcos(0), multiple(1n, 2n), 250n)).toBe(true);
     expect(exactAsin(0).num).toBe(0n);
     for (const x of [0.3, 1 - 2 ** -53, 2 ** -60]) {
       expect([x, ulps64(Math.asin(x), exactAsin(x)) < 1]).toEqual([x, true]);

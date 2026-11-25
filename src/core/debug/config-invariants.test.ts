@@ -156,9 +156,11 @@ export function f(a: f32): f32 {
       invocation: { bogus: 1, inputs: { bogus: 1 } } as never,
       bindings: { bogus: 1 },
     });
-    expect(found.some((p) => p.includes('f declares none'))).toBe(true);
-    expect(found.some((p) => p.includes('f takes a'))).toBe(true);
-    expect(found.some((p) => p.endsWith('it declares none'))).toBe(true);
+    expect(found).toEqual([
+      '"bogus" is not a builtin this entry declares; f declares none (a @location input goes under "inputs")',
+      '"bogus" is not an input this entry declares; f takes a',
+      '"bogus" is not a binding this module declares; it declares none',
+    ]);
   });
 
   it('says none for an entry that takes no input', () => {
@@ -264,6 +266,10 @@ export function f(a: f32): f32 {
     bindings: {},
     breakpoints: [],
   };
+
+  it('has a value for each schema key and no other', () => {
+    expect(Object.keys(values).sort()).toEqual(Object.keys(properties).sort());
+  });
 
   it.each(Object.keys(properties))('accepts the schema key %s', (key) => {
     expect(() =>

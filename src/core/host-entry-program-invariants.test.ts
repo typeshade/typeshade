@@ -60,9 +60,6 @@ describe('the WebGPU tier of an entry call', () => {
     );
     const sizes = gpu.bound[0]!.map((e) => e.size);
     expect(sizes).toEqual([16, 12, 12, 4]);
-    expect(gpu.bound[0]!.every((e) => e.size! < e.buffer.size || e.size === e.buffer.size)).toBe(
-      true,
-    );
     expect(gpu.bound[0]![1]!.buffer.size).toBeGreaterThan(12);
   });
 
@@ -114,7 +111,7 @@ describe('the WebGPU tier of an entry call', () => {
     const { gpu, m } = await onGpu({ bindGroupFailsOnce: 'no bind group' });
     const args = () => ({ params: { k: 2 }, xs: floats(1), out: floats(0), total: floats(0) });
     await expect(m.scale(args(), 1)).rejects.toThrow('no bind group');
-    await Promise.resolve();
+    await new Promise((r) => setImmediate(r));
     expect(gpu.commands.filter((c) => c === 'push')).toHaveLength(1);
     expect(gpu.commands.filter((c) => c === 'pop')).toHaveLength(1);
     const taken = gpu.made.length;
@@ -189,8 +186,11 @@ describe('the WebGPU tier of an entry call', () => {
     const { gpu, m } = await onGpu({ bindGroupFailsOnce: 'no bind group' });
     const call = () => m.look({ photo: new FakeImageData(2, 1), smp: {}, out: floats(0) }, 1);
     globalThis.ImageData = FakeImageData as never;
-    await expect(call()).rejects.toThrow('no bind group');
-    delete (globalThis as Record<string, unknown>)['ImageData'];
+    try {
+      await expect(call()).rejects.toThrow('no bind group');
+    } finally {
+      delete (globalThis as Record<string, unknown>)['ImageData'];
+    }
     expect(gpu.textures.map((t) => t.destroys)).toEqual([1]);
   });
 

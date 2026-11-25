@@ -1,10 +1,10 @@
 // Why: the guarded EFT formulation is luma.gl's (via DSFUN90, the CUDA SDK dsadd/dsmul and
 // Thall's twoSum / quickTwoSum / Veltkamp split / twoProd). WGSL §15.7.5 permits reassociation
 // and fusion, Metal defaults to fast-math, and ANGLE's D3D compiler reassociates, and neither
-// WGSL nor GLSL ES 3.00 has a `precise` qualifier. Every error term is therefore multiplied by
-// a runtime-opaque 1.0 (the `f64Guard` texel fetch). It is a texture and not a uniform because
-// drivers specialize pipelines on observed uniform values and hot-swap re-optimized variants
-// (seen on Windows/NVIDIA); no driver constant-folds a texel.
+// WGSL nor GLSL ES 3.00 has a `precise` qualifier. Each error term of twoSum, quickTwoSum and the
+// Veltkamp split carries one guard factor, a runtime-opaque 1.0 (the `f64Guard` texel fetch).
+// It is a texture and not a uniform because drivers specialize pipelines on observed uniform
+// values and hot-swap re-optimized variants (seen on Windows/NVIDIA); none folds a texel.
 
 // Why: the ~48 bits rest on f32 `+ - *` rounding to nearest, ties to even. GLSL ES 3.00 §4.5.1
 // leaves the rounding mode undefined and lets any operation flush a subnormal, and WGSL fixes

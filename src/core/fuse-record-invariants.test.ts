@@ -316,7 +316,7 @@ describe('a fuse body nested in the body of a scope', () => {
       const seen = await inBody(() =>
         refusal(() => runScope((() => Promise.reject(new Error('late'))) as never)),
       );
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setImmediate(resolve));
       expect(String(seen)).toContain('fuse(): the body is synchronous, and this one is not.');
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
