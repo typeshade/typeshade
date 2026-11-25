@@ -4,18 +4,9 @@ import type { FuseArray, FuseLoop } from './host-kernel.js';
 import type { Tier } from './tiers.js';
 import { KERNEL_TREE, KERNEL_WORKGROUP } from './kernel-tree.js';
 import type { GroupCall, EntryCall, PlannedCall, Group } from './fuse-group/types.js';
+import { WEBGL2_APART } from './fuse-group/tier-words.js';
+export { WEBGL2_APART, onLaterTier } from './fuse-group/tier-words.js';
 export type { GroupCall, EntryCall, PlannedCall, Group } from './fuse-group/types.js';
-
-export const WEBGL2_APART = 'WebGL2 runs the calls apart';
-
-const TIER_WORDS: Readonly<Record<Tier, string>> = {
-  webgpu: 'WebGPU',
-  webgl2: 'WebGL2',
-  cpu: 'the CPU',
-};
-
-export const onLaterTier = (name: string, tier: Tier, why: readonly string[]): string =>
-  `${name} runs on ${TIER_WORDS[tier]}, ${why.join('; ')}`;
 
 export const DEFAULT_STORAGE_BUFFERS = 8;
 
