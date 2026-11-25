@@ -14,7 +14,10 @@ import { hostFace } from '../compiler/ts/host-face.js';
 const entries = (recordConsole?: boolean, source?: string) =>
   loadEntries(hostFace, recordConsole, source);
 
-afterEach(() => configure({ runtime: null }));
+afterEach(() => {
+  configure({ runtime: null });
+  configure({});
+});
 
 const floats = (...xs: number[]) => Float32Array.of(...xs);
 const fill5 = (storage: ArrayBuffer[]) => storage.forEach((b) => new Float32Array(b).fill(5));
