@@ -15,7 +15,7 @@ import { type EntryBinding, type HandleBinding, type Layout } from '../../core/h
 import type { KernelGlLoop } from '../../core/host-kernel-gl.js';
 import type { KernelFace, KernelLoop, KernelParam } from '../../core/host-kernel.js';
 import type { HostType } from '../../core/host-values.js';
-import type { ConstDecl, FuncDecl, ModuleDecl, StructDecl } from '../../core/ir/nodes.js';
+import type { ConstDecl, FuncDecl, ModuleDecl } from '../../core/ir/nodes.js';
 import type { ShaderType } from '../../core/ir/types.js';
 import { addsTo } from './host-face/entry-shapes.js';
 import { keyedStructsOf, writtenName } from './host-face/private-keys.js';
@@ -36,7 +36,6 @@ import { lowerKernelGl } from '../../core/passes/kernel-lower.js';
 import { projectKernelInputs } from '../../core/passes/kernel-project.js';
 import { proveKernels, type KernelProof } from '../../core/passes/parallel-loop.js';
 import { inheritSpellings, spellingsOf } from '../../core/spelling-plan.js';
-import type { ClassLayouts } from '../../runtime/resource.js';
 import {
   isPrivateName,
   isReadonlyMember,
@@ -80,6 +79,8 @@ import { STORAGE_ACCESS } from './host-face/entry-vocabulary.js';
 import { typeOfBinding, namedBindings } from './host-face/entry-bindings.js';
 import { computeFace, fragmentFace } from './host-face/stage-faces.js';
 import { fuseRecord } from './host-face/kernel-fuse.js';
+import { resourceLayouts } from './host-face/resource-layouts.js';
+export { resourceLayouts } from './host-face/resource-layouts.js';
 export { fuseRecord } from './host-face/kernel-fuse.js';
 export { typeOfBinding } from './host-face/entry-bindings.js';
 export type { HostFaceOptions, HostFace } from './host-face/contracts.js';
@@ -913,18 +914,5 @@ function classFace(
     layouts: abstract ? { a: 1 } : resourceLayouts(local, c.structs),
     ...(ctor !== undefined ? { ctor } : {}),
     members: classMembers(name, decl, struct, c),
-  };
-}
-
-export function resourceLayouts(
-  name: string,
-  structs: ReadonlyMap<string, StructDecl>,
-): ClassLayouts {
-  const t: ShaderType = { kind: 'struct', name };
-  const u = layoutOf(t, 'std140', structs, authorTypeText);
-  const s = layoutOf({ kind: 'array', elem: t }, 'std430', structs, authorTypeText);
-  return {
-    ...('none' in u ? { un: u.none } : { u }),
-    ...('none' in s ? { sn: s.none } : { s: s as Layout & { k: 'a' } }),
   };
 }
