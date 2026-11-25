@@ -299,25 +299,25 @@ Each S0 item is its own pull request. An S0 item is not a pure move. Its commit 
 Proposal: S2 to S13 follow the order of the layers, from the bottom. A row is a series of slices, not a deadline.
 Status of each row: not started. Under decision D2, each series moves its sources first and its tests in the next pull request.
 
-| ID  | Status      | Files and responsibility                                                                                                                                      | Exit condition                                                                  |
-| --- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| S0  | In progress | The tools and checks, items a to h below.                                                                                                                     | Items a and b are merged; items c to h are merged or recorded as open.          |
-| S1  | Not started | The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3).                    | `KNOWN` is empty; `core` imports no other directory.                            |
-| S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                                  | No file of `core/ir` is in the baseline.                                        |
-| S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                                               | No file of `core/backends` is in the baseline.                                  |
-| S4  | In progress | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                                               | No file of `core/passes` is in the baseline.                                    |
-| S5  | Not started | `core` root files (22, then 12 test files) and `core/coverage` (6 files), `core/testing`, `core/debug`, `core/spec-conformance`, `core/libm`.                 | No file of `core` is in the baseline.                                           |
-| S6  | In progress | `rhi`: 5 files, then 1 test file.                                                                                                                             | No file of `rhi` is in the baseline.                                            |
-| S7  | Not started | `runtime`: 7 files, then 10 test files.                                                                                                                       | No file of `runtime` is in the baseline.                                        |
-| S8  | Not started | `compiler/ts/lower`: 16 files, including `function.ts`, `statement.ts` and `expression-call.ts`.                                                              | No file of `compiler/ts/lower` is in the baseline.                              |
-| S9  | In progress | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                                               | No non-test file of `compiler/ts` is in the baseline.                           |
-| S10 | Not started | `language-service`: 7 files, then 11 test files. The files include `diagnostics.ts` and `service.ts`.                                                         | No file of `language-service` is in the baseline.                               |
-| S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                                        | No test file of `compiler/ts` is in the baseline.                               |
-| S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                                      | No file of `src` root is in the baseline.                                       |
-| S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                                           | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
-| S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                                           | No cycle of emitted imports in `src/compiler/ts`.                               |
-| S15 | Not started | Banned comments: the 41 clean oversized files of D12 first, then each directory in the order of S2 to S10, `Move: comments` pull requests (D13, section 6.5). | `scripts/comment-baseline.json` is empty.                                       |
-| S16 | In progress | Evidence citations become symbol anchors: phases P1 to P4 of section 6.6.                                                                                     | No line citation into a `src/` product file; `cited by line path` never fires.  |
+| ID  | Status      | Files and responsibility                                                                                                                                                                                  | Exit condition                                                                  |
+| --- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| S0  | In progress | The tools and checks, items a to h below.                                                                                                                                                                 | Items a and b are merged; items c to h are merged or recorded as open.          |
+| S1  | In progress | Measured and planned in sections 6.2.1 and 6.2.2; no move yet. The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3). | `KNOWN` is empty; `core` imports no other directory.                            |
+| S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                                                                              | No file of `core/ir` is in the baseline.                                        |
+| S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                                                                                           | No file of `core/backends` is in the baseline.                                  |
+| S4  | In progress | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                                                                                           | No file of `core/passes` is in the baseline.                                    |
+| S5  | Not started | `core` root files (22, then 12 test files) and `core/coverage` (6 files), `core/testing`, `core/debug`, `core/spec-conformance`, `core/libm`.                                                             | No file of `core` is in the baseline.                                           |
+| S6  | In progress | `rhi`: 5 files, then 1 test file.                                                                                                                                                                         | No file of `rhi` is in the baseline.                                            |
+| S7  | Not started | `runtime`: 7 files, then 10 test files.                                                                                                                                                                   | No file of `runtime` is in the baseline.                                        |
+| S8  | Not started | `compiler/ts/lower`: 16 files, including `function.ts`, `statement.ts` and `expression-call.ts`.                                                                                                          | No file of `compiler/ts/lower` is in the baseline.                              |
+| S9  | In progress | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                                                                                           | No non-test file of `compiler/ts` is in the baseline.                           |
+| S10 | Not started | `language-service`: 7 files, then 11 test files. The files include `diagnostics.ts` and `service.ts`.                                                                                                     | No file of `language-service` is in the baseline.                               |
+| S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                                                                                    | No test file of `compiler/ts` is in the baseline.                               |
+| S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                                                                                  | No file of `src` root is in the baseline.                                       |
+| S13 | Not started | Facade removal, one pull request per directory, after the series of that directory.                                                                                                                       | No facade without a caller outside its directory; `docs:refs` and `build` pass. |
+| S14 | Not started | Cycles of `src/compiler/ts`: steps 1 to 10 of the structure analysis (section 6.4).                                                                                                                       | No cycle of emitted imports in `src/compiler/ts`.                               |
+| S15 | Not started | Banned comments: the 41 clean oversized files of D12 first, then each directory in the order of S2 to S10, `Move: comments` pull requests (D13, section 6.5).                                             | `scripts/comment-baseline.json` is empty.                                       |
+| S16 | In progress | Evidence citations become symbol anchors: phases P1 to P4 of section 6.6.                                                                                                                                 | No line citation into a `src/` product file; `cited by line path` never fires.  |
 
 ### 6.1 Series S0, the tools and checks
 
@@ -421,8 +421,142 @@ Decision D3, continued: the types that `compiler` needs from these files move do
 `FragmentEntry` and `ClassLayouts` are the two named above.
 The old paths stay as re-exports until S13.
 
-Open: the import cycles between `core`, `runtime` and `rhi` around these files are not measured yet.
-The slice measures them before the move, with the check of S0 item d, and records the result in its pull request.
+Fact: the old open item on the import cycles is closed by the measurements below. The check of S0 item d does not exist yet.
+The measurement used a script of the session, not committed (section 6.2.1, method). It agrees with `bun scripts/move-purity.ts --clean-report --json` on the value cycles.
+
+### 6.2.1 Measurements for S1, 2026-11-25
+
+Fact: all numbers below were measured on `origin/main` at `d28e833af4d5a7c5784abae6bef561abc1dc4b9b` unless a line says otherwise.
+`bun scripts/bundle-boundary.ts` passed on that commit.
+
+Method. A script of the session read every `.ts` file of `src/`, `scripts/` and `examples/` with the TypeScript parser.
+It took each `import`, each `export ... from` and each literal `import(...)` as an edge.
+An edge is type-only when the clause is `import type` or every named binding carries `type`.
+It is `dynamic` for a literal `import(...)`.
+A cycle is a strongly connected component of more than one file of `src/` that is not a test.
+
+1. The `KNOWN` edges of `src/layer-policy.test.ts`: 32 edges, 11 importing files.
+   - By kind: 19 value, 12 type-only, 1 that holds a type import and a dynamic `import(...)` (`core/host-draw.ts -> runtime/gl.ts`).
+   - By target layer: `runtime` 12, `rhi` 9, `compiler` 8 (all from `core`), `language-service` 3.
+   - By importing file:
+
+   | Importing file                             | Edges | Targets (value `V`, type-only `T`)                                                                                                                         |
+   | ------------------------------------------ | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `core/host-draw.ts`                        | 8     | `rhi/cpu-program` V, `rhi/cpu` V, `rhi/webgpu` V, `runtime/runtime` V, `rhi/rhi` T, `runtime/program` T, `runtime/resources` T, `runtime/gl` T and dynamic |
+   | `core/host-entry-program.ts`               | 6     | `rhi/cpu-program` V, `rhi/cpu` V, `runtime/program` V, `rhi/rhi` T, `runtime/gl` T, `runtime/runtime` T                                                    |
+   | `core/host-runtime.ts`                     | 3     | `runtime/resource` V, `runtime/host-types` T, `runtime/resources` T                                                                                        |
+   | `core/testing/fuse-chain.ts`               | 4     | `compiler/ts/compile`, `context`, `host-face`, `kernel-loops`, all V                                                                                       |
+   | `core/spec-conformance/coredef-witness.ts` | 3     | `compiler/ts/source-file` V, `language-service/host` V, `language-service/service` V                                                                       |
+   | `core/testing/both-halves.ts`              | 2     | `compiler/ts/compile` V, `language-service/service` V                                                                                                      |
+   | `core/testing/cpu-program.ts`              | 2     | `compiler/ts/compile` V, `rhi/cpu-program` T                                                                                                               |
+   | `core/cpu-entries.ts`                      | 1     | `rhi/cpu-program` T                                                                                                                                        |
+   | `core/debug/watch.ts`                      | 1     | `compiler/ts/source-file` V (`compileTsSource`)                                                                                                            |
+   | `compiler/ts/host-face.ts`                 | 1     | `runtime/resource` T (`ClassLayouts`)                                                                                                                      |
+   | `compiler/ts/host-face-contracts.ts`       | 1     | `runtime/resource` T (`ClassLayouts`)                                                                                                                      |
+
+   Command: the `KNOWN` array of `src/layer-policy.test.ts`, each edge matched to the edges of the script.
+
+2. The files, one by one.
+
+   | File                                       | Lines | Importers (non-test files; tests; scripts or examples)                                                                              | Public entry or measured bundle                                                                                                                                                                  | Move tool (`move-purity --clean-report`)                     |
+   | ------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+   | `core/host-draw.ts`                        | 887   | `core/host-runtime.ts` (re-export), `core/host-entry-program.ts`, `compiler/ts/host-face-contracts.ts` (type); 2 tests              | In the closures of `typeshade/algorithms`, `typeshade/random`, `typeshade/runtime/internal` (value), and of the root, `vite`, `language-service` entries (type edge of `host-face-contracts.ts`) | Not clean: 1 active unit; cited by line (14 citing segments) |
+   | `core/host-entry-program.ts`               | 421   | `core/host-runtime.ts` (re-export of `callCompute`); no test imports it                                                             | In the closures of `typeshade/algorithms`, `typeshade/random`, `typeshade/runtime/internal`                                                                                                      | Clean: 19 units, 0 active                                    |
+   | `core/host-runtime.ts`                     | 103   | `src/runtime-internal.ts` (`export *`); 2 scripts import it; 59 `.ts` files of `src/` and 8 of `scripts/` name its path in a string | Same three closures. It is what `typeshade/runtime/internal` re-exports                                                                                                                          | Clean: 1 unit, 0 active                                      |
+   | `core/cpu-entries.ts`                      | 142   | `core/testing/cpu-program.ts`                                                                                                       | In no measured bundle and no public closure                                                                                                                                                      | Clean                                                        |
+   | `core/debug/watch.ts`                      | 329   | `src/debug.ts` (public `typeshade/debug`), `core/debug/session/stepped-session.ts`, `core/debug/session/types.ts`; 1 test           | In the closure of the `debug` entry (472 files). Not in a measured bundle                                                                                                                        | 1 active unit                                                |
+   | `core/spec-conformance/coredef-witness.ts` | 383   | 2 tests                                                                                                                             | In no measured bundle and no public closure                                                                                                                                                      | 2 active units                                               |
+   | `core/testing/both-halves.ts`              | 116   | 5 non-test files; 180 tests                                                                                                         | In no measured bundle and no public closure                                                                                                                                                      | Clean                                                        |
+   | `core/testing/cpu-program.ts`              | 40    | 6 tests                                                                                                                             | In no measured bundle and no public closure                                                                                                                                                      | Clean                                                        |
+   | `core/testing/fuse-chain.ts`               | 684   | 2 tests, `scripts/gpu-differential.ts`                                                                                              | In no measured bundle and no public closure                                                                                                                                                      | Clean                                                        |
+   | `compiler/ts/host-face.ts`                 | 928   | 112 importers; `src/vite.ts`, `src/cli/run.ts`, `src/language-service/index.ts` among them                                          | In the closures of the root, `vite` and `language-service` entries                                                                                                                               | Clean                                                        |
+   | `compiler/ts/host-face-contracts.ts`       | 171   | 14 files, all by `import type`                                                                                                      | Same closures. `src/__api__/surface.md` line 984 names `host-face-contracts.ts#HostExport`                                                                                                       | Clean                                                        |
+
+   Commands: the script of the method; `closureOf` of `scripts/bundle-boundary.ts` on the 14 entries of `package.json` `exports` and of the `SUBPATHS` of that script; `bun scripts/move-purity.ts --clean-report --json`.
+   The measured bundles are `typeshade/runtime`, `emit`, `fuse`, `algorithms` and `random`. The three `host-*` files are in the last two only.
+   The closures of `typeshade/runtime`, `emit` and `fuse` hold none of the 11 files.
+
+   Top-level declarations of the three `host-*` files, from the parser:
+   - `core/host-draw.ts` (887 lines, 48 top-level statements). The largest: `programPainter` 92 lines, `callDraw` 70, `drawManifestOf` 70, `packBindingOf` 45, `frameOf` 44, `painterFor` 41, `drawCpuProgram` 35, `pipelineOf` 27.
+     `FragmentEntry` (lines 88 to 116) is the one type that another layer reads.
+   - `core/host-entry-program.ts` (421 lines, 19 statements). The largest: `onGpuProgram` 94 lines, `callManifestOf` 56, `onGlProgram` 50, `onCpuProgram` 40, `callCpuProgram` 24.
+   - `core/host-runtime.ts` (103 lines): 12 `export ... from` statements and the function `hostConsole`.
+
+   What causes each edge of the three files (names imported across the layer, and the declarations that use them):
+   - `host-draw.ts`: `RuntimeImpl` (value; in `DrawRuntime`, `samplerOn`, `runtimes`, `cpuRuntime`, `webgpuRuntimeOf`, `cpuRuntimeOf`), `webgpuDevice` (`webgpuRuntimeOf`), `cpuDevice` (`cpuRuntimeOf`), `CPU_PROGRAM` (`drawManifestOf`), and type uses of `GlRuntimeImpl`, `ProgramImpl`, `RenderPipeline`, `Sampler`, `RhiDevice`, `RhiTexture`, `PassTargets`, `RenderPass`, `CpuCode`, `CpuIoField`, `CpuProgram`.
+     The dynamic `import('../runtime/gl.js')` is in `glRuntimeOf`.
+   - `host-entry-program.ts`: `ProgramImpl`, `CallBuffer`, `CallWords` (value, in `programOn`, `onGpuProgram`, `onGlProgram`, `onCpuProgram`), `holdValue` (`onCpuProgram`), `CPU_PROGRAM` (`callManifestOf`); the rest are type uses. `RuntimeImpl` is a type here.
+   - `host-runtime.ts`: `exportedBinding` is a value re-export. The others are type re-exports.
+
+3. The import cycles.
+   - Fact: no one of the 11 files is in a file-level cycle today. This holds for value edges alone (10 cycles, 80 files, the largest 46 files, all in `src/compiler/ts`) and for all edges (15 cycles, 221 files, the largest 154 files).
+     The value result equals the `inCycles: 80` of the clean report.
+   - Fact: a move across directories does not change the file-level graph. The cycles after the three files move are the same: 10 cycles and 80 files for value edges, 15 cycles and 221 files for all edges, and none of them holds a `host-*` file.
+     The only edge change comes from the contracts (item 4).
+   - Fact: the layer graph has one cycle today: `core`, `rhi`, `compiler`, `language-service` and `runtime` are one strongly connected component.
+     With the 17 edges of the three files and the 2 edges of `compiler` removed, `runtime` leaves the component. `core`, `rhi`, `compiler` and `language-service` stay in it, through the 13 edges of the other 8 files.
+     With all 32 edges removed, the layer graph has no cycle.
+   - Fact: the importers of the three files are `src/runtime-internal.ts` (not in a layer), `core/host-entry-program.ts`, `core/host-runtime.ts` and `compiler/ts/host-face-contracts.ts` (a type). After the move none of them imports a file that imports the moved file back.
+
+4. The contracts. `compiler` and `core` take two declarations from the files that move.
+   - `FragmentEntry`, an interface of 29 lines in `core/host-draw.ts`. It reads `DrawBinding` from `core/host-entry.ts` and `ConsoleLog` from `core/console.ts`, which are in `core` already.
+     It goes down into one new file of `core`. The name `src/core/fragment-entry.ts` is a proposal. `host-draw.ts` and `host-runtime.ts` then import it from there. <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+     This move removes no `KNOWN` edge: the edge `compiler/ts/host-face-contracts.ts -> core/host-draw.ts` is `compiler` to `core` and is allowed. It stops a new edge from `compiler` to `runtime/host/`.
+   - `ClassLayouts` goes down in #1670 (`src/core/class-layouts.ts`). It removes 2 edges and `runtime/resource.ts` re-exports the type. <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+   - Nothing else of the 11 files is read by `compiler` or `core`. The values of the three files are read only by `src/runtime-internal.ts`, which is not in a layer.
+   - Fact: decision D3 says the old paths stay as re-exports. For the three files this cannot hold. A file of `core` that re-exports from `runtime/host/` is itself an edge from `core` to `runtime`.
+     `bun scripts/move-declarations.ts` with all 19 units of `host-entry-program.ts` as `--move` and `--to src/runtime/host/entry-program.ts --dry-run` prints "Move purity: pure" and "0 KNOWN edge removed".
+     It leaves a facade in `core`, so the edges stay. The facade is deleted in the same pull request, and the importers are repointed.
+
+5. What an author or a host sees.
+   - `package.json` `exports`: no path changes. `./runtime/internal` still maps to `src/runtime-internal.ts`. A generated module imports `typeshade/runtime/internal`, so no generated text changes.
+   - `src/__api__/surface.md`: no line names `host-draw.ts`, `host-entry-program.ts` or `host-runtime.ts`. Line 984 names `FragmentEntry` in the text of `HostExport`. The name does not change. Not run: `bun run bake:api-surface` after a move.
+   - Names an author writes: none changes.
+   - Paths that change (these are repository paths, not author paths): 59 `.ts` files of `src/`, 8 of `scripts/` and `examples/loop-examples.test.ts` name `src/core/host-runtime.ts` in a string. `reqs/rules/RULE-1107.md` names it as a `path:` link, and `docs/language-design.md` line 1475 and `src/AGENTS.md` line 110 name it in prose.
+     22 line citations of `host-draw.ts` stand in 5 files of `src/core/coverage/`, and `docs/capability-coverage.md` carries 14 of them.
+   - Bundles: `algorithms` and `random` hold the three files and allow `src/runtime/` already, so `scripts/bundle-boundary.ts` does not refuse the new path.
+     Each measured budget is exact on `d28e833`: `algorithms` 71,246 of 71,246 bytes, `random` 52,771 of 52,771, `emit` 124,662 of 124,662, `fuse` 123,237 of 123,237. A byte can change when a move changes the module order, and no margin is left.
+     Not run: the bundle check after any move.
+   - Experiment, on a throwaway worktree of `d28e833`: `git mv src/core/host-runtime.ts src/runtime/host/runtime.ts`, the imports of the file and of `src/runtime-internal.ts` repointed, one commit with `Move: pure`.
+     `bun scripts/move-purity.ts --base origin/main --head HEAD` prints "NOT pure", 1 unit moved, 0 changed, 77 findings. 74 of them are "path reference to a removed file" and 3 are "evaluation order" of `scripts/bare-uniform-cases.ts`, `scripts/compile-gate.ts` and `scripts/entry-calls-page.ts`.
+     The finding: a file that changes directory, with its importers repointed, is not a pure move. It is an ordinary reviewed change whose declarations the checker still proves unchanged.
+   - `move-declarations.ts` on one declaration: `readBack` from `core/host-entry-program.ts` into `src/runtime/host/read-back.ts` prints "pure". `Ctx2d` out of `core/host-draw.ts` prints "Refused: cited by line path src/core/host-draw.ts 14 citing segments ... change the citations to symbol anchors first". <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+     `hostConsole` out of `core/host-runtime.ts` prints "Refused: moved units carry 2 banned comment lines; remove the comments first in an ordinary pull request (CLAUDE.md, Comments)".
+     The target of the whole of `host-entry-program.ts` is 424 lines, above the limit of 400.
+
+6. Others who edit these files.
+   - #1670 (`slice2/classlayouts-core-b`, open): `host-face-contracts.ts`, `host-face.ts`, `host-face/class-face.ts`, `runtime/resource.ts`, `src/core/class-layouts.ts`, and two lines of `KNOWN`. <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+   - #1669 (`impl-0151-stage1`, draft, head `42278df`): 5 test files only today. Proposal 0151 (`accepted`) edits `host-draw.ts` and `host-entry-program.ts` in stage 1, and `host-entry.ts`, `host-kernel-gl.ts` and `host-face.ts` in stage 2.
+   - `claude/slice2-stepC-host-entry-program` (head `c5b7a31`, no pull request): splits `host-entry-program.ts` into `src/core/host-entry-program/caches.ts` and `manifest.ts`. It would re-key four `KNOWN` edges and leave two stale. <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+   - Checked and not touching these files: #1672, #1671, #1658, #1498, #1509, #1254, #1202.
+   - Commands: `mcp__github__list_pull_requests`, `git ls-remote origin`, and `git diff --name-only origin/main...origin/<branch>` for each branch. Not checked: other branches of `git ls-remote` with no pull request.
+
+### 6.2.2 The plan of S1
+
+Proposal: each step is its own pull request. Every step needs the step before it, unless a line says otherwise.
+A pull request that holds a moved file is not a pure move (section 6.2.1, item 5). The owner says "merge" for it, because no item of `CLAUDE.md`, Merging, approves it in advance.
+
+1. Wait for #1670 (`ClassLayouts` down). Wait for the stage 1 code of proposal 0151, which edits `host-draw.ts` and `host-entry-program.ts`. Do not open a pull request for the branch `claude/slice2-stepC-host-entry-program`: step 5 replaces it.
+   Check: `src/layer-policy.test.ts` lists 30 edges.
+2. Symbol anchors for the 22 line citations of `host-draw.ts` in `src/core/coverage/`, with `bun run bake:capability-coverage` for the 14 lines of `docs/capability-coverage.md`. This is a batch of series S16, phase P3. It is an ordinary change, and a person reads the batch.
+   Check: `checkEvidence`, and the dry run of the move tool on `Ctx2d` no longer prints the refusal about citations.
+3. `FragmentEntry` down into `src/core/fragment-entry.ts` with `bun scripts/move-declarations.ts`. `host-draw.ts` imports it back. It removes no `KNOWN` edge. Approved in advance: commit `Move: pure`, accepted by the checker of `main` (D5). <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+   Not run: the dry run after step 2. It is refused today.
+4. The banned comments of `core/host-draw.ts` (183 lines in `scripts/comment-baseline.json`) and of `core/host-runtime.ts` (14 lines), one pull request each, with `Move: comments` (D8). Each is approved in advance if the checker accepts it.
+   Check: `bun run bake:comment-baseline` lowers the baseline.
+5. `core/host-runtime.ts` to `src/runtime/host/runtime.ts`. Repoint `src/runtime-internal.ts`, the 59 files of `src/`, 8 of `scripts/` and `examples/loop-examples.test.ts`. Update `reqs/rules/RULE-1107.md` with `bun run reqs:sync` and a person's `doorstop review`, `docs/language-design.md` line 1475 and `src/AGENTS.md` line 110. Not a pure move. <!-- doc-refs: skip — a proposed or branch-only path that the tree does not have yet -->
+   Check: `src/layer-policy.test.ts` lists 27 edges. `bun scripts/bundle-boundary.ts` passes. `bun run docs:impact` has no must-fix item. The checker on the range reports 1 unit moved and 0 changed.
+6. `core/host-entry-program.ts` to `src/runtime/host/`, in two files or more, each of at most 400 lines (the target of one file would have 424). The pull request writes the files with the move tool, deletes the facade and repoints `core/host-runtime.ts`. Not a pure move.
+   Check: `src/layer-policy.test.ts` lists 21 edges; `file-size-policy` accepts the new files; the bundle check passes. Not determined: whether `bun run bake:file-size-baseline` accepts the removal of the baseline entry of the old path.
+7. `core/host-draw.ts` to `src/runtime/host/`, in files of at most 400 lines (the file has 887 lines and 1 active unit; the unit is not identified). Same method as step 6. After steps 2 to 4.
+   Check: `src/layer-policy.test.ts` lists 13 edges, the bundle check passes, the `host-draw` rows of `scripts/file-size-baseline.json` and `scripts/comment-baseline.json` are gone.
+8. The 13 edges that remain are in 8 files that no public entry reaches, except `core/debug/watch.ts`. Proposal: the five test-support files (`core/testing/both-halves.ts`, `cpu-program.ts`, `fuse-chain.ts`, `core/spec-conformance/coredef-witness.ts`, `core/cpu-entries.ts`) move to one directory that is not a layer of `MAY_IMPORT`, for example `src/testing/`. They import `compiler`, `language-service` and `rhi`, so they belong above those layers. `core/cpu-entries.ts` has one importer, `core/testing/cpu-program.ts`.
+   The move repoints 185 importers of `both-halves.ts` and 12 more files. It is an ordinary change with no author-facing effect, and its destination is a choice of the orchestrating agent (section 1.1).
+   Not determined: where `core/debug/watch.ts` goes. It calls `compileTsSource` and is imported by `src/debug.ts` and by two files of `core/debug/session/`. Either the session moves with it, or the session receives the compile function as a parameter.
+   Exit: `KNOWN` is empty.
+
+Fact: none of the eight steps changes an author-facing name, a path of `package.json` `exports` or a line of `src/__api__/surface.md`. None needs a proposal. A change that does needs one, and the plan stops at that step (`CLAUDE.md`, Merging).
+Open: the effect of a move on the bytes of the five measured bundles is not measured, and no budget has headroom. Each of steps 5 to 7 measures it first. A rise is approved in advance only where `CLAUDE.md`, Merging, says so. Past that, the owner decides.
 
 ### 6.3 Series S0 item h, the structure rules
 
@@ -1032,12 +1166,12 @@ D5 therefore rests on `CLAUDE.md`, Merging, and the owner's approval of 2026-11-
 
 ### 9.3 Open items
 
-| No. | Item                                                                    | Reason                                                               | Next action                                                                         |
-| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 5   | The exact order of `core/ir`, `core/passes` and `core/backends` (S0 g). | The import graph of `core` is not measured yet.                      | Measure it in the pull request of S0 item g. Record the order and its `KNOWN` list. |
-| 6   | The import cycles around the three `host-*` files (D3).                 | No one measured them. The S0 item d check does not exist yet.        | Build S0 item d. Run it before the S1 move.                                         |
-| 7   | A revision of `CLAUDE.md`, Merging, for pure moves (D5).                | Done in pull request #1529 (`d14bebb4`): the section lists the move. | None. Closed.                                                                       |
-| 8   | The conflict of S9 with #1493, #1498 and the waiting patches.           | Section 7.1: these edit files that the series would move.            | Check the open pull requests before S9 starts. Start it when they merge.            |
+| No. | Item                                                                    | Reason                                                               | Next action                                                                             |
+| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 5   | The exact order of `core/ir`, `core/passes` and `core/backends` (S0 g). | The import graph of `core` is not measured yet.                      | Measure it in the pull request of S0 item g. Record the order and its `KNOWN` list.     |
+| 6   | The import cycles around the three `host-*` files (D3).                 | Measured on `d28e833` (section 6.2.1): none of them is in a cycle.   | Narrowed: S0 item d still counts cycles as a ratchet. The S1 move needs no cycle check. |
+| 7   | A revision of `CLAUDE.md`, Merging, for pure moves (D5).                | Done in pull request #1529 (`d14bebb4`): the section lists the move. | None. Closed.                                                                           |
+| 8   | The conflict of S9 with #1493, #1498 and the waiting patches.           | Section 7.1: these edit files that the series would move.            | Check the open pull requests before S9 starts. Start it when they merge.                |
 
 Items 9 to 16 record the files that the first slice wave stopped on.
 Each line count was measured on `origin/main` at `4c1df624` with `git show origin/main:<file> | wc -l`.
