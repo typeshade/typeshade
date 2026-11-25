@@ -185,7 +185,7 @@
   "src/compiler/ts/lower/barriers.ts": 66,
   "src/compiler/ts/lower/caller-decided.ts": 9,
   "src/compiler/ts/lower/chains.ts": 41,
-  "src/compiler/ts/lower/class-access.ts": 147,
+  "src/compiler/ts/lower/class-access.ts": 135,
   "src/compiler/ts/lower/class-methods.ts": 472,
   "src/compiler/ts/lower/closures.ts": 50,
   "src/compiler/ts/lower/collections.ts": 42,
