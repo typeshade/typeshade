@@ -729,11 +729,8 @@ export class LoweringScope {
 
   setStructs(list: readonly StructDecl[]): void {
     this.structs.clear();
-    // The `atomicCompareExchangeWeak` result structs are always in scope (#152). They are not
-    // declared by any file and not emitted by any backend — WGSL's is built in and unnameable
-    // — but member access needs their field types, so the two live here beside whatever the
-    // file declared. An author cannot reach them: the names begin with `__`, which this
-    // surface's identifier rules refuse, and nothing but the builtin produces the type.
+    // Why: WGSL builds the `atomicCompareExchangeWeak` result struct in and gives it no name,
+    // so no file declares it and no backend emits it.
     for (const s of CAS_RESULT_STRUCTS) this.structs.set(s.name, s as StructDecl);
     for (const s of list) this.structs.set(s.name, s);
   }
