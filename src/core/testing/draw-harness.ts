@@ -8,21 +8,14 @@ import type { Expr, FuncDecl, ModuleDecl, ShaderType, Stmt } from '../ir/index.j
 import { boolT, f32T, i32T, u32T, vec4fT, vec4uT } from '../ir/index.js';
 import { mapChildren, mapStmtExpr } from '../ir/visit.js';
 
-/** A generated function with an entry that draws it. */
 export interface DrawnFunction {
-  /** The generated module, with the table's binding, its struct and the entry added. */
   readonly module: ModuleDecl;
-  /** The `@fragment` entry. It writes the bits of the function's result at `@location(0)`. */
   readonly entry: string;
-  /** The function drawn. */
   readonly fn: FuncDecl;
-  /** The target's size. Pixel `(x, y)` takes argument list `y * width + x`, with `y` the
-   *  fragment position's, which is also where `readPixels` returns that pixel. */
   readonly width: number;
   readonly height: number;
 }
 
-/** The entry's name, and the uniform table's binding, struct and field. */
 const ENTRY = 'drawFn';
 const TABLE = 'drawTable';
 const TABLE_STRUCT = 'DrawTable';
@@ -42,14 +35,12 @@ const lane = (v: Expr, i: number, type: ShaderType): Expr => ({
   field: 'xyzw'[i]!,
 });
 
-/** The components of `t` that the table and the target carry, one 32-bit lane each. */
 function lanesOf(t: ShaderType): number {
   if (t.kind === 'scalar' && t.scalar !== 'bool') return 1;
   if (t.kind === 'vec' && t.elem === 'f32') return t.n;
   throw new Error(`draw-harness: no ${JSON.stringify(t)} in a generated function's signature`);
 }
 
-/** An argument of type `t`, read from the table row `w`, a `vec4<u32>`. */
 function unpackArg(t: ShaderType, w: Expr): Expr {
   if (t.kind === 'vec') {
     const n = lanesOf(t);
@@ -65,7 +56,6 @@ function unpackArg(t: ShaderType, w: Expr): Expr {
   return call('bitcastF32', f32T, [x]);
 }
 
-/** The bits of `r`, of type `t`, as a `vec4<u32>`, the lanes it does not fill zero. */
 function packResult(t: ShaderType, r: Expr): Expr {
   const n = lanesOf(t);
   const bits = (x: Expr, s: ShaderType): Expr =>
@@ -85,8 +75,6 @@ function packResult(t: ShaderType, r: Expr): Expr {
   };
 }
 
-/** `fn` of `m` with a `@fragment` entry that draws it over `width` by `height` pixels, each
- *  pixel's arguments one table row per parameter, in {@link tableWords}' layout. */
 export function drawnFunction(
   m: ModuleDecl,
   fn: string,
@@ -111,7 +99,6 @@ export function drawnFunction(
     },
     idx: i === 0 ? at : { op: 'binop', type: u32T, bop: '+', a: at, b: lit(i, u32T) },
   });
-  // The pixel's first row: its index from its integer position, times the rows it takes.
   const index: Expr = {
     op: 'binop',
     type: u32T,
@@ -170,21 +157,18 @@ export function drawnFunction(
   };
 }
 
-/** The bits of an f32, as a u32. */
 function f32Bits(x: number): number {
   const v = new DataView(new ArrayBuffer(4));
   v.setFloat32(0, x, true);
   return v.getUint32(0, true);
 }
 
-/** The f32 whose bits are the u32 `w`. */
 function f32Of(w: number): number {
   const v = new DataView(new ArrayBuffer(4));
   v.setUint32(0, w >>> 0, true);
   return v.getFloat32(0, true);
 }
 
-/** The words of one value of type `t` in a row: its lanes, then zeros to four. */
 function rowOf(t: ShaderType, v: CpuValue): number[] {
   const n = lanesOf(t);
   const xs = (t.kind === 'vec' ? (v as number[]) : [v as number]).map((x) =>
@@ -193,8 +177,6 @@ function rowOf(t: ShaderType, v: CpuValue): number[] {
   return [...xs, ...new Array<number>(4 - n).fill(0)];
 }
 
-/** The table's words for one draw: pixel `p`'s arguments, one row of four words each, pixel
- *  after pixel. `args[p]` is pixel `p`'s argument list, as the oracle takes it. */
 export function tableWords(d: DrawnFunction, args: readonly (readonly CpuValue[])[]): number[] {
   if (args.length !== d.width * d.height)
     throw new Error(
@@ -203,17 +185,14 @@ export function tableWords(d: DrawnFunction, args: readonly (readonly CpuValue[]
   return args.flatMap((xs) => d.fn.params.flatMap((p, i) => rowOf(p.type, xs[i]!)));
 }
 
-/** The table's value as the oracle binds it, for {@link drawnFunction}'s entry run there. */
 export function tableValue(words: readonly number[]): CpuValue {
   const rows: number[][] = [];
   for (let i = 0; i < words.length; i += 4) rows.push(words.slice(i, i + 4));
   return { [ROWS]: rows } as unknown as CpuValue;
 }
 
-/** The binding the table is, by name. */
 export const DRAW_TABLE = TABLE;
 
-/** What a pixel's four words hold as the function's return type: the entry's packing undone. */
 export function pixelValue(t: ShaderType, words: readonly number[]): CpuValue {
   if (t.kind === 'vec') return Array.from({ length: lanesOf(t) }, (_, i) => f32Of(words[i]!));
   if (t.kind === 'scalar' && t.scalar === 'u32') return words[0]! >>> 0;
@@ -221,13 +200,8 @@ export function pixelValue(t: ShaderType, words: readonly number[]): CpuValue {
   return f32Of(words[0]!);
 }
 
-// ─── what GLSL ES 3.00 leaves undefined ───────────────────────────────────────────────────────
-
-/** The private flag the helpers set. */
 const FLAG = 'glslUndefined';
 
-/** The function {@link taintGlslUndefined} adds for `fn`: it takes `fn`'s parameters, runs it,
- *  and returns 1 when the run reached an input GLSL ES 3.00 leaves undefined, else 0. */
 export const taintedName = (fn: string): string => `${fn}_glslUndefined`;
 
 const flagRef: Expr = { op: 'varref', type: u32T, name: FLAG };
@@ -242,8 +216,6 @@ const cmp = (cop: '==' | '<' | '>=' | '!=', a: Expr, b: Expr): Expr => ({
 const or = (a: Expr, b: Expr): Expr => ({ op: 'logical', type: boolT, lop: '||', a, b });
 const and = (a: Expr, b: Expr): Expr => ({ op: 'logical', type: boolT, lop: '&&', a, b });
 
-/** A helper that sets the flag when `undefinedWhen` holds of its parameters, then returns
- *  `value` of them, the operation as WGSL computes it. */
 function helper(
   name: string,
   params: readonly { name: string; type: ShaderType }[],
@@ -277,7 +249,6 @@ const intPair = (t: ShaderType) => [
   { name: 'b', type: t },
 ];
 
-/** One helper per operation GLSL ES 3.00 leaves undefined on some input, by the operation. */
 const HELPERS: Readonly<Record<string, FuncDecl>> = {
   'i32 /': helper(
     'glslDivI32',
@@ -312,7 +283,6 @@ const HELPERS: Readonly<Record<string, FuncDecl>> = {
     ([, b]) => cmp('==', b!, lit(0, u32T)),
     ([a, b]) => binop('%', u32T, a!, b!),
   ),
-  // Outside [-2^31, 2^31), or NaN, which is unequal to itself.
   'i32 of f32': helper(
     'glslToI32',
     [{ name: 'x', type: f32T }],
@@ -324,7 +294,6 @@ const HELPERS: Readonly<Record<string, FuncDecl>> = {
       ),
     ([x]) => call('i32', i32T, [x!]),
   ),
-  // Negative, at or past 2^32, or NaN. A negative zero is zero, which is not negative.
   'u32 of f32': helper(
     'glslToU32',
     [{ name: 'x', type: f32T }],
@@ -339,9 +308,6 @@ const intScalar = (t: ShaderType): 'i32' | 'u32' | undefined =>
   t.kind === 'scalar' && (t.scalar === 'i32' || t.scalar === 'u32') ? t.scalar : undefined;
 const isIntVec = (t: ShaderType): boolean => t.kind === 'vec' && t.elem !== 'f32';
 
-/** `e` with every operation GLSL ES 3.00 leaves undefined on some input routed through its
- *  helper. An integer vector's division or conversion is refused rather than passed over: the
- *  generator makes none, and one would reach GLSL untainted. */
 function taintExpr(e: Expr): Expr {
   const x = mapChildren(e, taintExpr);
   if (x.op === 'binop' && (x.bop === '/' || x.bop === '%')) {
@@ -360,8 +326,6 @@ function taintExpr(e: Expr): Expr {
   return x;
 }
 
-/** `s` with its expressions tainted, and an integer `/=` or `%=` spelled as the assignment of
- *  its helper's call. */
 function taintStmt(s: Stmt): Stmt {
   if (s.s === 'assignOp' && (s.bop === '/' || s.bop === '%')) {
     const t = intScalar(s.target.type);
@@ -375,10 +339,6 @@ function taintStmt(s: Stmt): Stmt {
   return mapStmtExpr(s, taintExpr, taintStmt);
 }
 
-/** `m` for the CPU oracle alone: each function computes what it did, and sets the private flag
- *  when it reaches an input GLSL ES 3.00 leaves undefined; {@link taintedName} of each function
- *  returns the flag of one run. The flag starts at zero on every call from the host, as a
- *  private variable does on each invocation. */
 export function taintGlslUndefined(m: ModuleDecl): ModuleDecl {
   const funcs = m.funcs.map((f) => ({ ...f, body: f.body.map(taintStmt) }));
   const wrappers = m.funcs

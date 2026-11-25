@@ -1,18 +1,4 @@
 import { withoutKernels } from './ir/kernels.js';
-// ═══ The compiled program's manifest (Rules 6.8 and 11.10, change 0025) ═══
-//
-// One plain JSON object that holds everything a host needs to run a compiled program: the
-// shader text, each binding with its resource (a texture's sample type among it, which follows
-// from the calls that read it) and byte layout, each entry with the bindings it reaches, the
-// overrides, the features, the recorded console variant and the WebGL2 conventions.
-// `packModule()` returns it, the plugin's generated module exports it as its default export, and
-// the program runtime loads it. `packModule(m, { emit })` emits the text, the GLSL and the
-// bindings under the options it is given, and the manifest records the ones it can (`emit`), so
-// the load-time emitter emits the program again under them (change 0028).
-//
-// It is built from the IR alone and imports no TypeScript, so every producer computes the same
-// manifest, the load-time emitter included (change 0025, section 5). The byte layouts are the
-// ones the emitted WGSL assumes, the same `reflect()` reports (Rule 6.8).
 
 import { emittedName, inheritSpellings, spellingsOf } from './spelling-plan.js';
 import {
@@ -100,13 +86,8 @@ export interface PackOptions {
   readonly emit?: EmitOptions & { readonly level?: OptLevel };
 }
 
-// ─── byte layouts ────────────────────────────────────────────────────────────────────────────
-
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a;
 
-/** The byte layout of a binding's type (std430 for storage, the uniform rules for uniform), from
- *  `reflect()`'s own `typeLayout`, or why it has none a host can pack. `spell` writes a type in a
- *  reason; the call layer passes the author's spelling. */
 export function layoutOf(
   t: ShaderType,
   kind: 'std140' | 'std430',
@@ -151,8 +132,6 @@ export function layoutOf(
       }
       return { k: 'o', f, sz: typeLayout(t, kind, structs).size };
     }
-    // An emulated `f64` is a `vec2<f32>` (hi, lo), and `vecN<f64>` a `DF64VecN` struct of a `hi`
-    // and a `lo` plane of `vecN<f32>`, whose `lo` sits at the plane's aligned size.
     case 'f64':
       return { k: 's', t: 'f64' };
     case 'vec64':
@@ -162,14 +141,6 @@ export function layoutOf(
   }
 }
 
-/** What the WebGL2 tier draws a fragment entry with: its GLSL ES 3.00 fragment program, the block
- *  name of each uniform binding, the sampler of each texture, and the read-only storage arrays it
- *  reads as data textures; or why it cannot. `bindings` are the ones the entry reaches, the
- *  `_fp64` guard among them; `dataTextures` the storage arrays the reader uploads as data
- *  textures (the program runtime does, the call layer's full-screen draw does not). `emit` is the options the program is emitted under (change 0028),
- *  the plugins among them: the program is what they write, and the block and sampler names are
- *  read from the same program without them, since a text plugin (`minify`) writes a declaration
- *  this reads by its spacing, and the names a plugin keeps are the ones a host binds by. */
 export function glDrawOf(
   m: ModuleDecl,
   f: FuncDecl,
@@ -200,8 +171,6 @@ export function glDrawOf(
   return { fragment: source, ...rest };
 }
 
-/** What the WebGL2 tier runs a vertex entry with, as {@link glDrawOf} gives a fragment entry's
- *  (change 0054). */
 export function glVertexOf(
   m: ModuleDecl,
   f: FuncDecl,
@@ -232,16 +201,11 @@ export function glVertexOf(
   return { vertex: source, ...rest };
 }
 
-/** A stage's program as shipped (the emit options' plugins applied) and as read for its names
- *  (without them), or the writer's refusal of either. */
 export interface GlslSources {
   readonly shipped: string | Error;
   readonly text: string | Error;
 }
 
-/** Entry `f`'s program of its own: what it and its callees reach, emitted alone. A compute entry
- *  of the same module, or a storage array another entry writes, is no part of it, and would make
- *  the GLSL writer refuse the module whole. */
 function ownGlsl(
   m: ModuleDecl,
   f: FuncDecl,
@@ -262,12 +226,9 @@ function ownGlsl(
   };
 }
 
-/** `m` with only the functions of `closure` and the bindings they touch, and no workgroup
- *  memory: the module a vertex or fragment program is emitted from. */
 function pruned(m: ModuleDecl, closure: ReadonlySet<string>): ModuleDecl {
   const reach = reachOf(m);
   const reached = new Set([...closure].flatMap((g) => [...reach(g).touched]));
-  // A pruned module keeps the names of the module it was cut from (Proposal 0070, finding 8).
   return inheritSpellings(
     {
       ...m,
@@ -279,11 +240,6 @@ function pruned(m: ModuleDecl, closure: ReadonlySet<string>): ModuleDecl {
   );
 }
 
-/** The module's own vertex and fragment pair (`Pack.glsl`, where `pair` asks for it) and each
- *  vertex and fragment entry's program, from one lowering of the module: a lowering for each
- *  entry cost a third of the manifest. Where the writer refuses the module whole (a compute
- *  entry that writes storage, say), the entries are emitted from the module pruned to what they
- *  reach together, and where it refuses that too, each alone, so the others keep theirs. */
 function glslOfEntries(
   m: ModuleDecl,
   jobs: readonly {
@@ -337,7 +293,6 @@ function glslOfEntries(
   return { ...(glsl !== undefined ? { glsl } : {}), entries };
 }
 
-/** One stage's GLSL ES 3.00 program of entry `f`, and the names a draw binds it by. */
 function glStageOf(
   m: ModuleDecl,
   f: FuncDecl,
@@ -358,7 +313,6 @@ function glStageOf(
       readonly data?: readonly string[];
     }
   | { none: string } {
-  // A read-only storage array is a data texture where the reader can upload one (`data`).
   const storage = bindings.find(
     (b) => b.space === 'storage' && !(dataTextures?.has(b.name) ?? false),
   );
@@ -375,8 +329,6 @@ function glStageOf(
   const blocks: Record<string, string> = {};
   const samplers: Record<string, string | null> = {};
   const data: string[] = [];
-  // The names the text declares: the GLSL spelling of each binding (Proposal 0070, C7). The maps
-  // below stay keyed by the authored name the host binds by.
   const glslBindings = spellingsOf(m).glsl.bindings;
   const gl = (n: string): string => glslBindings.get(n) ?? n;
   const declared = new Set<string>();
@@ -387,7 +339,6 @@ function glStageOf(
       const g = gl(b.name);
       const u = new RegExp(`uniform (\\w+) \\{[^}]*\\} ${g};`).exec(text);
       if (u === null) {
-        // A stage that reads no field of the binding declares no block for it.
         if (!new RegExp(`\\b${g}\\b`).test(text)) continue;
         return { none: `its GLSL declares no uniform block for "${b.name}"` };
       }
@@ -400,15 +351,12 @@ function glStageOf(
     } else if (b.space === 'texture') {
       const g = gl(b.name);
       const has = sampled(g);
-      // The guard is bound only where the program reads it.
       if (!has && ('guard' in b || (texturesMayDrop && !new RegExp(`\\b${g}\\b`).test(text))))
         continue;
       if (!has) return { none: `its GLSL declares no sampler2D for "${b.name}"` };
       declared.add(gl(b.name));
     }
   }
-  // GLSL ES 3.00 fuses a texture with its sampler: each texture takes the one sampler its
-  // calls pass it, so the WebGL2 tier can set that sampler's filter and address on it.
   const pairs = texturePairs(
     closure,
     byName,
@@ -425,7 +373,6 @@ function glStageOf(
       };
     samplers[b.name] = with_[0] ?? null;
   }
-  // Every uniform the program declares is one the draw binds.
   for (const u of text.matchAll(
     /^(?:layout\([^)]*\) )?uniform (?:\w+ )*?(\w+)(?: \{[^}]*\} (\w+))?;/gm,
   )) {
@@ -436,12 +383,6 @@ function glStageOf(
   return { source: shipped, blocks, samplers, ...(data.length > 0 ? { data } : {}) };
 }
 
-// ─── WebGL2's data textures ──────────────────────────────────────────────────────────────────
-
-/** The data texture a read-only storage array becomes in GLSL ES 3.00, as the GLSL writer's
- *  storage emulation lowers it: `array<f32>` one `r32float` lane, `array<vecN<f32>>` its std430
- *  stride in lanes, `array<u32>` and `array<i32>` one typed lane, and an array of structs of
- *  `f32`, `u32` and `vecN<f32>` fields its std430 stride in `r32float` lanes, a `u32` bit-cast. */
 export function dataTextureOf(
   b: BindingDecl,
   structs: ReadonlyMap<string, StructDecl>,
@@ -469,13 +410,8 @@ export function dataTextureOf(
   return undefined;
 }
 
-// ─── the manifest ────────────────────────────────────────────────────────────────────────────
-
 const STAGES = ['vertex', 'fragment', 'compute'] as const;
 
-/** The bindings of `m`, as `reflect()` reports them under the `f64` flavor the program is emitted
- *  with: the `'float'` flavor (the default) binds the `_fp64` guard, and the `'integer'` one does
- *  not (change 0028). */
 function packBindings(m: ModuleDecl, bindGroups: readonly BindGroup[]): PackBinding[] {
   const structs = new Map(m.structs.map((s) => [s.name, s]));
   const decls = new Map(m.bindings.map((b) => [b.name, b]));
@@ -530,40 +466,24 @@ function packBindings(m: ModuleDecl, bindGroups: readonly BindGroup[]): PackBind
   return out;
 }
 
-/** The type of a binding the emit adds, which the module does not declare. */
 function typeOfInjected(e: BindEntry): string {
   if (e.resourceKind === 'texture') return `texture_2d<${e.textureElem ?? 'f32'}>`;
   if (e.resourceKind === 'storage-buffer') return e.structName ?? 'storage';
   return e.resourceKind;
 }
 
-// ─── the emit options (change 0028) ──────────────────────────────────────────────────────────
-
-/** Each word an emit option takes, from the type the writers take it as: the record is
- *  exhaustive over `T`, so a word added to the type and not here stops the build. */
 const wordsOf = <T extends string>(record: Record<T, true>): readonly T[] =>
   Object.keys(record) as T[];
 const LEVELS = wordsOf<OptLevel>({ O0: true, O1: true, O2: true });
 const PARENS = wordsOf<ParenMode>({ full: true, minimal: true });
 const FLAVORS = wordsOf<Fp64Flavor>({ float: true, integer: true });
 
-/** What a build emits under: the options both writers take, the level the WGSL's optimizer runs
- *  at, and what the manifest records of them. */
 interface EmitPlan {
-  /** `parens`, `fp64Flavor` and `plugins`, as `emitModule()` and `emitGlslStages()` take them. */
   readonly options: EmitOptions | undefined;
-  /** The WGSL's optimizer tier. The GLSL writer has none. */
   readonly level: OptLevel | undefined;
-  /** `Pack.emit`: the options a manifest can record, which a plugin is not. `manifest-types.ts`
-   *  spells its words out, so that the program runtime's closure reaches no emitter, and this
-   *  record, made of the writers' own types, and `repack`, which hands it back to them, hold the
-   *  two to each other: a word one takes and the other lacks stops the build. */
   readonly record: Pack['emit'];
 }
 
-/** The word `given` for `emit.<name>`, or undefined when there is none. The writers read a word
- *  they do not know as another (an unknown level runs the full optimizer, an unknown `parens` is
- *  `'minimal'`, an unknown flavor is `'float'`), and a manifest would record it, so it is refused. */
 function wordOf<T extends string>(
   name: string,
   given: unknown,
@@ -584,7 +504,6 @@ function wordOf<T extends string>(
   throw new TypeError(`packModule(): emit.${name} takes ${list}; got ${got}.`);
 }
 
-/** The options of `packModule(m, { emit })`, checked, and what the manifest records of them. */
 function emitPlanOf(options: PackOptions): EmitPlan {
   const emit = options.emit;
   if (emit === undefined) return { options: undefined, level: undefined, record: undefined };
@@ -600,8 +519,6 @@ function emitPlanOf(options: PackOptions): EmitPlan {
     throw new TypeError(
       'packModule(): emit.plugins takes a list of plugins, such as the one obfuscate() returns.',
     );
-  // A plugin is a function, which a manifest cannot record, so the program packed under one cannot
-  // be emitted again from the IR it carries.
   if (options.ir === true && plugins !== undefined && plugins.length > 0)
     throw new TypeError(
       'packModule(): { ir: true } cannot go with emit.plugins: a plugin is a function, which a manifest cannot record, so the load-time emitter could not emit the program again under it. Pack the program without ir, or without the plugins.',
@@ -622,7 +539,6 @@ function emitPlanOf(options: PackOptions): EmitPlan {
   };
 }
 
-/** `m` as WGSL under the plan's options and level. With none it is `emitModule(m)`. */
 const emitWgsl = (m: ModuleDecl, plan: EmitPlan): string => emittedWgsl(m, plan).code;
 
 const emittedWgsl = (
@@ -631,36 +547,12 @@ const emittedWgsl = (
 ): { readonly code: string; readonly lowered: ModuleDecl } =>
   emitModuleLowered(m, wgslBackend, plan.options, plan.level);
 
-/**
- * Everything a host needs to run a compiled module, in one plain object (Rule 11.10): the
- * manifest, schema {@link PACK_SCHEMA}.
- *
- * It is JSON: no IR nodes, no functions, no class instances. So it survives `JSON.stringify`, a
- * bundler's module, a worker's `postMessage` and an HTTP response unchanged.
- *
- * GLSL is best-effort and its absence is not an error: `glsl`, the vertex and fragment pair, is
- * present when the module has one entry of each stage and the GLSL ES 3.00 writer can spell
- * them; and `gl` gives the WebGL2 tier each entry's program of its own (change 0054): a vertex
- * entry's (`gl.vertices`), a fragment entry's (`gl.draws`), and a compute entry's pass program
- * (`gl.computes`), or why it has none.
- *
- * `options.emit` emits the WGSL (the recorded variant's too), the GLSL (the WebGL2 tier's draws
- * too) and the bindings under other options than the defaults (change 0028): the WGSL writer's
- * `parens`, `fp64Flavor` and `plugins`, and an optimization `level` for the WGSL. The manifest
- * records `level`, `parens` and `fp64Flavor` in `emit`, and the load-time emitter emits the
- * program again under them. A plugin is a function, which a manifest cannot record, so `ir` with
- * `plugins` is a `TypeError`.
- */
-// Internal callers may reuse the successful default WGSL emit of this exact module. An
-// explicit emit configuration always runs its own pipeline, including validation/plugins.
 export function buildManifest(
   m: ModuleDecl,
   options: PackOptions = {},
   defaultWgsl?: string,
   defaultLowered?: ModuleDecl,
 ): Pack {
-  // The spelling plan of the kernel-free module the writers lower (Proposal 0070): the records of
-  // structs and fields read it, as `reflect()` does.
   const spelled = spellingsOf(inheritSpellings(withoutKernels(m), m));
   const plan = emitPlanOf(options);
   const fp64Flavor = plan.options?.fp64Flavor;
@@ -674,7 +566,6 @@ export function buildManifest(
   const wgsl = own.code;
   const emittedReach = reachOf(own.lowered);
   const structs = new Map(m.structs.map((s) => [s.name, s]));
-  // Through `stageOf`, as every stage decision is: a `fn()` handle carries `attrs`, not `stage`.
   const hasVs = m.funcs.some((f) => stageOf(f) === 'vertex');
   const hasFs = m.funcs.some((f) => stageOf(f) === 'fragment');
   const r = reflect(m, { fp64Flavor });
@@ -694,8 +585,6 @@ export function buildManifest(
     const list = m.bindings
       .filter((b) => touched.has(b.name))
       .map((b) => ({ name: b.name, writes: written.has(b.name) }));
-    // The guard is bound for every entry of a module that emulates `f64`, as the call layer
-    // binds it: the WGSL declares it once for the whole module.
     if (guard !== undefined) list.push({ name: guard.name, writes: false });
     return { closure, list };
   };
@@ -749,8 +638,6 @@ export function buildManifest(
     if (info.stage === 'compute') computes[info.name] = glComputeOf(m, f);
   }
 
-  // Each vertex and fragment entry's GLSL ES 3.00 program, which a render pipeline of the WebGL2
-  // tier links in pairs, and a full-screen draw draws a fragment entry with (change 0054).
   const emitted = glslOfEntries(m, renderJobs, plan.options, hasVs && hasFs);
   const glsl: Pack['glsl'] = emitted.glsl;
   const glsls = emitted.entries;
@@ -840,14 +727,10 @@ export function buildManifest(
           },
         }
       : {}),
-    // The IR last, as `repack` adds it after the manifest it emits again.
     ...(options.ir === true ? { ir: toPortable(m, VERSION) } : {}),
   };
 }
 
-/** A `@compute` entry's pass program for the WebGL2 tier (change 0054), or why it has none, in
- *  the call layer's words (`host-face.ts`, `glTier`). The program runtime runs it and never
- *  builds one (Rule 11.11). */
 function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string } {
   try {
     return buildGlCompute(m, f.name);
@@ -856,7 +739,6 @@ function glComputeOf(m: ModuleDecl, f: FuncDecl): PackGlCompute | { none: string
   }
 }
 
-/** A manifest binding as the WebGL2 draw reads it. */
 function toDrawBinding(b: PackBinding): DrawBinding {
   // Why: a host without a `glsl` looks the uniform up by its authored name (`glsl ?? name`), so
   // `glsl` is present whenever the GLSL name differs from that name, even when it equals the WGSL
@@ -881,7 +763,6 @@ function toDrawBinding(b: PackBinding): DrawBinding {
   };
 }
 
-/** An entry's stage interface with each field's interpolation, which `reflect()` leaves out. */
 function ioOf(
   f: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,

@@ -1,67 +1,3 @@
-// ═══ Shader DSL — CPU (f64) js-source backend ═══
-//
-// The perf-critical twin of the tree-walk interpreter (oracle.ts). Same IR,
-// same op-library (cpu-runtime.ts), but instead of RE-WALKING the IR on every
-// call it walks the IR ONCE at compile time and emits a JS source string per
-// fn, then `new Function`s it. The recursive per-node `evalExpr` dispatch + the
-// per-`call` argument-array allocation (the ~40 %-of-frame / GC-churn hot spot
-// the profile flagged at high pitch, X-GIS #1162) collapse into straight-line JS with
-// real local variables.
-//
-// ─── BIT-IDENTITY CONTRACT (the whole point) ───
-// compileModuleJs(m).fns.f(args) === compileModule(m).fns.f(args), Object.is per
-// element, for ALL inputs: every argument of its parameter's type (a vector of its width, a
-// struct with its fields) and every value the module makes of them. This holds BY
-// CONSTRUCTION, not by tuning:
-//   • the emitted code runs the IDENTICAL op tree in doubles, with a `Math.fround`
-//     exactly where the IR has an `__fround` (the f32 precision pass) and nowhere
-//     else;
-//   • scalar arithmetic is inlined to the same JS operators scalarBin uses
-//     (`+ - * / %`, `>>> 0`-normalised bitwise, i32-aware `>>`);
-//   • it is TYPE-DIRECTED (#410): the IR types every expression, so a vector
-//     operation of a known width is written out one component at a time, each
-//     component the scalar operation the shared helper (applyBin, compareValues,
-//     selectComponents, the vector constructor) applies to it, and each
-//     per-component builtin calls the one scalar function its BUILTINS entry
-//     applies per component (`COMPONENTWISE`, cpu-runtime.ts). `dot`, `length`,
-//     `distance`, `normalize` and `cross` are written out term by term in the
-//     order their BUILTINS entries sum. Everything else (matrices, the other
-//     builtins) calls the SAME cpu-runtime helper the interpreter calls, bound
-//     once at the top of the factory rather than looked up per call. So does an
-//     operation on an operand that may be MISSING, a value the IR types as a vector
-//     that the module makes into something else (a call of a function that reaches
-//     a `discard` returns nothing, an element read past an array's end is
-//     `undefined`): the helper takes it as a scalar, as the interpreter does, where a
-//     component read would throw. `analyseAbsence` decides which operands those are,
-//     once per module, from the IR alone. The helpers are what they were before #410,
-//     so the few that read such a value as an array (a vector constructor's spread, a
-//     negation, a vector comparison or select, a swizzle) still answer otherwise than
-//     the interpreter does, or throw. And per-component code computes no component
-//     nothing reads, so an error the interpreter raises in one (a field read of an
-//     element past an array's end) is not raised;
-//   • it keeps the interpreter's evaluation order: an operand with an effect, or
-//     one evaluated before one, is evaluated once, in order, into a temporary,
-//     and its components read afterwards, as the helper reads them (`isPure`);
-//   • consts embed their cpuValue / evaluate their valueExpr through the same
-//     op tree; literals embed round-trip-exact (incl. -0 / NaN / ±Infinity);
-//   • the flat per-call env is modelled as function-scope JS locals (one JS var
-//     per distinct IR name — same clobber semantics as the interpreter's single
-//     Map), and value references (number[] vectors, struct objects) are shared
-//     exactly as the interpreter shares them, so member-mutation aliasing is
-//     preserved rather than approximated. A value built by the generated code
-//     itself is new, and is stored without the copy a shared one takes.
-// cpu-codegen.test.ts differential-gates this over every construct in both
-// precisions; the map package gates it over the whole PROJECTION_MODULE with
-// boundary + seeded-random sweeps. The f64-ALGEBRA caveat (oracle.ts header)
-// applies verbatim — this is still NOT an f32 GPU-precision oracle.
-//
-// HYBRID FALLBACK: if a fn body hits an IR construct that cannot be emitted
-// semantically-identically (raw/placeholder Stmt, an lvalue shape with no
-// expression form), that ONE fn falls back to the interpreter (the module is a
-// hybrid); the rest still run compiled. A `new Function` failure (a CSP
-// `unsafe-eval` host) throws so the caller can fall the whole module back to the
-// interpreter.
-
 import type {
   Expr,
   Stmt,
@@ -110,17 +46,10 @@ import { dispatchCompute, dispatchEach, needsLockstep } from './debug/dispatch.j
 import { createCodegenRuntime, type CodegenRuntime } from './cpu-codegen-runtime.js';
 import { unboundBindings, zeroLit } from './cpu-codegen/zero-literal.js';
 
-/** Sentinel: a per-fn body used an IR construct the codegen can't emit
- *  bit-identically. Caught by compileModuleJs → that fn falls back to the
- *  interpreter (hybrid module). Never escapes this module. */
 class CodegenUnsupported extends Error {}
 
 const q = (s: string): string => JSON.stringify(s);
 
-/** Emit a JS numeric/boolean literal that reads back to the EXACT same value.
- *  ECMAScript Number→string (radix 10) is the shortest round-trip form, so
- *  String(finite) parses back identically; -0 / NaN / ±Infinity are handled
- *  explicitly (String(-0) === "0" would lose the sign). */
 function jsNum(v: number | boolean): string {
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (Number.isNaN(v)) return 'NaN';
@@ -130,81 +59,43 @@ function jsNum(v: number | boolean): string {
   return String(v);
 }
 
-/** A value whose runtime shape is number[] (interpreter `isArr(v)` true):
- *  vec / vec64 / mat / array. Scalars, f64 (a native JS number here), bool are not. */
 function isArrayValued(t: ShaderType): boolean {
   return t.kind === 'vec' || t.kind === 'vec64' || t.kind === 'mat' || t.kind === 'array';
 }
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32';
-/** An `f32` or a vector of them: what the precision pass rounds (`passes/precision.ts`). */
 const isF32ish = (t: ShaderType): boolean => isF32(t) || (t.kind === 'vec' && t.elem === 'f32');
 
-/** Module-scope codegen state shared by every fn. */
 interface ModCtx {
   structs: Map<string, StructDecl>;
-  /** const name → its JS local id in the factory (`$C_<i>`). */
   constId: Map<string, string>;
-  /** override name → its JS local id in the factory (`$O_<i>`). */
   overrideId: Map<string, string>;
-  /** The names the module actually declares as functions, so a call the front end resolved
-   *  to one (`declRef`) can be routed to it rather than to a builtin of the same name. */
   fnNames: ReadonlySet<string>;
-  /** The module variables (roadmap 0.2 item 5), read and written through `$.vars`. */
   varNames: ReadonlySet<string>;
-  /** The resource bindings, so a write to one that no local shadows lands in `$.bindings`
-   *  where the host reads it, the way the interpreter's `setLValue` writes it. */
   bindingNames: ReadonlySet<string>;
-  /** Each declared function's parameters, for a call to store back what its `inout`
-   *  parameters hold as it returns (`inoutReturn`, cpu-runtime.ts). */
   params: ReadonlyMap<string, FuncDecl['params']>;
-  /** The loops a kernel function's reduction is combined in the tree order by (Rule 7.2), and
-   *  the arrays a loop scatter-adds into (change 0056, option C); and whether an `f32` combine
-   *  rounds. */
   trees: ReadonlyMap<Stmt, TreeLoop>;
   f32: boolean;
-  /** What the factory binds once for every function ({@link bound}): the name of each
-   *  right-hand side, keyed by its source. */
   bound: Map<string, string>;
-  /** {@link isPure}'s answers, by expression. */
   pure: WeakMap<Expr, boolean>;
-  /** Which values may be missing where the IR types a vector ({@link analyseAbsence}). */
   absence: Absence;
 }
 
-/** Per-fn codegen state: the flat env → JS locals mapping + the hoist list. */
 interface FnCtx {
   mod: ModCtx;
-  /** The function's name, which {@link Absence} keeps its names by; empty for the module's own
-   *  initializers. */
   name: string;
-  /** IR name (param OR let/var) → JS identifier. Params pre-seeded to `$a<i>`;
-   *  a `let`/`var` of a NEW name allocates `$v<n>` (hoisted). A repeat name maps
-   *  to the SAME id — the interpreter's single flat Map has no shadowing, so
-   *  same-name = same slot here too. */
   varId: Map<string, string>;
-  /** `$v` locals to declare at the top of the fn body (function-scope, flat). */
   hoisted: string[];
   n: number;
-  /** For a function with an `inout` parameter, the statement that publishes what its
-   *  parameters hold as it returns, reusing its factory-local buffer, run at every return. */
   inoutPublish?: string;
-  /** The parameters rounded to `f32` once, as the function is entered (`$p<i>`, one name per
-   *  component of a vector), by name. The precision pass's rounding of a read of one
-   *  (`__fround(p)`) reads these instead of rounding the parameter again. */
   rounded: Map<string, readonly string[]>;
 }
 
-/** A fresh JS temporary for the function, declared with the others at its top. */
 function tempVar(S: FnCtx): string {
   const id = `$t${S.n++}`;
   S.hoisted.push(id);
   return id;
 }
 
-/** A call's source, followed by storing what each of the callee's `inout` parameters holds as
- *  it returned into the place passed there, as the interpreter's `storeBack` does: a variable,
- *  or a field, an element or a matrix's column through the store `places` writes, its
- *  `%VALUE%` the value, over the temporaries the arguments resolved once (Rule 8.25). */
 function storeBackJs(
   call: Expr & { op: 'call' },
   callSrc: string,
@@ -242,47 +133,18 @@ function readVar(name: string, S: FnCtx): string {
   const id = S.varId.get(name);
   if (id !== undefined) return id;
   if (S.mod.varNames.has(name)) return `$.vars[${q(name)}]`;
-  // Not a param/local ⇒ a storage/uniform binding (setBinding). The interpreter
-  // resolves env first, then ctx.bindings; a declared local always shadows.
   return `$.bindings[${q(name)}]`;
 }
 
-// ─── Expressions ─────────────────────────────────────────────────────────────────────────────
-//
-// Type-directed (#410). The runtime helpers learn a vector's width and a scalar's kind from the
-// value on every call (`applyBin` maps over its operand, `BUILTINS.floor` checks whether it was
-// handed an array); the IR already says both, so a vector the generator can build per
-// component is written as one scalar expression per component ({@link Lanes}), and only the
-// whole vector a statement, a call or a return needs is ever allocated. A component reads the
-// components of its operands directly: `q.xy - g.xy` is `[q[0] - g[0], q[1] - g[1]]`.
-//
-// A component is computed separately, in any order, and only where it is read, so this is done
-// only where no effect can tell: for an expression {@link isPure} holds of. An operand with an
-// effect, and every operand before one, is evaluated in order into a temporary, and its
-// components read from there once all the operands are evaluated, which is when the runtime
-// helper reads them ({@link operands}).
-
-/** One expression, as the JavaScript that evaluates it. */
 interface Js {
-  /** Evaluates the expression once, where the IR evaluates it. */
   readonly js: string;
-  /** Costs nothing and has no effect: a literal, a constant, a local, a parameter, a temporary,
-   *  or one of their components at a fixed index. It may be written more than once. */
   readonly atom?: boolean;
-  /** Holds one value for the whole call: a literal, a module constant or override, a parameter
-   *  rounded at entry, or a component of one. */
   readonly stable?: boolean;
-  /** A new array or object, nested ones included, that nothing else holds: a store keeps it
-   *  without the copy it makes of a shared one. */
   readonly fresh?: boolean;
-  /** A number `Math.fround` returns unchanged, so rounding it again is left out. */
   readonly rounded?: boolean;
-  /** The number a literal holds, which a rounding of it folds. */
   readonly num?: number;
 }
 
-/** A vector-valued expression as one scalar expression per component, each without an effect,
- *  to be read after the assignments in `pre` have run, in order. */
 interface Lanes {
   readonly pre: readonly string[];
   readonly comps: readonly Js[];
@@ -292,41 +154,28 @@ type Call = Extract<Expr, { op: 'call' }>;
 
 const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i);
 
-/** `s`, after the assignments in `pre`, as one expression. */
 const seq = (pre: readonly string[], s: string): string =>
   pre.length === 0 ? s : `(${[...pre, s].join(', ')})`;
 
-/** `base[key]`, parenthesising `base` unless it is a name. */
 const keyed = (base: string, key: string): string =>
   /^[\w$]+$/.test(base) ? `${base}[${key}]` : `(${base})[${key}]`;
 
-/** A vector as an array literal of its components. */
 const arrayOf = (l: Lanes): Js => ({
   js: seq(l.pre, `[${l.comps.map((c) => c.js).join(', ')}]`),
   fresh: true,
 });
 
-/** A literal. A number carries its value, which a rounding folds. */
 function litJs(v: number | boolean): Js {
   if (typeof v === 'boolean') return { js: jsNum(v), atom: true, stable: true };
   return { js: jsNum(v), atom: true, stable: true, num: v, rounded: Object.is(Math.fround(v), v) };
 }
 
-/** How many components the runtime holds a value of `t` as, one number or bool each: a vector
- *  of any element, or an emulated-double vector. Undefined for any other type. */
 function widthOf(t: ShaderType | undefined): number | undefined {
   return t !== undefined && (t.kind === 'vec' || t.kind === 'vec64') ? t.n : undefined;
 }
-/** A type the runtime holds as one number or bool, which a vector operation hands every
- *  component. */
 const isScalar = (t: ShaderType): boolean => t.kind === 'scalar' || t.kind === 'f64';
-/** An operand an operation of `n` components reads per component: a vector of `n`, or a
- *  scalar. */
 const fits = (t: ShaderType, n: number): boolean => widthOf(t) === n || isScalar(t);
 
-/** The name the factory binds `rhs` to, once for the module: `Math.fround` as `$fr`, and a
- *  builtin or a runtime helper as `$h<k>`, so a call reads a local of the factory where it
- *  used to look the function up every time. */
 function bound(S: FnCtx, rhs: string): string {
   const table = S.mod.bound;
   let id = table.get(rhs);
@@ -337,8 +186,6 @@ function bound(S: FnCtx, rhs: string): string {
   return id;
 }
 
-/** The runtime helpers the generated code calls through a binding: plain functions that read
- *  no `this`. (`console` reads the runtime's `invocation`, and the tables are written.) */
 type Helper =
   | 'applyBin'
   | 'matVecShaped'
@@ -363,15 +210,12 @@ type Helper =
   | 'cvtVec';
 const helper = (S: FnCtx, name: Helper & keyof CodegenRuntime): string => bound(S, `$.${name}`);
 
-/** `v` rounded to f32, as `Math.fround` rounds it: a literal's value folded, a value already
- *  rounded left as it is. */
 function rounded(v: Js, S: FnCtx): Js {
   if (v.rounded) return v;
   if (v.num !== undefined) return litJs(Math.fround(v.num));
   return { js: `${bound(S, 'Math.fround')}(${v.js})`, rounded: true };
 }
 
-/** `v`, or a temporary assigned it in `pre`: a value read more than once is computed once. */
 function atomize(v: Js, S: FnCtx, pre: string[]): Js {
   if (v.atom) return v;
   const t = tempVar(S);
@@ -379,15 +223,11 @@ function atomize(v: Js, S: FnCtx, pre: string[]): Js {
   return { js: t, atom: true, rounded: v.rounded };
 }
 
-/** `js` negated. A `-` straight after another would read as a decrement. */
 const negate = (js: string): string => (js.startsWith('-') ? `(-(${js}))` : `(-${js})`);
 
-/** A number `js` wrapped into the integer kind `kind`, as `wrapInt` wraps it. */
 const wrapNum = (js: string, kind: NumKind): string =>
   kind === 'f32' ? js : kind === 'i32' ? `(${js} | 0)` : `(${js} >>> 0)`;
 
-/** `js`, a value of type `t`, wrapped into its integer type as the interpreter's `wrapValue`
- *  does: inline for a scalar, through the runtime for a vector. A float type is left alone. */
 function wrapped(js: string, t: ShaderType, S: FnCtx): string {
   const kind = numKindOf(t);
   if (kind === 'f32') return js;
@@ -395,17 +235,14 @@ function wrapped(js: string, t: ShaderType, S: FnCtx): string {
   return wrapNum(js, kind);
 }
 
-/** `terms` added up from 0 in order, the way `reduce((s, t) => s + t, 0)` adds them. */
 const sumOf = (terms: readonly string[]): string => terms.reduce((s, t) => `(${s} + ${t})`, '0');
 
-/** The per-component builtin `name`, if it is one. */
 function componentwiseOf(name: string): Componentwise | undefined {
   return Object.hasOwn(COMPONENTWISE, name)
     ? (COMPONENTWISE as Readonly<Record<string, Componentwise>>)[name]
     : undefined;
 }
 
-/** Where a call goes, decided in the interpreter's order (oracle.ts, `evalExpr`'s `call`). */
 type CallKind =
   | 'barrier'
   | 'atomic'
@@ -422,33 +259,18 @@ function callKind(e: Call, fnNames: ReadonlySet<string>): CallKind {
   if (intrinsic && isBarrierIntrinsic(e.fn)) return 'barrier';
   if (intrinsic && isAtomicIntrinsic(e.fn)) return 'atomic';
   if (intrinsic && e.fn.startsWith('console.')) return 'console';
-  // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the interpreter takes
-  // (oracle.ts 'call'), baked at compile time so the twins stay bit-identical. Integer sources
-  // fall through to the wrapping BUILTINS forms.
   if (e.fn === 'u32' || e.fn === 'i32') {
     const src = e.args[0]!.type;
     if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) return 'saturate';
   }
-  // `transpose` needs the matrix's SHAPE, baked in here from the static type: a flat
-  // column-major list cannot tell a mat2x3 from a mat3x2, and `BUILTINS.transpose` recovers its
-  // dimension from the array length, which is only right for a square one (#149).
   if (intrinsic && e.fn === 'transpose' && e.args[0]!.type.kind === 'mat') return 'transpose';
-  // A bit builtin whose value depends on the argument's kind (§10) takes the static kind.
   if (intrinsic && TYPED_BIT_BUILTINS.has(e.fn)) return 'bits';
-  // A call the front end resolved to a declared function (`declRef`) goes to that function,
-  // which is what the emitted shader calls; the interpreter makes the same choice.
   if (!intrinsic && fnNames.has(e.fn)) return 'module';
   if (BUILTINS[e.fn]) return 'builtin';
   if (GPU_STUBS[e.fn]) return 'stub';
-  // A module function, dispatched through $.F so a compiled fn can call one that fell back to
-  // the interpreter (and vice versa).
   return 'module';
 }
 
-/** Whether evaluating `e` has no effect, and reads nothing an effect elsewhere in the same
- *  expression could change: no call of a module function, no atomic, barrier, `console` or
- *  GPU-stub call. Such an expression may be evaluated in pieces, in any order, and each piece
- *  only where it is read. */
 function isPure(e: Expr, S: FnCtx): boolean {
   const memo = S.mod.pure;
   const hit = memo.get(e);
@@ -504,8 +326,6 @@ function isPure(e: Expr, S: FnCtx): boolean {
   return pure;
 }
 
-/** The parameter rounded at entry that `__fround(a)`, of type `t`, reads, when `a` is one and
- *  both have its shape: its names, one per component. */
 function roundedParam(a: Expr, t: ShaderType, S: FnCtx): readonly string[] | undefined {
   if (a.op !== 'param') return undefined;
   const ids = S.rounded.get(a.name);
@@ -518,9 +338,6 @@ function roundedParam(a: Expr, t: ShaderType, S: FnCtx): readonly string[] | und
   return fitsIds ? ids : undefined;
 }
 
-/** Whether `e` evaluates to the same value wherever in its expression it is read: a literal, a
- *  module constant or override, or the rounding of a literal or of a parameter rounded at
- *  entry. */
 function isStable(e: Expr, S: FnCtx): boolean {
   if (e.op === 'lit' || e.op === 'constref' || e.op === 'overrideref') return true;
   if (e.op !== 'call' || e.fn !== '__fround' || e.args.length !== 1) return false;
@@ -529,45 +346,13 @@ function isStable(e: Expr, S: FnCtx): boolean {
   return a.op === 'lit' || roundedParam(a, e.type, S) !== undefined;
 }
 
-// ─── Operands that may be missing ────────────────────────────────────────────────────────────
-//
-// A value the IR types as a vector is not always one at run time, and the interpreter and the
-// runtime helpers take it as they find it: a value that is not an array is a scalar to them, so
-// `applyBin` of `undefined` and 2 is NaN, `-undefined` is NaN, and `dot` of it throws. The
-// per-component code above reads `t[i]` of every operand the IR types as a vector, which throws
-// for `undefined` and reads a component that is not there from a list that is too short. A
-// module makes such a value from valid source, in three ways:
-//   • a function that reaches a `discard` returns nothing (the interpreter's discard signal
-//     leaves it as `undefined`, and the caller carries on with that), and so does one with a
-//     `return` that has no value, or a path that ends with no `return`;
-//   • an element read past the end of an array is `undefined`, which a compute entry with no
-//     bounds check reads when the dispatch has more invocations than the array has elements
-//     (a GPU's robust access gives some value there; the CPU tier gives none);
-//   • a column read past a matrix's last is an empty list.
-// A vector operation on such an operand is left to the runtime helper, which does what the
-// interpreter does. Which operands may be missing is decided once for the module, from the IR
-// alone, by following each such value to where it is kept: a local, a parameter, a module
-// variable, a field, a function's result. It is conservative, a name being the same name
-// wherever the function uses it (the interpreter's environment is flat), and never looks at a
-// value, so a `vec3` built from components, a parameter no call passes such a value to, and the
-// field of a struct read from an array keep the code that is written per component.
-
-/** What {@link analyseAbsence} reads of the module, which is what a {@link ModCtx} holds of it
- *  before it is built. */
 type AbsenceScope = Pick<ModCtx, 'fnNames' | 'varNames' | 'bindingNames' | 'params' | 'trees'>;
 
-/** Which values of a module may be missing (see above): the answer to {@link analyseAbsence}. */
 interface Absence {
-  /** Whether `e`, evaluated in the function `fn`, may be missing, or, for a struct or an
-   *  array, may hold a vector that is. */
   may(fn: string, e: Expr): boolean;
-  /** Whether the parameter or local `name` of `fn`, or a module variable or binding of that
-   *  name, may hold one. */
   holds(fn: string, name: string): boolean;
 }
 
-/** Whether a `discard`, or a `return` with no value, is anywhere in `body`: the function returns
- *  nothing there. */
 function returnsNothing(body: readonly Stmt[]): boolean {
   let found = false;
   const walk = (s: Stmt): void => {
@@ -578,9 +363,6 @@ function returnsNothing(body: readonly Stmt[]): boolean {
   return found;
 }
 
-/** Whether every path through `body` ends in a `return` or a `discard`. The core rule
- *  `all-paths-return` reads the last statement of a body alone, so a `return` after a `break`
- *  passes it, and is not counted here. */
 function alwaysReturns(body: readonly Stmt[]): boolean {
   for (const s of body) {
     if (s.s === 'return' || s.s === 'discard') return true;
@@ -603,20 +385,12 @@ function alwaysReturns(body: readonly Stmt[]): boolean {
   return false;
 }
 
-/** The variable an assignment to `target` writes into: `v` for `v`, `v.x`, `v[i].pos`. */
 function rootName(target: Expr): string | undefined {
   let x = target;
   while (x.op === 'member' || x.op === 'index') x = x.base;
   return x.op === 'varref' || x.op === 'param' ? x.name : undefined;
 }
 
-/** Follow every value of `m` that may be missing to where it is kept, to a fixed point. A
- *  function's result may be missing when it may reach a `discard` or a `return` with no value, or
- *  end with no `return`, and when a `return` gives one; a name may hold one when a `let`, a `var`
- *  or an assignment (to it or into it) gives it one, when a call passes one to the parameter of
- *  that name, and, for an `inout` parameter, when the callee may leave one in it. Only a value of
- *  an aggregate type (a vector, a matrix, an array, a struct) is followed: a scalar that is not
- *  there is `undefined` to a component read and to a helper alike. */
 function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
   const held = new Map<string, Set<string>>(m.funcs.map((f) => [f.name, new Set()]));
   const shared = new Set<string>();
@@ -639,9 +413,6 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
       grew = true;
     }
   };
-  // What each expression was found to be, by function, for the round in progress: a node the IR
-  // shares (the builder makes a graph, not a tree) is answered once, however often it is reached.
-  // Every round starts afresh, since what a round adds can change what an earlier answer said.
   const memo = new Map<string, WeakMap<Expr, boolean>>();
   const may = (fn: string, e: Expr): boolean => {
     let seen = memo.get(fn);
@@ -669,19 +440,14 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
         return sub(e.a);
       case 'member':
         return sub(e.base);
-      // A vector or a matrix column read from a list, past its end.
       case 'index':
         return widthOf(e.type) !== undefined || sub(e.base);
       case 'construct':
         return e.args.some(sub);
-      // (Its condition picks an arm, which is a vector where the arms are.)
       case 'select':
         return sub(e.ifTrue) || sub(e.ifFalse);
       case 'matchExpr':
         return e.cases.some(([, v]) => sub(v)) || sub(e.default);
-      // What a call gives is what its function returns, which is nothing along a path through a
-      // `discard`. A builtin gives a vector where its operands are one, and the helper's answer
-      // to an operand that is not (`abs` of nothing is the scalar NaN) is no vector either.
       case 'call':
         return callKind(e, scope.fnNames) === 'module' ? results.has(e.fn) : e.args.some(sub);
     }
@@ -710,7 +476,6 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
         case 'var':
           if (s.init !== undefined && flows(fn, s.init)) note(fn, s.name);
           break;
-        // (A compound assignment adds nothing: `applyBin` of a vector and anything is a vector.)
         case 'assign': {
           const into = rootName(s.target);
           if (into !== undefined && flows(fn, s.expr)) note(fn, into);
@@ -722,8 +487,6 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
             grew = true;
           }
           break;
-        // A reduction loop combines what the variable held through `$ta` and `$tb`
-        // (`emitTreeFor`).
         case 'for':
           for (const r of scope.trees.get(s)?.reductions ?? [])
             if (holds(fn, r.name)) {
@@ -745,7 +508,6 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
     };
     f.body.forEach(stmt);
   };
-  // The last round added nothing, so its answers are the final ones, and stay.
   do {
     grew = false;
     memo.clear();
@@ -754,14 +516,10 @@ function analyseAbsence(m: ModuleDecl, scope: AbsenceScope): Absence {
   return { holds, may };
 }
 
-/** Whether `o`, an operand an operation would read per component, is a vector that may be
- *  missing: then the operation is left to the runtime helper, which takes it as the interpreter
- *  does. A scalar operand is never one; its absence reads as `undefined` either way. */
 const missing = (o: Expr, S: FnCtx): boolean =>
   widthOf(o.type) !== undefined && S.mod.absence.may(S.name, o);
 const anyMissing = (os: readonly Expr[], S: FnCtx): boolean => os.some((o) => missing(o, S));
 
-/** The operands `ownLanes` reads per component to build `e`. */
 function laneOperands(e: Expr): readonly Expr[] {
   switch (e.op) {
     case 'binop':
@@ -781,13 +539,6 @@ function laneOperands(e: Expr): readonly Expr[] {
   }
 }
 
-/** The operands of an operation that reads them per component, each as its components (one for
- *  a scalar), with the assignments to run first. An operand with an effect, and every operand
- *  before one, is evaluated here, in order, into a temporary, and read from there after all of
- *  them are evaluated, when the runtime helper reads it: a local a later call writes is read as
- *  it was, and an array a later call changes in place as it is then. The operands after the
- *  last such one have no effect and are read per component. A scalar every component reads
- *  (`broadcast`) is computed once. */
 function operands(
   ops: readonly Expr[],
   S: FnCtx,
@@ -818,8 +569,6 @@ function operands(
   return { pre, parts };
 }
 
-/** An operation of `n` components over `ops`, each a vector of `n` read per component or a
- *  scalar every component reads: component `i` is `f` of the operands' component `i`. */
 function lanewise(ops: readonly Expr[], n: number, S: FnCtx, f: (xs: readonly Js[]) => Js): Lanes {
   const { pre, parts } = operands(ops, S);
   const comps = range(n).map((i) =>
@@ -828,8 +577,6 @@ function lanewise(ops: readonly Expr[], n: number, S: FnCtx, f: (xs: readonly Js
   return { pre, comps };
 }
 
-/** The components of `e`, a vector of `n`: built per component where the generator knows how
- *  ({@link ownLanes}), read from the evaluated array otherwise. */
 function lanesOf(e: Expr, n: number, S: FnCtx): Lanes {
   const own = ownLanes(e, n, S);
   if (own !== undefined) return own;
@@ -847,16 +594,10 @@ function lanesOf(e: Expr, n: number, S: FnCtx): Lanes {
   };
 }
 
-/** `e`, a vector of `n` components, built one component at a time, or undefined for an
- *  expression the generator leaves to the runtime: one with an operand that may be missing
- *  (see above), and the shapes below that are not per component. Decided from the types and the
- *  IR before anything is emitted, so an undefined answer leaves `S` as it was. */
 function ownLanes(e: Expr, n: number, S: FnCtx): Lanes | undefined {
   if (anyMissing(laneOperands(e), S)) return undefined;
   switch (e.op) {
     case 'binop': {
-      // Component-wise, with a scalar broadcast, as `applyBin` computes it; the matrix
-      // products take a matrix, which no component of this reads.
       if (widthOf(e.a.type) === undefined && widthOf(e.b.type) === undefined) return undefined;
       if (!fits(e.a.type, n) || !fits(e.b.type, n)) return undefined;
       const kind = numKindOf(e.type);
@@ -870,14 +611,11 @@ function ownLanes(e: Expr, n: number, S: FnCtx): Lanes | undefined {
       return lanewise([e.a], n, S, ([a]) => ({ js: wrapNum(negate(a!.js), kind) }));
     }
     case 'compare': {
-      // Two vectors, componentwise into a vector of bools (§27), as `compareValues`.
       if (widthOf(e.a.type) !== n || widthOf(e.b.type) !== n) return undefined;
       const f32 = comparesAsF32(e.a.type);
       return lanewise([e.a, e.b], n, S, ([a, b]) => ({ js: compareJs(e.cop, a!, b!, f32, S) }));
     }
     case 'select': {
-      // A vector-of-bools condition picks per component, every operand evaluated, as
-      // `selectComponents`. A scalar one evaluates one arm only and is left whole.
       if (widthOf(e.cond.type) !== n || widthOf(e.ifTrue.type) !== n) return undefined;
       if (widthOf(e.ifFalse.type) !== n) return undefined;
       return lanewise([e.cond, e.ifTrue, e.ifFalse], n, S, ([c, t, f]) => ({
@@ -896,9 +634,6 @@ function ownLanes(e: Expr, n: number, S: FnCtx): Lanes | undefined {
   }
 }
 
-/** A vector constructor, each component the argument's, converted to the vector's element
- *  kind where it differs (`convertComponent`, the interpreter's `construct`), or one scalar
- *  in every component (WGSL's splat). */
 function constructLanes(
   e: Extract<Expr, { op: 'construct' }>,
   n: number,
@@ -909,7 +644,6 @@ function constructLanes(
   let count = 0;
   for (const a of e.args) {
     const w = widthOf(a.type);
-    // A matrix or an array argument is spread through the runtime.
     if (w === undefined && isArrayValued(a.type)) return undefined;
     count += w ?? 1;
   }
@@ -927,8 +661,6 @@ function constructLanes(
   return { pre, comps: e.args.flatMap((a, j) => parts[j]!.map((c) => cvt(c, a))) };
 }
 
-/** A swizzle of two or more components (`.xy`, `.zyx`) of a vector: its components picked, as
- *  the runtime's `swiz` picks them. A component picked twice is computed once. */
 function swizzleLanes(e: Extract<Expr, { op: 'member' }>, n: number, S: FnCtx): Lanes | undefined {
   const w = widthOf(e.base.type);
   if (w === undefined || e.field.length < 2 || e.field.length !== n) return undefined;
@@ -946,8 +678,6 @@ function swizzleLanes(e: Extract<Expr, { op: 'member' }>, n: number, S: FnCtx): 
   return { pre, comps: idx.map((i) => comps[i]!) };
 }
 
-/** A builtin with a vector result, per component: the rounding, a per-component builtin
- *  (`COMPONENTWISE`), `normalize` and `cross`. */
 function callLanes(e: Call, n: number, S: FnCtx): Lanes | undefined {
   if (callKind(e, S.mod.fnNames) !== 'builtin') return undefined;
   const kind = numKindOf(e.type);
@@ -966,7 +696,6 @@ function callLanes(e: Call, n: number, S: FnCtx): Lanes | undefined {
     return out(lanewise(e.args, n, S, ([x]) => rounded(x!, S)));
   }
   if (e.fn === 'normalize') {
-    // `l = sqrt(a.reduce((s, c) => s + c * c, 0)); a.map((c) => c / l)`, term for term.
     if (e.args.length !== 1 || widthOf(a0!.type) !== n) return undefined;
     const { pre, parts } = operands(e.args, S);
     const c = parts[0]!.map((x) => atomize(x, S, pre));
@@ -986,8 +715,6 @@ function callLanes(e: Call, n: number, S: FnCtx): Lanes | undefined {
   }
   const cw = componentwiseOf(e.fn);
   if (cw === undefined || e.args.length !== cw.lane.length) return undefined;
-  // Every argument a vector of `n` or a scalar, and the one the entry dispatches on a vector,
-  // so the entry takes its per-component path over these very components.
   if (!e.args.every((a) => fits(a.type, n))) return undefined;
   const vector =
     cw.vector === 'any'
@@ -1000,8 +727,6 @@ function callLanes(e: Call, n: number, S: FnCtx): Lanes | undefined {
   );
 }
 
-/** Component `i` of the vector `base`: of one the generator builds per component, that
- *  component alone. */
 function component(base: Expr, i: number, S: FnCtx): Js {
   const n = widthOf(base.type);
   if (n !== undefined && i < n) {
@@ -1015,8 +740,6 @@ function component(base: Expr, i: number, S: FnCtx): Js {
   return { js: keyed(b.js, String(i)), atom: b.atom, stable: b.stable };
 }
 
-/** A comparison of two scalars, as `compareValues` makes it: `==` and `!=` on f32 operands
- *  round both first (X-GIS #13); the ordering ones compare the doubles. */
 function compareJs(cop: CmpOp, a: Js, b: Js, f32: boolean, S: FnCtx): string {
   switch (cop) {
     case '<':
@@ -1057,9 +780,6 @@ function emit(e: Expr, S: FnCtx): Js {
       if (id === undefined) throw new CodegenUnsupported(`unknown override ${e.name}`);
       return { js: id, atom: true, stable: true };
     }
-    // X-GIS #1713 — a HOST-provided global has no CPU value: there is no host here. Refusing is
-    // the honest answer; substituting 0 would make the oracle silently disagree with the
-    // GPU, which is the one thing a reference implementation must never do.
     case 'externref':
       throw new CodegenUnsupported(`host-provided global '${e.name}' has no CPU value`);
     case 'param':
@@ -1076,8 +796,6 @@ function emit(e: Expr, S: FnCtx): Js {
     case 'compare': {
       const a = emit(e.a, S);
       const b = emit(e.b, S);
-      // Two vectors compare componentwise into a vector of bools (§27), through the runtime
-      // helper the interpreter shares, so the twins cannot disagree.
       if (isArrayValued(e.a.type)) {
         return {
           js: `${helper(S, 'cmpVec')}(${q(e.cop)}, ${a.js}, ${b.js}, ${comparesAsF32(e.a.type)})`,
@@ -1089,8 +807,6 @@ function emit(e: Expr, S: FnCtx): Js {
     case 'logical': {
       const a = emitExpr(e.a, S);
       const b = emitExpr(e.b, S);
-      // Operands are bool-typed, so JS `&&`/`||` returns the same boolean the
-      // interpreter does (`a ? evalB : false` / `a ? true : evalB`), lazily.
       return { js: e.lop === '&&' ? `(${a} && ${b})` : `(${a} || ${b})` };
     }
     case 'call':
@@ -1115,7 +831,6 @@ function emit(e: Expr, S: FnCtx): Js {
     case 'construct':
       return emitConstruct(e, S);
     case 'select': {
-      // A vector-of-bools condition picks per component (§27), both arms evaluated.
       if (e.cond.type.kind === 'vec') {
         return {
           js: `${helper(S, 'selVec')}(${emitExpr(e.cond, S)}, ${emitExpr(e.ifTrue, S)}, ${emitExpr(e.ifFalse, S)})`,
@@ -1132,7 +847,6 @@ function emit(e: Expr, S: FnCtx): Js {
       };
     }
     case 'index': {
-      // `m[j]` is COLUMN j of a flat column-major list — see matColumn.
       if (e.base.type.kind === 'mat') {
         return {
           js: `${helper(S, 'matColumn')}(${emitExpr(e.base, S)}, ${emitExpr(e.idx, S)}, ${e.base.type.rows})`,
@@ -1148,9 +862,6 @@ function emit(e: Expr, S: FnCtx): Js {
       return { js: keyed(base.js, idx.js), atom: base.atom === true && idx.atom === true };
     }
     case 'matchExpr': {
-      // Evaluate the scrutinee once (IIFE arg), then a lazy nested ternary picks
-      // the matching case's expr or the default — same no-fall-through, only the
-      // matched arm evaluated. `$m` cannot collide with $a/$v/$C/$O ids.
       let expr = emitExpr(e.default, S);
       for (let i = e.cases.length - 1; i >= 0; i--) {
         expr = `($m === ${jsNum(e.cases[i]![0])} ? ${emitExpr(e.cases[i]![1], S)} : ${expr})`;
@@ -1162,19 +873,12 @@ function emit(e: Expr, S: FnCtx): Js {
 
 function emitCall(e: Call, S: FnCtx): Js {
   const kind = callKind(e, S.mod.fnNames);
-  // A barrier has no meaning for one compiled invocation; the runtime throws and names
-  // `dispatch`, which runs the workgroup in lockstep on the interpreter (#82).
   if (kind === 'barrier') return { js: `$.barrier(${q(e.fn)})` };
-  // An atomic builtin's first argument is a LOCATION (roadmap 0.2 item 4): the runtime
-  // reads and writes it back in one step, mirroring the interpreter's `evalAtomic`.
   if (kind === 'atomic') return { js: emitAtomic(e, S) };
   if (kind === 'builtin') {
     const own = builtinJs(e, S);
     if (own !== undefined) return own;
   }
-  // An `inout` argument that is a field or an element is resolved ONCE into two temporaries,
-  // its base and its key: the callee is handed what is there, and what the callee leaves goes
-  // back to the same place, as the interpreter's `storeBack` does (Rule 8.25).
   const params = S.mod.params.get(e.fn);
   const places: (string | undefined)[] = [];
   const args = e.args.map((a, i) => {
@@ -1189,7 +893,6 @@ function emitCall(e: Call, S: FnCtx): Js {
         : isArrayValued(a.base.type)
           ? String(FIELD_IDX[a.field])
           : q(a.field);
-    // A matrix's column is a slice of the flat list, read and written through its helpers.
     if (a.op === 'index' && a.base.type.kind === 'mat') {
       const rows = a.base.type.rows;
       places[i] = `${helper(S, 'setMatColumn')}(${base}, ${key}, ${rows}, %VALUE%)`;
@@ -1226,7 +929,6 @@ function emitCall(e: Call, S: FnCtx): Js {
       };
     }
     case 'builtin': {
-      // Bound once, unless the name is not the table's own (then a method call, as before).
       const f = Object.hasOwn(BUILTINS, e.fn) ? bound(S, `$.B[${q(e.fn)}]`) : `$.B[${q(e.fn)}]`;
       return { js: wrapped(`${f}(${args.join(', ')})`, e.type, S) };
     }
@@ -1237,10 +939,6 @@ function emitCall(e: Call, S: FnCtx): Js {
   }
 }
 
-/** A builtin with a scalar result the generator writes out where the types allow: the rounding
- *  of a scalar, a per-component builtin of scalars (its `lane` function, which is what the
- *  entry calls on scalars), and `dot`, `length` and `distance` of vectors, summed term by term
- *  as their entries sum. Undefined for any other call, which goes through the table. */
 function builtinJs(e: Call, S: FnCtx): Js | undefined {
   const kind = numKindOf(e.type);
   const out = (v: Js): Js => (kind === 'f32' ? v : { js: wrapNum(v.js, kind) });
@@ -1263,15 +961,12 @@ function builtinJs(e: Call, S: FnCtx): Js | undefined {
     if (w === undefined || widthOf(a1!.type) !== w || anyMissing(e.args, S)) return undefined;
     const { pre, parts } = operands(e.args, S);
     const [a, b] = parts as [Js[], Js[]];
-    // dot: `a.reduce((s, c, i) => s + c * b[i], 0)`.
     if (e.fn === 'dot')
       return out({ js: seq(pre, sumOf(range(w).map((i) => `${a[i]!.js} * ${b[i]!.js}`))) });
-    // distance: `d = c - b[i]; s + d * d`, then the square root.
     const d = range(w).map((i) => atomize({ js: `(${a[i]!.js} - ${b[i]!.js})` }, S, pre));
     return out({ js: seq(pre, `Math.sqrt(${sumOf(d.map((x) => `${x.js} * ${x.js}`))})`) });
   }
   if (e.fn === 'length' && e.args.length === 1) {
-    // `Math.sqrt(v.reduce((s, c) => s + c * c, 0))`.
     const w = widthOf(a0!.type);
     if (w === undefined || anyMissing(e.args, S)) return undefined;
     const { pre, parts } = operands(e.args, S);
@@ -1284,10 +979,6 @@ function builtinJs(e: Call, S: FnCtx): Js | undefined {
 function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): Js {
   const a = emitExpr(e.a, S);
   const b = emitExpr(e.b, S);
-  // mat*vec / mat*mat / vec*mat dispatched by STATIC type, exactly as the
-  // interpreter dispatches (values are type-blind number[] at runtime).
-  // The SHAPE is baked in from the static type: a flat list cannot tell a mat2x3 from a
-  // mat3x2, and the two multiply differently (#149).
   if (
     e.bop === '*' &&
     e.a.type.kind === 'mat' &&
@@ -1302,25 +993,17 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): Js {
       js: `${helper(S, 'matMulShaped')}(${a}, ${b}, ${e.a.type.cols}, ${e.a.type.rows}, ${e.b.type.cols})`,
       fresh: true,
     };
-  // vecR * matCxR — the row-vector product, `transpose(m) * v`.
   if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat')
     return {
       js: `${helper(S, 'vecMatShaped')}(${a}, ${b}, ${e.b.type.cols}, ${e.b.type.rows})`,
       fresh: true,
     };
   const kind = numKindOf(e.type);
-  // Either operand array-valued (a matrix, an array, a vector of another shape) ⇒
-  // component-wise via the shared applyBin — the SAME function the interpreter uses.
   if (isArrayValued(e.a.type) || isArrayValued(e.b.type))
     return { js: `${helper(S, 'applyBin')}(${q(e.bop)}, ${a}, ${b}, ${q(kind)})`, fresh: true };
-  // Both scalar — inline to scalarBin's exact JS ops.
   return { js: emitScalarBin(e.bop, a, b, kind, S) };
 }
 
-/** `applyBin(bop, a, b, kind)`, the value of a compound assignment `a bop= b`: per component
- *  where the types say `a` is a vector and `b` one of its width or a scalar, inline for two
- *  scalars, and through the runtime otherwise. Never a matrix product: `applyBin` is
- *  component-wise whatever the operands are, in both engines. */
 function applyBinJs(bop: BinOp, a: Expr, b: Expr, kind: NumKind, S: FnCtx): string {
   const n = widthOf(a.type);
   if (n !== undefined && fits(b.type, n) && !anyMissing([a, b], S)) {
@@ -1334,10 +1017,6 @@ function applyBinJs(bop: BinOp, a: Expr, b: Expr, kind: NumKind, S: FnCtx): stri
   return `${helper(S, 'applyBin')}(${q(bop)}, ${x}, ${y}, ${q(kind)})`;
 }
 
-/** scalarBin's spellings, token for token: the float kind is plain JS arithmetic; an
- *  integer kind wraps with `| 0` / `>>> 0` exactly as `wrapInt` does, multiplies through
- *  `Math.imul`, and divides / takes the remainder through the SAME `intDiv` / `intRem`
- *  helpers the interpreter calls (X-GIS #2274) — bit-identical by construction. */
 function emitScalarBin(bop: BinOp, a: string, b: string, kind: NumKind, S: FnCtx): string {
   const int = kind !== 'f32';
   const wrap = (s: string): string => (kind === 'i32' ? `(${s} | 0)` : `(${s} >>> 0)`);
@@ -1365,10 +1044,7 @@ function emitScalarBin(bop: BinOp, a: string, b: string, kind: NumKind, S: FnCtx
   }
 }
 
-/** A constructor the per-component path leaves whole: an array, a struct, a matrix, and a
- *  vector whose arguments it does not take apart. */
 function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): Js {
-  // A new array or object is fresh when every aggregate it holds is.
   const freshAll = (vals: readonly Js[]): boolean =>
     vals.every((v, i) => !isAggregateType(e.args[i]!.type) || v.fresh === true);
   if (e.type.kind === 'array') {
@@ -1382,11 +1058,6 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): Js {
     const fields = decl.fields.map((f, i) => `${q(f.name)}: ${vals[i]!.js}`);
     return { js: `{ ${fields.join(', ')} }`, fresh: freshAll(vals) };
   }
-  // Vector: WGSL splat (single scalar arg fills all N) vs flatten (scalars +
-  // spread vec args), matching the interpreter's out.length===1 check. A component whose
-  // kind differs from the constructed vector's is converted, which is the same
-  // convertComponent(s) the interpreter calls — WGSL's element-CONVERTING constructor,
-  // vecN<T>(v: vecN<S>).
   const elem = e.type.kind === 'vec' ? e.type.elem : undefined;
   const n = e.type.kind === 'vec' || e.type.kind === 'vec64' ? e.type.n : 0;
   const cvt = (a: Expr): string => {
@@ -1401,19 +1072,12 @@ function emitConstruct(e: Extract<Expr, { op: 'construct' }>, S: FnCtx): Js {
   return { js: `[${parts.join(', ')}]`, fresh: true };
 }
 
-/** Assignment as an EXPRESSION (no trailing `;`) — used for for-loop updates
- *  and, with `;` appended, for statements. Mirrors setLValue. */
-/** `atomicAdd(xs[i], v)` and its family. The generated code hands the runtime the container
- *  and the key of the location, or a getter and a setter for a JS local, so the read and the
- *  write-back happen once, in one `atomicStep`, the way the interpreter's `refOf` does. */
 function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
   const loc = e.args[0];
   if (loc === undefined) throw new CodegenUnsupported(`${e.fn} without a location`);
   const fn = q(e.fn);
   const kind = q(numKindOf(loc.type));
   const arg = e.args[1] === undefined ? '0' : emitExpr(e.args[1], S);
-  // `atomicCompareExchangeWeak`'s third argument is the value to store (#152); the other ten
-  // builtins have none, and the runtime helpers take `undefined` for them.
   const store = e.args[2] === undefined ? 'undefined' : emitExpr(e.args[2], S);
   if (loc.op === 'index') {
     return `$.atomicAt(${fn}, ${emitExpr(loc.base, S)}, ${emitExpr(loc.idx, S)}, ${arg}, ${kind}, ${store})`;
@@ -1435,8 +1099,6 @@ function emitAtomic(e: Extract<Expr, { op: 'call' }>, S: FnCtx): string {
 
 function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   if (target.op === 'varref' || target.op === 'param') {
-    // A module-level name no local shadows is written in the module's table, mirroring the
-    // interpreter's `setLValue`; a local, or an unknown name, is a JS local.
     const local = S.varId.get(target.name);
     if (local === undefined && S.mod.varNames.has(target.name))
       return `$.vars[${q(target.name)}] = ${valueStr}`;
@@ -1455,7 +1117,6 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
     return `(${base})[${q(target.field)}] = ${valueStr}`;
   }
   if (target.op === 'index') {
-    // `m[j] = v` writes COLUMN j into the flat list — see setMatColumn.
     if (target.base.type.kind === 'mat') {
       return `${helper(S, 'setMatColumn')}(${emitExpr(target.base, S)}, ${emitExpr(target.idx, S)}, ${target.base.type.rows}, ${valueStr})`;
     }
@@ -1464,16 +1125,6 @@ function emitAssignExpr(target: Expr, valueStr: string, S: FnCtx): string {
   throw new CodegenUnsupported(`assignment target ${target.op}`);
 }
 
-/** The right-hand side of any STORE — a `let`/`var` binding or an assignment to an existing
- *  name: an aggregate is COPIED, as `var w = v` and `w = v` both are on the GPU targets,
- *  through the SAME cloneValue the interpreter calls, so the two stay bit-identical. A scalar
- *  store emits exactly the source it emitted before, and so does a value the generated code
- *  has just built (`Js.fresh`), which nothing else can reach: its copy would hold the same
- *  values and be the only one left.
- *
- *  The binding half alone was not enough: `w = v` stored the same array under the second name,
- *  so a later `w.x = 100.` reached through to `v` and the CPU said 100 where both GPU targets
- *  say 3. */
 function bindJs(v: Js, t: ShaderType, S: FnCtx): string {
   return isAggregateType(t) && v.fresh !== true ? `${helper(S, 'clone')}(${v.js})` : v.js;
 }
@@ -1506,10 +1157,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
     case 'continue':
       return `continue;`;
     case 'discard':
-      // The interpreter's discard signal propagates out of the fn as `undefined`.
       return `return undefined;`;
     case 'call':
-      // Evaluated for its effect; the value is dropped, as the GPU drops it.
       return `${emitExpr(s.expr, S)};`;
     case 'if': {
       const parts: string[] = [];
@@ -1530,14 +1179,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       return `for (${init}; ${cond}; ${update}) {\n${emitBody(s.body, S)}\n}`;
     }
     case 'switch': {
-      // Native switch: strict-=== case match + no fall-through (explicit break),
-      // which is exactly the interpreter's find-by-value + single-case-body. A
-      // `break` inside a case body is consumed by this switch; a `continue` /
-      // `return` / discard propagates, same as the interpreter's signals.
       const scrut = emitExpr(s.scrut, S);
       const cases = s.cases.map(
-        // JavaScript shares a body between labels by stacking them, which is what a
-        // multi-selector clause is: `case 0: case 1: { … break; }`.
         (c) =>
           `${c.values.map((v) => `case ${jsNum(v)}:`).join(' ')} {\n${emitBody(c.body, S)}\nbreak;\n}`,
       );
@@ -1545,19 +1188,12 @@ function emitStmt(s: Stmt, S: FnCtx): string {
       return `switch (${scrut}) {\n${cases.join('\n')}\n${dflt}\n}`;
     }
     case 'placeholder':
-      // Composer must splice before emit; on the CPU path a leak is a bug — fall
-      // this fn back to the interpreter (which throws loudly with the tag).
       throw new CodegenUnsupported(`placeholder ${s.tag}`);
     case 'raw':
-      // Raw passthrough is GPU-only — no CPU evaluation. Fall back.
       throw new CodegenUnsupported('raw Stmt');
   }
 }
 
-/** A kernel function's reduction loop, as the interpreter runs it (Rule 7.2): each iteration
- *  combines into the variable from the identity, what it holds after the iteration is
- *  collected, and after the loop the variable is combined with the collection folded in the
- *  tree order (`core/kernel-tree.ts`). A `continue` reaches the `finally`. */
 function emitTreeFor(
   s: Stmt & { s: 'for' },
   tree: TreeLoop,
@@ -1587,9 +1223,6 @@ function emitTreeFor(
         `${id} = ${saved[k]};\n{ const $tr = $.tree(${bags[k]}, ${combines[k]}, () => ${identities[k]}); if ($tr !== undefined) ${id} = ${combines[k]}(${id}, $tr); }`,
     )
     .join('\n');
-  // The scatter targets (change 0056, option C): each is a local `$a<i>` the loop reads and writes
-  // through a view of a run (`$.scatter`); the run keeps each iteration's sums and folds them per
-  // element when the loop ends.
   const scat = tree.scatters.map((n) => {
     const id = S.varId.get(n);
     if (id === undefined)
@@ -1600,14 +1233,11 @@ function emitTreeFor(
   const endIter = scat.length === 0 ? '' : `${r}.end();`;
   const loop = `for (${init}; ${cond}; ${update}) {\n${start}\ntry {\n${emitBody(s.body, S)}\n} finally { ${collect} ${endIter} }\n}\n${after}`;
   if (scat.length === 0) return `${before}\n${loop}`;
-  // The run closes whatever leaves the loop, a `discard` too, and each target goes back to the
-  // real array, so the function reads what the loop left.
   const views = scat.map((id, j) => `${id} = ${r}.view(${j});`).join(' ');
   const real = scat.map((id, j) => `${id} = ${r}.real(${j});`).join(' ');
   return `${before}\n${r} = $.scatter([${scat.join(', ')}], ${S.mod.f32}); ${views}\ntry {\n${loop}\n} finally { ${r}.finish(); ${real} }`;
 }
 
-/** A fresh identity of `r`'s operator in its type, as JavaScript. */
 function identityJs(r: LoopReduction): string {
   const t = r.type;
   const scalar =
@@ -1625,9 +1255,6 @@ function identityJs(r: LoopReduction): string {
     : one;
 }
 
-/** An assignment or a compound assignment of a `for` header, as an expression: the two forms
- *  the shared walk's `forHeader` (`core/emit.ts`) writes there on WGSL and GLSL ES 3.00 beside
- *  a declaration. `undefined` for any other statement. */
 function emitHeaderAssign(s: Stmt, S: FnCtx): string | undefined {
   if (s.s === 'assign') return emitAssignExpr(s.target, bindJs(emit(s.expr, S), s.expr.type, S), S);
   if (s.s === 'assignOp') {
@@ -1637,12 +1264,6 @@ function emitHeaderAssign(s: Stmt, S: FnCtx): string | undefined {
   return undefined;
 }
 
-/** The first statement of a `for`: a declaration, an assignment or a compound assignment, which
- *  are the forms `forHeader` writes and the interpreter runs. Reverse mode (change 0056) opens
- *  each loop of a derivative with an assignment to a counter it declared ahead of the loop, since
- *  its count sweep reads the counter after the loop has ended and a declaration in the header
- *  would end with the loop. A function whose loop opened with anything else fell back to the
- *  interpreter (issue #1017). */
 function emitForInit(s: Stmt, S: FnCtx): string {
   if (s.s === 'let') return `${declareVar(s.name, S)} = ${emitExpr(s.expr, S)}`;
   if (s.s === 'var')
@@ -1662,20 +1283,12 @@ function emitBody(body: readonly Stmt[], S: FnCtx): string {
   return body.map((s) => emitStmt(s, S)).join('\n');
 }
 
-/** How the body of a function uses one of its parameters. */
 interface ParamUse {
-  /** Every read of it, a rounding's included. */
   reads: number;
-  /** The reads the precision pass rounds (`__fround(p)`) with the parameter's own shape, which
-   *  a parameter rounded at entry serves. */
   wrapped: number;
-  /** Anything may write it: an assignment into it, an atomic on it, an `inout` argument, or a
-   *  local of its name, which the flat environment makes the same variable. */
   written: boolean;
 }
 
-/** How `f`'s body uses each of its parameters, by name. A name two parameters share counts as
- *  written, so neither is rounded at entry. */
 function paramUses(f: FuncDecl, mod: ModCtx): ReadonlyMap<string, ParamUse> {
   const uses = new Map<string, ParamUse>();
   const types = new Map<string, ShaderType>();
@@ -1732,43 +1345,19 @@ function paramUses(f: FuncDecl, mod: ModCtx): ReadonlyMap<string, ParamUse> {
   return uses;
 }
 
-/** What {@link generateModuleJs} writes for a module: the source of the factory
- *  {@link compileModuleJs} hands to `new Function`, and the pieces it is made of, for a caller
- *  that writes the code into a module of its own instead (the Vite plugin, through
- *  `src/compiler/ts/host-face.ts`, Rule 11.7). */
 export interface GeneratedModuleJs {
-  /** The module the code was generated from: the input after the shared preamble (`validate`,
-   *  `autoVars`, and `froundF32` in `'f32'` precision). */
   readonly module: ModuleDecl;
-  /** The factory's declarations: one `const` per runtime function the code calls through a
-   *  binding (`Math.fround` as `$fr`, a builtin or a helper as `$h<k>`), then one
-   *  `const $C_i = …;` or `const $O_i = …;` statement per module constant and override,
-   *  then a fixed-width return buffer for each function with inout parameters. */
   readonly decls: readonly string[];
-  /** The JavaScript id each module constant has among {@link decls}, by the constant's name. */
   readonly constIds: ReadonlyMap<string, string>;
-  /** One `"name": function(…) {…}` property per function this generator could emit, plus
-   *  `"$initPrivates"` when the module has a private variable. */
   readonly fns: readonly string[];
-  /** The functions it could not emit, which {@link compileModuleJs} runs on the interpreter. */
   readonly fallbacks: readonly string[];
-  /** The factory body: {@link decls}, then `return { …fns };`. It reads everything through its
-   *  one parameter, `$`, a {@link CodegenRuntime}. */
   readonly factorySource: string;
 }
 
-/** Generate the JavaScript source of every function of `m` for the CPU, without building it.
- *  {@link compileModuleJs} is this followed by `new Function`; the precision is the same
- *  option it takes. */
 export function generateModuleJs(
   m: ModuleDecl,
   opts?: { precision?: CpuPrecision },
 ): GeneratedModuleJs {
-  // Identical preamble to compileModule so the generated code walks the SAME IR
-  // the interpreter would (validate rejects malformed modules; autoVars
-  // materialises plain-const assignables into var bindings; froundF32 makes f32
-  // arithmetic round like the target's — X-GIS #2426, and it must be the same rewrite in
-  // the same place, or the two engines stop being differentials of each other).
   validate(m);
   const av = autoVars(m);
   const mv = opts?.precision === 'f32' ? froundF32(av) : av;
@@ -1791,15 +1380,7 @@ export function generateModuleJs(
     absence: analyseAbsence(mv, scope),
   };
 
-  // ── Module-scope decls (consts + overrides) as factory-local `const`s ──
-  // A scalar const embeds its full-precision cpuValue; a valueExpr const runs
-  // the same op tree (may reference earlier consts). Overrides read the selected
-  // value from the runtime and fall back to their declared default.
   const constDecls: string[] = [];
-  // A const valueExpr is a pure literal expression (no params / bindings), so a
-  // throwaway FnCtx with empty varId is the right compile env; a later const may
-  // reference an earlier one via constId. A temporary it needs is declared at the factory's
-  // top, with the bindings.
   const constEnv: FnCtx = {
     mod,
     name: '',
@@ -1820,13 +1401,8 @@ export function generateModuleJs(
     constDecls.push(`const ${id} = ($.overrides[${q(o.name)}] ?? ${jsNum(o.default)});`);
   });
 
-  // ── Per-fn codegen (hybrid: a body that can't be emitted falls back) ──
   const fnSrcs: string[] = [];
   const fallbackNames: string[] = [];
-  // Module variables (roadmap 0.2 item 5). A `workgroup` one is allocated once, zero, as one
-  // implicit workgroup's memory; the `private` ones are set from their initializers at every
-  // host-facing call, which is one invocation, by the `$initPrivates` function the factory
-  // returns beside the module's own. The initializer is emitted the way a const's is.
   const privates = (mv.vars ?? []).filter((v) => v.space === 'private');
   if (privates.length > 0) {
     const varEnv: FnCtx = {
@@ -1861,23 +1437,12 @@ export function generateModuleJs(
         S.varId.set(p.name, id);
         return id;
       });
-      // The interpreter's entry, line for line: an aggregate by-value parameter of a function
-      // that writes anything is a copy, and a function with an `inout` parameter publishes
-      // what its parameters hold at every return (cpu-runtime.ts).
-      //
-      // An `f32` parameter the precision pass rounds at every read (`__fround(p)`) is rounded
-      // once here instead, into `$p<i>` (`$p<i>_<k>` per component of a vector), when nothing
-      // writes it: every read then yields what rounding it there would, a vector as a new
-      // array as before. A parameter read ONLY that way needs no copy either, since nothing
-      // reads the caller's value after this point.
       const copies = copiedParams(f.params, (writes.get(f.name)?.size ?? 0) > 0);
       const uses = paramUses(f, mod);
       const entry: string[] = [];
       f.params.forEach((p, i) => {
         const id = params[i]!;
         const u = uses.get(p.name)!;
-        // A vector that may be missing is not read component by component here: the runtime
-        // helper rounds what it is handed, whatever that is.
         const round =
           p.mode !== 'inout' &&
           isF32ish(p.type) &&
@@ -1895,8 +1460,6 @@ export function generateModuleJs(
         ids.forEach((r, k) => entry.push(`${r} = ${fr}(${w === undefined ? id : `${id}[${k}]`});`));
       });
       if (f.params.some((p) => p.mode === 'inout')) {
-        // Parameter locals are published only after the return expression (and its nested
-        // calls) finishes. Each function keeps a fixed-width buffer outside its call frame.
         const buffer = `$io${inoutBuffers.length}`;
         inoutBuffers.push(`const ${buffer} = Array(${params.length});`);
         S.inoutPublish = [
@@ -1919,7 +1482,6 @@ export function generateModuleJs(
     }
   }
 
-  // The runtime functions the code calls, bound once for every function, then the constants.
   const decls = [
     ...[...mod.bound].map(([rhs, id]) => `const ${id} = ${rhs};`),
     ...(constEnv.hoisted.length > 0 ? [`let ${constEnv.hoisted.join(', ')};`] : []),
@@ -1996,8 +1558,6 @@ export function compileModuleJs(
   const mv = gen.module;
   const fallbackNames = gen.fallbacks;
   const factorySrc = gen.factorySource;
-  // `new Function` construction is what a CSP `unsafe-eval` host blocks — let it
-  // throw so the caller (cpu-projections) can fall the whole module back.
   const factory = new Function('$', factorySrc) as (
     $: CodegenRuntime,
   ) => Record<string, (...a: CpuValue[]) => CpuValue>;
@@ -2011,9 +1571,6 @@ export function compileModuleJs(
     if (v.space === 'workgroup') runtime.vars[v.name] = zeroOf(v.type, structs, overrideValues);
   const initPrivates = jsFns['$initPrivates'] as (() => void) | undefined;
 
-  // Only build the interpreter twin when a fn actually needs it — its fns supply
-  // the fallback bodies AND its own consts/bindings so a fallback fn (and any fn
-  // it transitively calls through ITS ctx) runs fully in the interpreter.
   const interp: CpuModule | null = fallbackNames.length ? compileModule(m, opts) : null;
   const interpreted: ReadonlySet<string> = new Set(fallbackNames);
 
@@ -2023,9 +1580,6 @@ export function compileModuleJs(
   }
   runtime.F = F;
 
-  // A host-facing call is one invocation and starts its private variables over; a call from
-  // inside the module (`$.F`) is the same invocation. Without private variables the two
-  // tables are one object, as they always were.
   let fns = F;
   if (initPrivates !== undefined) {
     fns = {};
@@ -2043,10 +1597,6 @@ export function compileModuleJs(
       runtime.bindings[name] = value;
       interp?.setBinding(name, value);
     },
-    // Lockstep needs the interpreter's generators; the compiled functions run one invocation
-    // to completion. An entry that reaches no barrier and no interpreted function needs no
-    // lockstep, and runs through its compiled function, invocation after invocation (#467).
-    // The bindings are the runtime's own table either way, so arrays are shared.
     dispatch: (entry, workgroups) => {
       if (needsLockstep(mv, entry, interpreted))
         return dispatchCompute(m, entry, workgroups, runtime.bindings, opts);

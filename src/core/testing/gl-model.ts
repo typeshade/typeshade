@@ -14,11 +14,9 @@ import { dispatchEach, type WorkgroupCount } from '../debug/dispatch.js';
 import { schedulePasses, type Scheduled, type Vec3 } from '../debug/phased.js';
 import { splitF64 } from '../fp64/df64-lib.js';
 
-/** What a run of the model did. */
 export interface GlModelReport {
   readonly passes: number;
   readonly barrierPhases: number;
-  /** The most words one invocation's log held in one pass. */
   readonly maxLogWords: number;
 }
 
@@ -32,7 +30,6 @@ const bitsF32 = (b: number): number => {
   return view.getFloat32(0, true);
 };
 
-/** std430 words for host values: the same rules the lowering reads offsets from. */
 class Packer {
   constructor(private readonly structs: ReadonlyMap<string, StructDecl>) {}
 
@@ -113,7 +110,6 @@ class Packer {
     }
   }
 
-  /** Mark in `out` each word of a value of `t` at `at` that holds an `f32`. */
   floats(t: ShaderType, v: CpuValue, out: Uint8Array, at: number): void {
     switch (t.kind) {
       case 'f64':
@@ -212,9 +208,6 @@ interface ModelInvocation extends Scheduled {
   readonly gid: Vec3;
 }
 
-/** Split `entry` of `m`, rewrite its memory to words, and run it over `workgroups` as the GL
- *  executor will, against `bindings`, which it writes back in place (arrays and objects) or
- *  replaces (a scalar). */
 export function runGlModel(
   m: ModuleDecl,
   entry: string,
@@ -236,7 +229,6 @@ export function runGlModel(
   const structs = new Map(pm.structs.map((s) => [s.name, s]));
   const packer = new Packer(structs);
 
-  // Memory: a storage root once, a workgroup root once per workgroup.
   const nwg: Vec3 = typeof workgroups === 'number' ? [workgroups, 1, 1] : workgroups;
   const groups = nwg[0] * nwg[1] * nwg[2];
   const memory: Uint32Array[][] = plan.roots.map((r) => {
@@ -357,8 +349,6 @@ export function runGlModel(
   return { passes, barrierPhases, maxLogWords };
 }
 
-/** The std430 words of each storage binding of `m` in `bindings`, as the GL executor takes
- *  them. */
 export function storageWords(
   m: ModuleDecl,
   bindings: Record<string, CpuValue>,
@@ -375,7 +365,6 @@ export function storageWords(
   return out;
 }
 
-/** For each storage binding of `m` in `bindings`, which of its words hold an `f32`. */
 export function storageFloats(
   m: ModuleDecl,
   bindings: Record<string, CpuValue>,

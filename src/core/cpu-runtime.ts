@@ -1,20 +1,3 @@
-// ═══ Shader DSL — CPU (f64) op-library ═══
-//
-// The SHARED value model + operation library for the two CPU backends over the
-// SAME IR: the tree-walk interpreter (oracle.ts) and the js-source backend
-// (cpu-codegen.ts). Keeping the builtin/GPU-stub tables + the scalar/vector/
-// matrix op helpers here — one authority — is what makes the js-source backend
-// BIT-IDENTICAL to the interpreter by construction: both run the IDENTICAL
-// Math.* op tree in f64 (no fround), so a `new Function` twin can never drift
-// from the reference tree-walk. See oracle.ts's header for the f64-ALGEBRA
-// caveat (this library is blind to f32 GPU-precision loss — that is the GPU
-// half of the two-oracle contract).
-//
-// Vectors are number[] (mutable, by reference so `p.x = …` assigns in place).
-// Module-level consts use their cpuValue (full-precision Math.PI / Math.PI/180)
-// so the projection math matches the f64 mirror, while the WGSL backend emits
-// the truncated shader constants — the two-tolerance reality, structural.
-
 import type { BinOp, ShaderType, StructDecl } from './ir/index.js';
 import type { CmpOp } from './ir/nodes.js';
 import {
@@ -62,13 +45,8 @@ export const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0,
 
 export const isArr = Array.isArray;
 
-/** Every element kind a value can carry where {@link convertComponent} is asked about it:
- *  the three {@link NumKind}s, plus `'f64'` for an emulated double and `'bool'`, neither of
- *  which converts. Spelled out rather than left as `string` so a caller cannot pass a kind
- *  the conversion table has no arm for. */
 export type ElemKind = NumKind | 'f64' | 'bool';
 
-/** The `NumKind` of an IR type — its integer scalar/element kind, else `'f32'`. */
 export const numKindOf = (t: ShaderType): NumKind => {
   if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32';
   if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : 'f32';
@@ -76,11 +54,6 @@ export const numKindOf = (t: ShaderType): NumKind => {
   return 'f32';
 };
 
-/** An integer-typed result wrapped into its type, component-wise for a vector: what the value is
- *  on both targets. A builtin is handed plain numbers and cannot tell an `i32` from an `f32`, so
- *  each CPU backend wraps a builtin's result and a negation by the call's IR TYPE, which it
- *  knows: `abs` of the least `i32` is 2147483648 as a number and the least `i32` itself on both
- *  targets (wgsl.txt:21451-21453), and so is its negation. Identity for the float kind. */
 export const wrapValue = (v: CpuValue, kind: NumKind): CpuValue =>
   kind === 'f32'
     ? v
@@ -96,11 +69,8 @@ export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = '
   return scalarBin(bop, a as number, b as number, kind);
 }
 
-/** An integer clamped into a byte range, for the saturating packs (#152). Plain `Math` rather
- *  than the NaN-aware pair above: the operands are integers by the time they reach it. */
 const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
-// ── Builtins (vec-aware where WGSL is component-wise) ──
 type Builtin = (...args: CpuValue[]) => CpuValue;
 const map1 =
   (f: (x: number) => number): Builtin =>
@@ -108,39 +78,30 @@ const map1 =
     isArr(x) ? x.map((v) => f(v as number)) : f(x as number);
 
 const _bitcastView = new DataView(new ArrayBuffer(4));
-/** The eight bytes the internal `f64` word operations read and write (`__f64Hi` and the rest). */
 const _f64View = new DataView(new ArrayBuffer(8));
 
-/** One component of `bitcast<u32>`: the bits of `x` rounded to f32, read as a u32. */
 const f32BitsAsU32 = (x: number): number => {
   _bitcastView.setFloat32(0, Math.fround(x), true);
   return _bitcastView.getUint32(0, true);
 };
-/** One component of `bitcast<f32>`: the 32 bits of `x` read as an f32. */
 const u32BitsAsF32 = (x: number): number => {
   _bitcastView.setUint32(0, x >>> 0, true);
   return _bitcastView.getFloat32(0, true);
 };
 
-// ── f32 ↔ IEEE-754 binary16 (the pack2x16float/unpack2x16float per-component
-// conversion). Hand-rolled: Math.f16round/Float16Array are too new to rely on
-// across the runtimes this package supports. Encode is round-to-nearest-EVEN on
-// the 13 dropped significand bits (the conversion real GPUs implement); decode
-// is exact (every binary16 value is exactly representable in f32/f64). ──
 const f32ToF16Bits = (x: number): number => {
   _bitcastView.setFloat32(0, Math.fround(x), true);
   const bits = _bitcastView.getUint32(0, true);
   const sign = (bits >>> 16) & 0x8000;
   const exp = (bits >>> 23) & 0xff;
   const mant = bits & 0x7fffff;
-  if (exp === 0xff) return sign | 0x7c00 | (mant !== 0 ? 0x200 : 0); // ±Inf / NaN (quieted)
-  const e = exp - 127 + 15; // re-bias 127 → 15
-  if (e >= 0x1f) return sign | 0x7c00; // overflow → ±Inf
+  if (exp === 0xff) return sign | 0x7c00 | (mant !== 0 ? 0x200 : 0);
+  const e = exp - 127 + 15;
+  if (e >= 0x1f) return sign | 0x7c00;
   if (e <= 0) {
-    // Too small for a normal f16 → subnormal (or ±0 below 2^-25).
     if (e < -10) return sign;
-    const m = mant | 0x800000; // implicit leading 1
-    const shift = 14 - e; // 14..24 — how many low bits fall off
+    const m = mant | 0x800000;
+    const shift = 14 - e;
     const half = m >>> shift;
     const rem = m & ((1 << shift) - 1);
     const halfway = 1 << (shift - 1);
@@ -149,8 +110,6 @@ const f32ToF16Bits = (x: number): number => {
   }
   const half = sign | (e << 10) | (mant >>> 13);
   const rem = mant & 0x1fff;
-  // RTE carry may roll the significand into the exponent (…1111.1→10000.0) and,
-  // at the top, into ±Inf — both are the correctly-rounded results.
   if (rem > 0x1000 || (rem === 0x1000 && (half & 1) !== 0)) return half + 1;
   return half;
 };
@@ -160,10 +119,8 @@ const f16BitsToF32 = (h: number): number => {
   const mant = h & 0x3ff;
   let bits: number;
   if (exp === 0) {
-    if (mant === 0)
-      bits = sign; // ±0
+    if (mant === 0) bits = sign;
     else {
-      // Subnormal: normalise the significand into f32's implicit-1 form.
       let e = 0;
       let m = mant;
       while ((m & 0x400) === 0) {
@@ -173,7 +130,7 @@ const f16BitsToF32 = (h: number): number => {
       bits = sign | ((127 - 15 - e + 1) << 23) | ((m & 0x3ff) << 13);
     }
   } else if (exp === 0x1f) {
-    bits = sign | 0x7f800000 | (mant << 13); // ±Inf / NaN
+    bits = sign | 0x7f800000 | (mant << 13);
   } else {
     bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
   }
@@ -181,15 +138,11 @@ const f16BitsToF32 = (h: number): number => {
   return _bitcastView.getFloat32(0, true);
 };
 
-/** `quantizeToF16` on a scalar or on any width of vector (#150): the f16 round trip applied
- *  per component. Shared by the four neutral ids, which differ only in how GLSL spells them. */
 const quantizeF16 = (x: CpuValue): CpuValue =>
   isArr(x)
     ? (x as number[]).map((c) => f16BitsToF32(f32ToF16Bits(c)))
     : f16BitsToF32(f32ToF16Bits(x as number));
 
-/** Whether a comparison of values of type `t` rounds to f32 first: an f32 scalar or a vector
- *  of f32. The GPU computes f32, so exact f64 equality would silently disagree with it. */
 export const comparesAsF32 = (t: ShaderType): boolean =>
   (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32');
 
@@ -210,9 +163,6 @@ function compareScalars(cop: CmpOp, a: number, b: number, f32: boolean): boolean
   }
 }
 
-/** One comparison, the way every CPU path computes it: scalars to a bool, two vectors
- *  componentwise to a vector of bools (roadmap 0.2 item 7). `==` and `!=` on f32 operands
- *  round to f32 first (X-GIS #13); the ordering ops keep f64. Bools compare as JS booleans. */
 export function compareValues(cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean): CpuValue {
   if (isArr(a) && isArr(b)) {
     return a.map((v, i) => compareScalars(cop, v as number, b[i] as number, f32));
@@ -220,7 +170,6 @@ export function compareValues(cop: CmpOp, a: CpuValue, b: CpuValue, f32: boolean
   return compareScalars(cop, a as number, b as number, f32);
 }
 
-/** `select(f, t, c)` with a vector-of-bools condition: the pick per component. */
 export function selectComponents(
   cond: readonly CpuValue[],
   ifTrue: CpuValue,
@@ -231,8 +180,6 @@ export function selectComponents(
   return cond.map((c, i) => (c ? t[i]! : f[i]!)) as unknown as CpuValue;
 }
 
-/** Componentwise over a vector or on a scalar, with a second argument that may be a scalar
- *  broadcast or a matching vector. */
 const zip2 =
   (f: (a: number, b: number) => number): Builtin =>
   (a, b) => {
@@ -247,15 +194,7 @@ const scale = (v: CpuValue, k: number): CpuValue =>
   isArr(v) ? (v as number[]).map((x) => x * k) : (v as number) * k;
 const sub = zip2((a, b) => a - b);
 
-/** The 32-bit integer builtins by the element kind of the argument (roadmap 0.2 item 8). Their
- *  result keeps the argument's type on the GPU, and for `reverseBits`, `firstLeadingBit`,
- *  `firstTrailingBit`, `extractBits` and `insertBits` the value differs between u32 and i32
- *  (a top bit set reads negative, a "none" result is 0xffffffff or -1, an extracted field is
- *  sign-extended), which the value alone cannot tell; the CPU paths pass the static kind. The
- *  {@link BUILTINS} entries of those names are the u32 forms. */
 export const TYPED_BIT_BUILTINS: ReadonlySet<string> = new Set([
-  // `~x` (§52) is one of them: the bit pattern is the same either way, but `~5` reads as
-  // -6 on an i32 and 4294967290 on a u32, and only the static kind says which.
   '~',
   'reverseBits',
   'firstLeadingBit',
@@ -307,8 +246,6 @@ const bitOne = (fn: string, kind: 'u32' | 'i32', x: number, more: number[]): num
   }
   throw new Error(`typeshade/cpu: unknown bit builtin ${fn}`);
 };
-/** Evaluate one of {@link TYPED_BIT_BUILTINS} on `args` for the element kind `kind`, componentwise
- *  over a vector; the extra arguments of `extractBits`/`insertBits` may be scalars or vectors. */
 export function bitBuiltin(fn: string, args: readonly CpuValue[], kind: 'u32' | 'i32'): CpuValue {
   const x = args[0]!;
   const rest = args.slice(1);
@@ -330,7 +267,6 @@ export function bitBuiltin(fn: string, args: readonly CpuValue[], kind: 'u32' | 
     rest.map((r) => at(r, 0)),
   );
 }
-/** The determinant of a column-major n×n matrix by cofactor expansion. */
 function matDeterminant(m: number[]): number {
   const n = Math.round(Math.sqrt(m.length));
   if (n === 1) return m[0]!;
@@ -347,26 +283,12 @@ function matDeterminant(m: number[]): number {
   return det;
 }
 
-/** A builtin that applies one scalar function to each component of its vector arguments, and to
- *  scalar arguments once: `lane` is that function, and `vector` is the argument whose being a
- *  vector makes the {@link BUILTINS} entry work per component (an index, or `'any'` when any
- *  argument being one does). Every other argument is then a vector of the same width, read at
- *  the same component, or a scalar the entry hands every component. */
 export interface Componentwise {
   readonly lane: (...xs: number[]) => number;
   readonly vector: number | 'any';
 }
 
-/** The per-component builtins, each with the one scalar function its {@link BUILTINS} entry
- *  applies per component. The entries are built from these functions, so the generated CPU code
- *  (`cpu-codegen.ts`), which calls `lane` once per component where the IR types say the
- *  arguments are vectors of one width, computes what the entry computes on the same values. */
 export const COMPONENTWISE = {
-  // The libm's routines (change 0042), not the engine's `Math.sin` and `Math.cos`. Every
-  // operand takes the `f64` routine. In `'f32'` precision the precision pass rounds the result
-  // once to `f32` (`__fround`), so there is no second routine whose result could differ. The
-  // operand is the value the caller holds: a call rounds an `f32` operand before the routine
-  // reads it, and a compile-time fold reads the operand as it is written.
   sin: { lane: (x: number): number => LIBM.sinF64(x), vector: 0 },
   cos: { lane: (x: number): number => LIBM.cosF64(x), vector: 0 },
   tan: { lane: (x: number): number => LIBM.tanF64(x), vector: 0 },
@@ -396,17 +318,9 @@ export const COMPONENTWISE = {
   fract: { lane: EXACT_BUILTINS.fract, vector: 0 },
   saturate: { lane: EXACT_BUILTINS.saturate, vector: 0 },
   atan2: { lane: (y: number, x: number): number => LIBM.atan2F64(y, x), vector: 0 },
-  // FLOOR-mod (see `mod` below), not JS `%`.
   mod: { lane: (a: number, b: number): number => a - b * Math.floor(a / b), vector: 0 },
-  // The libm's routine (change 0042), with ECMA-262's special values (Number::exponentiate),
-  // which the engine's `Math.pow` gives too: `a ** b` and `Math.pow` are ECMAScript's forms
-  // (Rule 1.3; the owner's decision of 2026-11-10). A GPU's `pow` is the driver's, and parts
-  // from them on the pairs WGSL leaves outside its domain (`INTRINSICS`, surface §38).
   pow: { lane: (x: number, y: number): number => LIBM.powF64(x, y), vector: 0 },
-  // Exact scaling with one rounding (the libm), not `x * 2 ** e`, which rounds twice for a
-  // subnormal result and whose `**` ECMAScript leaves to the engine.
   ldexp: { lane: (x: number, e: number): number => LIBM.ldexpF64(x, e), vector: 0 },
-  // One rounding of the exact product and sum (see `fma` below).
   fma: { lane: (x: number, y: number, z: number): number => Math.fround(x * y + z), vector: 0 },
   min: { lane: minNum, vector: 'any' },
   max: { lane: maxNum, vector: 'any' },
@@ -425,7 +339,6 @@ export const COMPONENTWISE = {
 const CW = COMPONENTWISE;
 
 export const BUILTINS: Record<string, Builtin> = {
-  // Geometry, matrices and exponents (roadmap 0.2 item 8).
   reflect: (i, nrm) => sub(i, scale(nrm, 2 * dotOf(nrm, i))),
   refract: (i, nrm, eta) => {
     const e = eta as number;
@@ -437,7 +350,6 @@ export const BUILTINS: Record<string, Builtin> = {
   faceForward: (nrm, i, nref) => (dotOf(nref, i) < 0 ? nrm : scale(nrm, -1)),
   determinant: (m) => matDeterminant(m as number[]),
   ldexp: zip2(CW.ldexp.lane),
-  // The 32-bit integer builtins whose value is the same for u32 and i32 (a count fits both).
   countOneBits: map1((x) => {
     let u = x >>> 0;
     let c = 0;
@@ -452,22 +364,14 @@ export const BUILTINS: Record<string, Builtin> = {
     const u = x >>> 0;
     return u === 0 ? 32 : 31 - Math.clz32(u & -u);
   }),
-  // The u32 forms of the kind-dependent ones; the CPU paths route by the static kind.
   '~': (x) => bitBuiltin('~', [x], 'u32'),
   reverseBits: (x) => bitBuiltin('reverseBits', [x], 'u32'),
   firstLeadingBit: (x) => bitBuiltin('firstLeadingBit', [x], 'u32'),
   firstTrailingBit: (x) => bitBuiltin('firstTrailingBit', [x], 'u32'),
   extractBits: (e, o, c) => bitBuiltin('extractBits', [e, o, c], 'u32'),
   insertBits: (e, nb, o, c) => bitBuiltin('insertBits', [e, nb, o, c], 'u32'),
-  // any(m) / all(m) over a vector of bools (roadmap 0.2 item 7).
   any: (v) => (v as boolean[]).some((x) => x === true),
   all: (v) => (v as boolean[]).every((x) => x === true),
-  // The f32 oracle's rounding step (X-GIS #2426). NOT authorable and never emitted: `froundF32`
-  // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
-  // It lives HERE rather than in each engine because the interpreter resolves builtins through
-  // this one table (`BUILTINS[e.fn]`), and what it applies per component is `Math.fround`, the
-  // one function the codegen calls in its place (`$fr`, per component of a vector, #410), so the
-  // two cannot disagree about what rounding means.
   __fround: map1(Math.fround),
   sin: map1(CW.sin.lane),
   cos: map1(CW.cos.lane),
@@ -475,9 +379,6 @@ export const BUILTINS: Record<string, Builtin> = {
   asin: map1(CW.asin.lane),
   acos: map1(CW.acos.lane),
   atan: map1(CW.atan.lane),
-  // Hyperbolics — native on BOTH targets (WGSL §17.5 / GLSL ES 3.00 §8.1), and
-  // the exact spelling of the Mercator idioms: forward y = asinh(tan φ)
-  // ≡ log(tan(π/4 + φ/2)), inverse φ = atan(sinh y) ≡ 2·atan(exp y) − π/2.
   sinh: map1(CW.sinh.lane),
   cosh: map1(CW.cosh.lane),
   tanh: map1(CW.tanh.lane),
@@ -494,26 +395,16 @@ export const BUILTINS: Record<string, Builtin> = {
   round: map1(CW.round.lane),
   floor: map1(CW.floor.lane),
   ceil: map1(CW.ceil.lane),
-  // `abs(-2147483648)` on an `i32` is that value itself on both targets: 2^31 has no i32, so
-  // the result wraps (wgsl.txt:21451-21453). This gives 2147483648, since the f32
-  // `-2147483648.` is the same number with a genuine `+2147483648` answer, and each CPU backend
-  // wraps an integer-typed call's result by its IR type (`wrapValue`).
   abs: map1(CW.abs.lane),
   sign: map1(CW.sign.lane),
   radians: map1(CW.radians.lane),
   degrees: map1(CW.degrees.lane),
-  // atan2(y, x) — component-wise over vectors (as WGSL/GLSL compute it); x may
-  // be a scalar broadcast (the ArithArg surface admits it even though WGSL then
-  // rejects the emit — the oracle mirrors the component-wise semantics).
   atan2: (y, x) =>
     isArr(y)
       ? (y as number[]).map((v, i) =>
           CW.atan2.lane(v as number, isArr(x) ? ((x as number[])[i] as number) : (x as number)),
         )
       : CW.atan2.lane(y as number, x as number),
-  // mod(x, y) — FLOOR-mod, matching the registry spelling on both targets
-  // (WGSL x − y·⌊x/y⌋, GLSL mod()). Deliberately NOT JS `%` (trunc-mod).
-  // Component-wise; y may be a scalar broadcast over a vector x.
   mod: (x, y) => {
     const fm = CW.mod.lane;
     return isArr(x)
@@ -526,18 +417,9 @@ export const BUILTINS: Record<string, Builtin> = {
     isArr(a) || isArr(b) ? applyMinMax(CW.min.lane, a, b) : CW.min.lane(a as number, b as number),
   max: (a, b) =>
     isArr(a) || isArr(b) ? applyMinMax(CW.max.lane, a, b) : CW.max.lane(a as number, b as number),
-  // clamp(e, lo, hi) = min(max(e, lo), hi) — the formula WGSL lists first and the one GLSL
-  // ES 3.00 defines (lo > hi is implementation-defined on WGSL, undefined on GLSL), so the
-  // oracle is one of the permitted results rather than a third formula (X-GIS #2274). With the
-  // NaN-returns-the-other min/max above, clamp(NaN, lo, hi) is lo.
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
-  // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
-  // clamp; see the intrinsic registry). Same min(max(·, 0), 1) composition as clamp.
   saturate: map1(CW.saturate.lane),
   mix: (a, b, t) => mixVal(a, b, t),
-  // smoothstep — component-wise; the vector overload (X-GIS #763 X15) makes the vec
-  // path reachable, and the old scalar-cast body silently returned NaN for it
-  // (JS array arithmetic). e0/e1 may be scalar broadcasts over a vector x.
   smoothstep: (e0, e1, x) => {
     const ss = CW.smoothstep.lane;
     return isArr(x)
@@ -550,7 +432,6 @@ export const BUILTINS: Record<string, Builtin> = {
         )
       : ss(e0 as number, e1 as number, x as number);
   },
-  // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
     const s = CW.step.lane;
     return isArr(x)
@@ -559,10 +440,6 @@ export const BUILTINS: Record<string, Builtin> = {
         )
       : s(edge as number, x as number);
   },
-  // WGSL gives `length` and `distance` a SCALAR overload as well as the vector ones, and
-  // defines the scalar form as `abs(e)` / `abs(e1 - e2)` (wgsl.txt:22626). Both targets accept
-  // them — measured: `length(1.5)` on Tint and `length(float)` on a WebGL2 driver each compile
-  // — and the oracle threw `v.reduce is not a function` on a program the GPU ran (#154).
   length: (v) =>
     isArr(v)
       ? Math.sqrt((v as number[]).reduce((s, c) => s + (c as number) * (c as number), 0))
@@ -592,33 +469,17 @@ export const BUILTINS: Record<string, Builtin> = {
       u[0]! * w[1]! - u[1]! * w[0]!,
     ];
   },
-  // transpose(M) — a column-major n² matrix (used by the mat64 authoring path;
-  // n is recovered from the flat length). Native for f32 matrices too.
   transpose: (m) => matTranspose(m as number[]),
   f32: (x) => Number(x),
-  // toF64 widen — a no-op here: the oracle evaluates f64 natively as a JS
-  // number (JS numbers ARE f64), which is why compileModule deliberately does
-  // NOT run fp64Lower. `oracle(fp64Lower(m)) ≈ oracle(m)` is the metamorphic
-  // gate on that pass (EFT error terms are exactly 0 in exact arithmetic).
   f64: (x) => Number(x),
-  // The anti-fast-math guard value in LOWERED modules — semantically exactly
-  // 1.0 (on the GPU it is a texel fetch, opaque to shader compilers; here it
-  // is just the number, so the f32-rounding test oracle runs the same IR).
   f64Guard: () => 1,
-  // hi/lo pair ↔ f64 (the DSFUN lane bridge): natively a sum / a fround split.
   f64FromParts: (hi, lo) => (hi as number) + (lo as number),
   f64Parts: (x) => {
     const hi = Math.fround(x as number);
     return [hi, Math.fround((x as number) - hi)];
   },
-  // Integer-source conversions (float sources are routed to f32ToI32Sat / f32ToU32Sat by
-  // both backends — see below): u32 ↔ i32 is a bit reinterpretation on both targets, so
-  // i32(0xFFFFFFFFu) is -1 and u32(-1) is 0xFFFFFFFF (X-GIS #2274).
   i32: (x) => Math.trunc(x as number) | 0,
   u32: (x) => Math.trunc(x as number) >>> 0,
-  // X-GIS #763 O1 — pure-math builtins the catalogue claims portable but the oracle
-  // lacked (a shader using them compiled + emitted on both GPU targets, then
-  // threw `unknown fn` at first CPU use — and compileModule is production-used).
   pow: (a, b) =>
     isArr(a)
       ? (a as number[]).map((x, i) =>
@@ -626,12 +487,6 @@ export const BUILTINS: Record<string, Builtin> = {
         )
       : CW.pow.lane(a as number, b as number),
   fract: map1(CW.fract.lane),
-  // fma(a, b, c) = a·b + c with a SINGLE rounding. For f32 operands the product
-  // a·b is EXACT in a JS double (24+24 = 48 ≤ 53 significand bits), so
-  // fround(a·b + c) is the correctly-rounded f32 fma up to the double-rounding
-  // tail of the f64 add — beyond every tolerance the suites assert.
-  // Component-wise over vectors (WGSL fma is genType, and the authoring
-  // signature admits vec keys) — the old scalar-cast body silently NaN'd there.
   fma: (a, b, c) => {
     const f = CW.fma.lane;
     const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number));
@@ -639,24 +494,11 @@ export const BUILTINS: Record<string, Builtin> = {
       ? (a as number[]).map((x, i) => f(x as number, at(b, i), at(c, i)))
       : f(a as number, b as number, c as number);
   },
-  // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
   unpack4x8unorm: (u) => {
     const n = (u as number) >>> 0;
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) => b / 255);
   },
-  // `workgroupUniformLoad(w)` (#152): the VALUE workgroup memory holds. The builtin is a read
-  // between two barriers, and the oracle models the read and not the barriers: it is an
-  // EXPRESSION, and `dispatch` synchronises barrier STATEMENTS. That is a real limitation and
-  // not a fiction — an invocation that reads a value another was mid-way through writing gets
-  // a different answer here than on a device. The oracle is an algebra oracle; a race is not
-  // algebra, and the same caveat already covers every other unsynchronised read it performs.
   workgroupUniformLoad: (x) => x,
-  // ── The packed 4x8 integer family (#152) ──
-  //
-  // A `u32` read as four bytes, component 0 in the LOW byte (wgsl.txt:21906/21920). The signed
-  // forms sign-extend each byte, the `Clamp` packs saturate instead of truncating, and both
-  // dots accumulate in 32 bits the way the hardware does. Verified against a real device by
-  // dispatching each one and reading the buffer back, not by reading the spec twice.
   unpack4xU8: (e) => {
     const n = (e as number) >>> 0;
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
@@ -689,12 +531,6 @@ export const BUILTINS: Record<string, Builtin> = {
     }
     return acc | 0;
   },
-  // ── The subgroup family (change 0117, Rule 11.21): a subgroup of one invocation. ──
-  //
-  // The oracle runs invocations one after another, so the only lane a subgroup function can
-  // see is its own: a fold of one value is the value, a scan before it is the identity, a vote
-  // is the lane's own bool, a ballot has one bit, the one lane is elected, and a broadcast or a
-  // shuffle from any lane gives the lane's own value (the determinism report says so, `target`).
   subgroupAdd: (x) => x,
   subgroupMul: (x) => x,
   subgroupMin: (x) => x,
@@ -716,19 +552,7 @@ export const BUILTINS: Record<string, Builtin> = {
   subgroupShuffleDown: (x) => x,
   subgroupShuffleUp: (x) => x,
   subgroupShuffleXor: (x) => x,
-  // `abs` on an unsigned value is the identity, and the integer `dot` is the sum of the
-  // component-wise products (#154). Their own ids because GLSL ES 3.00 spells neither.
   absU: (x) => x,
-  // Every multiply and every add wraps at 32 bits. Reducing in doubles and wrapping once at the
-  // end is not the same function: a component product past 2^53 is rounded before the wrap, and
-  // `dot(vec2i(2147483647, 1), vec2i(2147483647, 1))` came out 0 here against 2 on Tint AND 2
-  // on a WebGL2 driver. `Math.imul` is the 32-bit multiply.
-  //
-  // The two signednesses are backed differently, and the difference is worth naming. WGSL
-  // MANDATES the wrap for `i32` and for `u32` alike, and GLSL ES 3.00 mandates it for `uint`;
-  // for `int` it leaves overflow UNDEFINED (§4.1.3). So `dotU` is spec-backed on both targets,
-  // and `dotI` matches WGSL's rule and the driver measured above rather than a guarantee GLSL
-  // gives. The determinism report is where that asymmetry is recorded for an author.
   dotI: (a, b) => {
     const xs = a as number[];
     const ys = b as number[];
@@ -739,27 +563,20 @@ export const BUILTINS: Record<string, Builtin> = {
     const ys = b as number[];
     return xs.reduce((acc, v, i) => (acc + Math.imul(v, ys[i] as number)) >>> 0, 0) >>> 0;
   },
-  // The vector forms (change 0044): the scalar reinterpretation applied to each component.
   bitcastVec2U32: map1(f32BitsAsU32),
   bitcastVec3U32: map1(f32BitsAsU32),
   bitcastVec4U32: map1(f32BitsAsU32),
   bitcastVec2F32: map1(u32BitsAsF32),
   bitcastVec3F32: map1(u32BitsAsF32),
   bitcastVec4F32: map1(u32BitsAsF32),
-  // f32 bit-pattern reinterpreted as u32 (WGSL bitcast<u32> / GLSL floatBitsToUint).
   bitcastU32: (x) => {
     _bitcastView.setFloat32(0, Math.fround(x as number), true);
     return _bitcastView.getUint32(0, true);
   },
-  // u32 bit-pattern reinterpreted as f32 (WGSL bitcast<f32> / GLSL uintBitsToFloat).
   bitcastF32: (x) => {
     _bitcastView.setUint32(0, (x as number) >>> 0, true);
     return _bitcastView.getFloat32(0, true);
   },
-  // The compiler-internal operations of the libm's source (change 0042, Amendment A1). NOT
-  // authorable and never emitted: the front end lowers them only for the libm
-  // (`src/compiler/ts/internal-ops.ts`). The byte order is explicit, so the two words are the
-  // same on every host.
   __f64Hi: (x) => {
     _f64View.setFloat64(0, x as number, true);
     return _f64View.getUint32(4, true);
@@ -773,28 +590,13 @@ export const BUILTINS: Record<string, Builtin> = {
     _f64View.setUint32(0, (lo as number) >>> 0, true);
     return _f64View.getFloat64(0, true);
   },
-  // Truncation toward zero, a NaN to 0, a value past the range to the nearest bound.
   __f64ToI32: (x) => {
     const v = x as number;
     return Number.isNaN(v) ? 0 : Math.min(2147483647, Math.max(-2147483648, Math.trunc(v)));
   },
-  // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
-  // The length of the buffer the host bound (#46): the operand evaluates to the bound array
-  // itself (or the struct member holding it), and its length is the answer the GPU gives.
-  // Computable, so it lives here and not among the GPU_STUBS below.
   arrayLength: (xs) => (xs as readonly CpuValue[]).length,
-  // `out.push(v)` in a kernel function's loop (change 0078, Rule 8.23): the array starts empty
-  // in the function, and the host array is the capacity. Each push stores `v` while the count is
-  // inside the capacity, counts it either way, and gives the new count. A call binds a fresh copy
-  // of each array (`core/host-kernel.ts`), so a count starts at 0 on each call, or at the held
-  // length a call passes (change 0094). The count is a `u32`, as the device's scan adds it.
   push: (xs, v) => pushOnto(xs as CpuValue[], v),
-  // `out.length` of an array the function pushes onto: the count appended, which may exceed the
-  // capacity (change 0078, decision 1), after the held length a call passes (change 0094).
   ...PUSHED_BUILTINS,
-  // A kernel function's Map and Set (change 0080): JavaScript's own, so the entries, the size,
-  // the insertion order and SameValueZero are ECMAScript's. A value is copied in and out, so
-  // nothing the function does later changes what a set stored.
   collectionAdd: (s, k) => {
     (s as unknown as Set<number>).add(k as number);
     return undefined as unknown as CpuValue;
@@ -806,57 +608,27 @@ export const BUILTINS: Record<string, Builtin> = {
   collectionHas: (c, k) => (c as unknown as Set<number>).has(k as number),
   collectionGet: (m, k) => cloneValue((m as unknown as Map<number, CpuValue>).get(k as number)!),
   collectionSize: (c) => (c as unknown as Set<number>).size,
-  //
-  // The scale is rounded to f32 FIRST, for the reason the signed twin below spells out: a GPU
-  // multiplies in f32 and this oracle would otherwise multiply in f64. Measured, an f64 product
-  // parts from the emitted GLSL inline (`floor(0.5 + clamp(e, 0, 1) * 255.0)`, evaluated in f32)
-  // on 127 of the 511 inputs e = i/510 — at e = 0.8098039031028748 the f64 product is just under
-  // 206.5 and rounds to 206 where both targets answer 207. An oracle that agrees with NEITHER
-  // target is the one thing it may not be.
   pack4x8unorm: (v) => {
     const a = v as number[];
     const q = (x: number): number =>
       Math.round(Math.fround(Math.max(0, Math.min(1, x)) * 255)) & 0xff;
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0;
   },
-  // The signed twin (#150, WGSL §17.10): ⌊0.5 + 127 × clamp(e, -1, 1)⌋, low 8 bits of the
-  // two's complement, component 0 in the low byte.
-  //
-  // Two things the first cut of this got wrong, both measured on a real driver. The scale is
-  // rounded to f32 FIRST: a GPU multiplies in f32, and there are 129 f32 values per sign whose
-  // f32 product with 127 is exactly k + 0.5 while the f64 product is just under it — on those,
-  // an f64 multiply rounds down where both targets round up. And `clamp` follows WGSL's NaN
-  // rule (`minNum`/`maxNum`: if one operand is NaN the other is returned), which is why a NaN
-  // component packs as -127 on both targets; `Math.min`/`Math.max` propagate the NaN and
-  // packed 0 instead.
   pack4x8snorm: (v) => {
     const a = v as number[];
     const q = (x: number): number => Math.round(Math.fround(maxNum(-1, minNum(1, x)) * 127)) & 0xff;
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0;
   },
-  // Sign-extend each byte, then max(v / 127, -1): the -128 pattern is -1.0079 before the
-  // clamp (WGSL §17.11).
   unpack4x8snorm: (u) => {
     const n = (u as number) >>> 0;
     return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff].map((b) =>
       Math.max(((b << 24) >> 24) / 127, -1),
     );
   },
-  // Round to what an IEEE-754 binary16 holds and come back as an f32 (#150, WGSL §17.7.28).
-  // The same encode the 2×16 float pack uses, so a value that survives one survives the other.
-  //
-  // FOUR ids, one behaviour: the registry spells argument strings and has no type to switch
-  // on, and the GLSL round trip is two components at a time, so the front end picks the id by
-  // the argument's width. Here the width is visible in the value, so one function serves all
-  // four and the vector ids cannot drift from the scalar one.
   quantizeToF16: quantizeF16,
   quantizeToF16Vec2: quantizeF16,
   quantizeToF16Vec3: quantizeF16,
   quantizeToF16Vec4: quantizeF16,
-  // ── 2×16 pack/unpack — native builtins on BOTH targets (only the names
-  // diverge; see the intrinsic registry). Component 0 → the 16 LOW bits, per
-  // both specs. Quantisation follows WGSL's ⌊0.5 + scale·clamp(e)⌋, which JS
-  // Math.round IS (floor(0.5+x), including the toward-+∞ negative halves). ──
   pack2x16float: (v) => {
     const a = v as number[];
     return (f32ToF16Bits(a[0] as number) | (f32ToF16Bits(a[1] as number) << 16)) >>> 0;
@@ -865,8 +637,6 @@ export const BUILTINS: Record<string, Builtin> = {
     const n = (u as number) >>> 0;
     return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)];
   },
-  // `Math.fround` on the scale for the same reason as the 4x8 pair: the product is an f32 on
-  // both targets and an f64 here without it.
   pack2x16unorm: (v) => {
     const a = v as number[];
     const q = (x: number): number =>
@@ -885,36 +655,19 @@ export const BUILTINS: Record<string, Builtin> = {
   },
   unpack2x16snorm: (u) => {
     const n = (u as number) >>> 0;
-    // Sign-extend each 16-bit lane, then v/32767 clamped at −1 (WGSL: max(v/32767, −1);
-    // GLSL's clamp(…, −1, 1) is identical — v ≤ 32767 so the upper clamp never binds).
     const s = (bits: number): number => Math.max(((bits << 16) >> 16) / 32767, -1);
     return [s(n & 0xffff), s(n >>> 16)];
   },
 };
 
-/** The libm's routines (change 0042, milestone 1a), built once over the two tables above: the
- *  JavaScript form of each family's source under `libm/`, which the entries of
- *  {@link COMPONENTWISE} call: the 19 functions of the list, from `sin` to `pow`. Declared after
- *  the tables it reads; an entry calls it only when a program runs. Exported for the libm's gates and for a test that reads the libm's value. */
 export const LIBM: Libm = makeLibm({ B: BUILTINS, L: COMPONENTWISE, intDiv, intRem });
 
-// GPU-only stubs (X-GIS #763 O3). textureSample needs the GPU's sampler/atlas; fwidth
-// needs neighbouring fragments — neither is computable in this per-invocation
-// interpreter. Evaluating one THROWS unless compileModule was given
-// `{ gpuStubs: true }`: a silent [0,0,0,1] / 0 is a plausible-wrong value, the
-// worst failure mode for a reference backend.
 export const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
   textureSampleLevel: () => [0, 0, 0, 1],
-  // Component-wise on both targets, so the STUB has to keep the argument's shape even though
-  // its value is a placeholder: `dpdx(v)` on a vec2 is a vec2 of zeros, not the scalar 0.
-  // Returning a bare 0 made `dpdx(v).x` undefined and `length(fwidth(v))` throw
-  // "v.reduce is not a function" — a TypeError out of the oracle for a shader that emits and
-  // runs. Newly reachable from "use typeshade" with #8 A6, which gave the surface these names.
   fwidth: (x) => zeroLike(x),
   dpdx: (x) => zeroLike(x),
   dpdy: (x) => zeroLike(x),
-  // The coarse and fine variants (roadmap 0.2 item 8): the same placeholder.
   fwidthCoarse: (x) => zeroLike(x),
   fwidthFine: (x) => zeroLike(x),
   dpdxCoarse: (x) => zeroLike(x),
@@ -922,30 +675,17 @@ export const GPU_STUBS: Record<string, Builtin> = {
   dpdyCoarse: (x) => zeroLike(x),
   dpdyFine: (x) => zeroLike(x),
   textureLoad: () => [0, 0, 0, 1],
-  // The UNSIGNED-coordinate fetch ids (#147). They differ from the signed ones only in the
-  // GLSL column, which wraps the coordinate in the signed constructor GLSL's `texelFetch`
-  // takes, so the oracle answers exactly what the signed ids answer.
   textureLoadU: () => [0, 0, 0, 1],
   textureLoad3dU: () => [0, 0, 0, 1],
   textureLoadArrayU: () => [0, 0, 0, 1],
-  // The layer count of a storage array (#147): a fact about the binding the host made, which
-  // the oracle has no memory of, so it is a stub like the reads.
   textureNumLayersStorage: () => 1,
-  // 2d-array reads (X-GIS #1651) — same placeholder/throw contract as their 2d twins:
-  // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
   textureSampleArray: () => [0, 0, 0, 1],
   textureSampleLevelArray: () => [0, 0, 0, 1],
   textureLoadArray: () => [0, 0, 0, 1],
-  // Bias and gradient sampling (roadmap 0.4 item 12): a texel, so opaque black like the reads
-  // above. The cube and 3d textures need no ids of their own here — the coordinate's width
-  // rides on the IR type and the read ids are the same.
   textureSampleBias: () => [0, 0, 0, 1],
   textureSampleBiasArray: () => [0, 0, 0, 1],
   textureSampleGrad: () => [0, 0, 0, 1],
   textureSampleGradArray: () => [0, 0, 0, 1],
-  // The cube-array forms and the gathers (roadmap 0.4 item 12): a texel, so opaque black; a
-  // gather of a DEPTH texture yields four depths, and the placeholder is 1, the far plane, for
-  // the reason a comparison yields 1: nothing occludes, so the rest of the shader is left alone.
   textureSampleCubeArray: () => [0, 0, 0, 1],
   textureSampleLevelCubeArray: () => [0, 0, 0, 1],
   textureSampleBiasCubeArray: () => [0, 0, 0, 1],
@@ -954,12 +694,6 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureGatherArray: () => [0, 0, 0, 1],
   textureGatherDepth: () => [1, 1, 1, 1],
   textureGatherDepthArray: () => [1, 1, 1, 1],
-  // The depth comparisons (roadmap 0.4 item 11) yield how much of the filter footprint passed,
-  // which a shader multiplies its lighting by. 1, not 0: the oracle has no texture memory, so
-  // the honest placeholder is the one that leaves the rest of the shader alone — a factor of 1
-  // is the identity for that multiply, where 0 would black out every shaded pixel and look like
-  // a bug in the shader rather than the absence of a texture. Same reasoning as the 1×1
-  // dimensions below, not the opaque black above: a texel has no identity, a factor does.
   textureSampleCompare: () => 1,
   textureSampleCompareArray: () => 1,
   textureSampleCompareLevel: () => 1,
@@ -968,54 +702,19 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureSampleCompareLevelCube: () => 1,
   textureSampleCompareCubeArray: () => 1,
   textureSampleCompareLevelCubeArray: () => 1,
-  // Four pass factors, each the identity for the multiply it feeds.
   textureGatherCompare: () => [1, 1, 1, 1],
   textureGatherCompareArray: () => [1, 1, 1, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
   textureDimensions3d: () => [1, 1, 1], // the 3d twin: 1×1×1, for the same reason
   textureDimensions1d: () => 1, // the 1d twin: one texel wide
-  // The multisampled reads (roadmap 0.4 item 13): a texel is opaque black, a depth sample the
-  // far plane, a size 1×1, and one sample per texel, so a resolve that divides by the count
-  // stays finite and leaves the rest of the shader alone.
   textureLoadMs: () => [0, 0, 0, 1],
   textureLoadDepthMs: () => 1,
   textureDimensionsMs: () => [1, 1],
   textureNumSamples: () => 1,
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
-  // A storage texture write (roadmap 0.4 item 10). The oracle has no texture memory of a
-  // module's binding, so the write goes nowhere and the call yields nothing — the same contract
-  // the reads above keep, where a load yields opaque black. A kernel function's texture of the
-  // CPU tier's memory is written for real before this stub is asked (`core/cpu-texture.ts`,
-  // change 0077). A shader whose OUTPUT is only the texels it stores has
-  // nothing for the oracle to compare, which is what makes the storage-texture example a
-  // compile-and-emit test rather than a differential one.
-  // 0 rather than nothing, because the table's values are `CpuValue` and nothing reads this
-  // one: `textureStore` has type `void`, so the front end refuses every position that would
-  // keep the result and the only place a call reaches is a statement.
   textureStore: () => 0,
 };
 
-// ── WGSL's SATURATING float→integer conversions ──
-//
-// f32→u32/i32 conversion CLAMPS to the target range in WGSL (Tint polyfills it on every
-// driver), and leaves a NaN source indeterminate: the mirror takes it as 0, as the GLSL
-// writer's helpers do, where WebGPU on SwiftShader gave i32(NaN) the least i32 and
-// u32(NaN) 0 (#382). GLSL ES 3.00 leaves out-of-range float→int
-// UNDEFINED, so the GLSL writer spells the same clamp (`_f2i`/`_f2u`, Rule 11.12), and
-// the mirror follows WGSL (the pipeline it exists to mirror). The plain-`Math.trunc`
-// forms the BUILTINS table keeps are the INTEGER-source semantics (two's-complement
-// wrapping: u32 of i32(-1) IS 0xFFFFFFFF); a value alone cannot distinguish
-// f32(-1.0) from i32(-1), so the two CPU backends branch on the ARG's STATIC type
-// at the call site and route float sources here.
-// The clamp BOUNDS are the largest target-range integers exactly representable in
-// f32 — what Tint's saturating-conversion polyfill clamps against (measured on-GPU
-// by the _dsl-builtin-gate saturation lanes: u32 of an above-range float came back
-// 4294967040, not 4294967295). The mathematical 2^32−1 / 2^31−1 are NOT
-// f32-representable, so a float source can never produce them on the GPU; the
-// lower i32 bound −2^31 IS representable and stays exact.
-/** A value type that is held as a MUTABLE JavaScript object here — a vector, a matrix and an
- *  emulated-double vector are `number[]`, an array is an array, a struct is a plain object.
- *  A scalar and a bool are immutable JS primitives and never need copying. */
 export function isAggregateType(t: ShaderType): boolean {
   return (
     t.kind === 'vec' ||
@@ -1026,17 +725,6 @@ export function isAggregateType(t: ShaderType): boolean {
   );
 }
 
-/** A deep copy of a CPU value, for binding one aggregate to another name.
- *
- *  WGSL and GLSL both give `var w = v` VALUE semantics: `w` is a fresh copy, and writing
- *  `w.x` leaves `v` alone. Both CPU backends used to bind the same underlying array or object
- *  to the new name, so `let w = v; w.x = 100.` mutated `v` on the CPU and neither GPU — a
- *  silent divergence in the one thing the oracle exists to guarantee. It was reachable only
- *  through a raw `w[0] = …` until #8 A2 gave the `"use typeshade"` surface `w.x = …`.
- *
- *  Applied at a `let` / `var` binding whose type {@link isAggregateType} admits, by the
- *  interpreter and by the generated code alike, so the two stay bit-identical. A scalar
- *  binding is untouched, which is the overwhelming majority of them. */
 export function cloneValue(v: CpuValue): CpuValue {
   if (Array.isArray(v)) return v.map(cloneValue) as CpuValue;
   if (typeof v === 'object' && v !== null) {
@@ -1047,14 +735,6 @@ export function cloneValue(v: CpuValue): CpuValue {
   return v;
 }
 
-/** Which of a function's by-value parameters it copies as it is entered: an aggregate one (a
- *  vector, a matrix, an array, a struct) of a function that writes anything, itself or through
- *  a function it calls (`writesAnything`). Both GPU targets hand such a parameter a copy. A
- *  JavaScript value is the caller's own array or object, so a write the function makes to what
- *  the caller passed (a module variable, or the object an `inout` parameter reaches) showed
- *  through the parameter: `f(g)` with `f` writing `g.x` read the new value on the CPU paths and
- *  the old one on the GPU, and so did `a.add(a)` with `add` writing its object. A function that
- *  writes nothing cannot tell a copy from the caller's value, and pays for none. */
 export function copiedParams(
   params: readonly { readonly type: ShaderType; readonly mode?: 'inout' }[],
   writesAnything: boolean,
@@ -1062,19 +742,6 @@ export function copiedParams(
   return params.map((p) => writesAnything && p.mode !== 'inout' && isAggregateType(p.type));
 }
 
-/** What a function's `inout` parameters hold as it returns, by parameter index, for its caller
- *  to store back into each variable it passed there. A struct reached through one is the
- *  caller's own object and is written in place, but a scalar, or a value the callee assigns
- *  whole (`n += 1.` on a variable a local function captured, Rule 8.17), is not, and without
- *  the store the caller kept its old value where both GPU targets write through.
- *
- *  One slot for the process, shared by the interpreter and the generated code (a compiled
- *  function may call one that fell back to the interpreter): the callee writes it as it returns
- *  and the caller reads it before anything else runs. Generated code publishes a fixed-width
- *  buffer reused by its function; the interpreter may publish a fresh array. No caller retains
- *  a snapshot.
- *  The stepper, which may yield to another
- *  invocation between the two, hands the values back through the call instead. */
 export const inoutReturn: { values: readonly CpuValue[] } = { values: [] };
 
 export const f32ToU32Sat = (v: number): number =>
@@ -1082,26 +749,8 @@ export const f32ToU32Sat = (v: number): number =>
 export const f32ToI32Sat = (v: number): number =>
   Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)));
 
-/** A zero of the same shape as `v`: component-wise for a vector or matrix, the scalar 0
- *  otherwise. Used by the derivative stubs, which have no real value to give but must not
- *  change the shape the rest of the expression is typed for. */
 const zeroLike = (v: CpuValue): CpuValue => (isArr(v) ? (v as number[]).map(() => 0) : 0);
 
-/** One component of an element-CONVERTING vector constructor, `vecN<T>(v: vecN<S>)`
- *  (`vec3<f32>(v)` in WGSL, `vec3(uv)` in GLSL ES 3.00). WGSL converts every component the
- *  way its scalar conversion does, so this applies exactly the rules the scalar cast path
- *  applies: a float source saturates into an integer target ({@link f32ToU32Sat} /
- *  {@link f32ToI32Sat}), an integer source is reinterpreted two's-complement between `i32`
- *  and `u32` (the wrapping the `BUILTINS` `i32`/`u32` entries do), and anything into a float
- *  target is the number itself. A component whose kind already matches is returned untouched,
- *  which is every component of an ordinary composing constructor such as `vec3(a, b, c)`.
- *
- *  Both CPU backends call it — the interpreter per component, the generator through the `$`
- *  runtime — so an element-converting constructor evaluates identically in the two. Before
- *  this, both flattened the source components verbatim, and `vec3<u32>(vec3<f32>(1.7, 2.9,
- *  -3.2))` evaluated to `[1.7, 2.9, -3.2]` where WGSL gives `[1, 2, 0]` — checked against
- *  Tint, which is the target these rules come from. GLSL ES 3.00 agrees on in-range sources
- *  and promises nothing outside them (see the block above), so it is not a second oracle. */
 export const convertComponent = (v: number, from: ElemKind, to: ElemKind): number => {
   if (from === to) return v;
   if (to === 'u32') return from === 'f32' || from === 'f64' ? f32ToU32Sat(v) : v >>> 0;
@@ -1109,15 +758,9 @@ export const convertComponent = (v: number, from: ElemKind, to: ElemKind): numbe
   return Number(v);
 };
 
-/** Every component of `v` through {@link convertComponent}. The generated CPU code spreads
- *  the result where it would otherwise spread the source array. */
 export const convertComponents = (v: number[], from: ElemKind, to: ElemKind): number[] =>
   from === to ? v : v.map((c) => convertComponent(c, from, to));
 
-/** The element kind of a value of type `t` as {@link convertComponent} names it: a vector's
- *  element, a scalar's own kind, `'f64'` for an emulated double. `undefined` for a type with
- *  no single numeric element kind (a struct, an array, a matrix), where no conversion is
- *  defined and the components pass through. */
 export function elemKindOf(t: ShaderType): ElemKind | undefined {
   if (t.kind === 'vec') return t.elem;
   if (t.kind === 'scalar') return t.scalar;
@@ -1162,7 +805,6 @@ function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuVal
   return (b as number[]).map((y) => f(a as number, y as number));
 }
 function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
-  // Component-wise — lo/hi may be scalars (broadcast) or per-component vectors.
   const c = CW.clamp.lane;
   if (isArr(x)) {
     const loA = isArr(lo) ? (lo as number[]) : null;
@@ -1177,8 +819,6 @@ function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
   }
   return c(x as number, lo as number, hi as number);
 }
-// Component-wise — any of a/b/t may be a scalar (broadcast) or a per-component vector,
-// matching WGSL mix() semantics (including a vector interpolant t).
 function mixVal(a: CpuValue, b: CpuValue, t: CpuValue): CpuValue {
   const m = CW.mix.lane;
   if (isArr(a) || isArr(b) || isArr(t)) {
@@ -1194,17 +834,9 @@ export function zeroOf(
   structs?: ReadonlyMap<string, StructDecl>,
   overrides?: ReadonlyMap<string, CpuValue>,
 ): CpuValue {
-  // vec64 evaluates natively as a plain number[] (like vec — JS numbers ARE f64).
   if (type.kind === 'vec') return new Array(type.n).fill(type.elem === 'bool' ? false : 0);
   if (type.kind === 'vec64') return new Array(type.n).fill(0);
-  // Column-major, cols * rows components — square only when the shape is.
   if (type.kind === 'mat') return new Array(type.cols * type.rows).fill(0);
-  // A STRUCT zero-initialises field by field, the way WGSL's `var s: S;` does. The bare `{}`
-  // this used to return left every field absent, so an init-less `var s: S` read `s.a` as
-  // `undefined` on both CPU backends while the GPU read 0 — the same family as the array arm
-  // below, and reachable for the same reason. Recursion covers a nested struct and an array
-  // of structs. A caller with no struct table (a debug session filling in a missing argument)
-  // keeps the old `{}`.
   if (type.kind === 'struct') {
     const decl = structs?.get(type.name);
     if (decl === undefined) return {};
@@ -1212,12 +844,6 @@ export function zeroOf(
     for (const f of decl.fields) obj[f.name] = zeroOf(f.type, structs, overrides);
     return obj as CpuValue;
   }
-  // An ARRAY needs its own elements, not the scalar 0 the fallthrough gave it: an init-less
-  // `var xs: array<f32, 3>` bound the number 0, and the first `xs[0] = 1.` threw
-  // "Attempted to assign to readonly property" out of the oracle on a program both GPU
-  // targets compile. Newly reachable from "use typeshade" with #8 A10, which gave the surface
-  // the init-less declaration. A runtime-sized array has no length to build, so it starts
-  // empty and grows the way a storage binding's does.
   if (type.kind === 'array') {
     const overrideSize =
       type.sizeOverride === undefined ? undefined : overrides?.get(type.sizeOverride);
@@ -1233,23 +859,16 @@ export function zeroOf(
     }
     return Array.from({ length: n }, () => zeroOf(type.elem, structs, overrides)) as CpuValue;
   }
-  // WGSL zero-initialises a bool to `false`, and the oracle's comparisons take a boolean —
-  // the scalar 0 read back as a number where every other backend has a bool.
   if (type.kind === 'scalar' && type.scalar === 'bool') return false;
   return 0;
 }
 
-/** matCxR (column-major) × vecC → vecR: the COLUMN-vector product. out[r] = Σ_c m[c*R+r]·v[c].
- *  The shape is passed rather than derived, because a flat list cannot tell a mat2x3 from a
- *  mat3x2 and the two multiply differently (#149). */
 export function matVecShaped(m: number[], v: number[], cols: number, rows: number): number[] {
   const out = new Array<number>(rows).fill(0);
   for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[r]! += m[c * rows + r]! * v[c]!;
   return out;
 }
 
-/** vecR × matCxR → vecC: the ROW-vector product, which is `transpose(m) * v`. out[c] is the
- *  dot of v with column c (wgsl.txt:9960-9995). */
 export function vecMatShaped(v: number[], m: number[], cols: number, rows: number): number[] {
   const out = new Array<number>(cols).fill(0);
   for (let c = 0; c < cols; c++) {
@@ -1260,8 +879,6 @@ export function vecMatShaped(v: number[], m: number[], cols: number, rows: numbe
   return out;
 }
 
-/** matKxR × matCxK → matCxR, both column-major. The shared dimension K is A's columns and B's
- *  rows; the result has B's columns and A's rows. */
 export function matMulShaped(
   a: number[],
   b: number[],
@@ -1279,52 +896,31 @@ export function matMulShaped(
   return out;
 }
 
-// matNxN (column-major) × vecN → vecN — the square entry point, kept for the callers that
-// have only the value (the mat64 authoring path). Dimension-generic (X-GIS #763 O2): the old
-// hardcoded mat4 form read m[4+i]/m[8+i]/m[12+i] out of range on a mat2/mat3 and returned
-// silent NaNs.
 export function matVec(m: number[], v: number[]): number[] {
   const n = v.length;
   return matVecShaped(m, v, n, n);
 }
 
-// matNxN × matNxN (both column-major, flat n²), the square entry point.
 export function matMul(a: number[], b: number[]): number[] {
   const n = Math.round(Math.sqrt(a.length));
   return matMulShaped(a, b, n, n, n);
 }
 
-/** Column `j` of a column-major matrix of `rows` rows: the `vecR` WGSL's and GLSL's `m[j]`
- *  yields. A matrix is one FLAT component list at run time, so a plain `base[j]` reads a
- *  single component instead of a column — which is what every evaluator did before #149,
- *  silently, because `mat4x4` was the only float matrix and nothing indexed one. */
 export function matColumn(m: number[], j: number, rows: number): number[] {
   return m.slice(j * rows, j * rows + rows);
 }
 
-/** Write column `j` of a column-major matrix in place — the twin of {@link matColumn}. A
- *  matrix is one FLAT component list at run time, so a plain `base[j] = v` splices the column
- *  ARRAY into the list and leaves a nested value where `rows` numbers belong; every evaluator
- *  did that, and the GPU (which writes the column properly) disagreed with all three. */
 export function setMatColumn(m: number[], j: number, rows: number, v: readonly number[]): void {
   for (let r = 0; r < rows; r++) m[j * rows + r] = v[r]!;
 }
 
-/** Transpose of a column-major matrix of `cols` columns and `rows` rows: the result has
- *  `rows` columns of `cols` components, and element (r, c) of the input becomes (c, r) of the
- *  output. `matTranspose` below keeps the square-only entry point the BUILTINS table uses. */
 export function matTransposeShaped(m: number[], cols: number, rows: number): number[] {
   const out = new Array<number>(cols * rows).fill(0);
-  // Input column c, row r lives at c * rows + r; it belongs at column r, row c of the
-  // result, which has `cols` rows per column — so at r * cols + c.
   for (let c = 0; c < cols; c++)
     for (let r = 0; r < rows; r++) out[r * cols + c] = m[c * rows + r]!;
   return out;
 }
 
-// Transpose of a column-major n² matrix: out[i*n+j] = in[j*n+i]. A flat list cannot say
-// whether six numbers are a mat2x3 or a mat3x2, so only the SQUARE case can be recovered from
-// the length; the oracle reads the static type and calls matTransposeShaped for the rest.
 function matTranspose(m: number[]): number[] {
   const n = Math.round(Math.sqrt(m.length));
   return matTransposeShaped(m, n, n);
