@@ -1088,26 +1088,8 @@ function exportedNamesOf(sourceFile: ts.SourceFile): Set<string> {
   return out;
 }
 
-/** Refuse a struct that holds itself, through its own fields or through other structs', on one
- *  field of each cycle, and cut that field from the struct (#1204).
- *
- *  WGSL gives every struct a fixed size, so a struct that holds itself, by value, in an array
- *  with a size or without, or in an optional, has none; Tint refuses it with
- *  `cyclic dependency found: 'R' -> 'R'` (measured in headless Chromium 156 on 2026-11-10,
- *  Rule 13.3). The front end says so in the author's words instead (Rule 12.6), before anything
- *  below walks the fields: the runtime-array checks, the constructor's zero values, the layout
- *  and the CPU oracle each recurse through a struct's fields and overflowed the stack on one.
- *  The field is withheld rather than kept, so no later walk meets the cycle and a read of the
- *  field says nothing more (Rule 12.4).
- *
- *  Checked: every struct the program collects (each class, and each interface or object type a
- *  use reaches), and an exported interface or object type nothing in its file uses. TypeShade
- *  never emits that last one, so Tint never sees it; it is checked because a file that exports
- *  a struct is checked on its own (the owner's decision of 2026-11-10, #1204). One neither
- *  exported nor used stays unchecked, as every other rule leaves it. Each file's cuts are
- *  the ones its own program makes, on its own fields: within one file a cycle is named from
- *  the struct declared first. The program makes every cut of the file it starts from, and a
- *  cut of an imported file only where a cycle is left (see below). */
+// Why: Tint refuses a struct that holds itself, `cyclic dependency found: 'R' -> 'R'`
+// (measured in headless Chromium 156 on 2026-11-10, Rule 13.3).
 function refuseStructCycles(
   structs: CollectedStruct[],
   candidates: ReadonlyMap<string, Candidate>,
@@ -1379,12 +1361,9 @@ function overrideKindOf(d: ts.ClassElement | ts.ParameterDeclaration): OverrideK
   return undefined;
 }
 
-/** Whether TypeScript lets a member of kind `mine` stand where the class above declares one of
- *  kind `theirs`: the same kind, a property over a method, and a field over an abstract accessor.
- *  It refuses the rest: TS2423, TS2425 and TS2426 between a method and a property or an
- *  accessor, TS2610 and TS2611 between a property and an accessor, and TS2416 between a field of
- *  a shader type and a function. An accessor over an abstract field is the one TypeScript takes
- *  and this does not (see `checkOverrideKinds`). */
+// Why: TypeScript refuses TS2423, TS2425 and TS2426 between a method and a property or an
+// accessor, TS2610 and TS2611 between a property and an accessor, and TS2416 between a field of a
+// shader type and a function.
 function mayOverride(mine: OverrideKind, theirs: OverrideKind, abstract: boolean): boolean {
   if (mine === theirs) return true;
   if (mine === 'field that holds a function' && theirs === 'method') return true;
@@ -2844,16 +2823,9 @@ function diag(sf: ts.SourceFile, node: ts.Node, message: string): TsCompilerDiag
   return makeDiagnostic(sf, node, message, TS_CODES.STRUCT_FIELD);
 }
 
-/** Two entry-IO rules that read the struct alone, checked once per declaration.
- *
- *  A slot collision — two members at one `@location` — is refused by WGSL outright ("must not
- *  contain two entries with the same location value") and was emitted here with no diagnostic.
- *  The one shape that puts two members at one location on purpose is a DUAL-SOURCE pair,
- *  `@location(0) @blend_src(0)` beside `@location(0) @blend_src(1)`, so the slot is the
- *  location AND the blend source.
- *
- *  A `@location` carries a value between stages, which WGSL restricts to a numeric scalar or a
- *  numeric vector; {@link checkLocationType} owns that wording. */
+// Why: WGSL refuses two members at one `@location` ("must not contain two entries with the same
+// location value"); a dual-source pair at one location with `@blend_src` 0 and 1 is the one
+// shape it allows.
 function checkLocationSlots(
   diagnostics: TsCompilerDiagnostic[],
   sourceFile: ts.SourceFile,
@@ -2893,12 +2865,9 @@ function checkLocationSlots(
       field.interpolate,
     );
   }
-  // A dual-source blend mixes TWO colours, so `@blend_src` comes as a pair: WGSL requires
-  // that a struct declaring one declares both, at the same `@location`. One alone emitted
-  // `enable dual_source_blending;` and a single source, which is not a shape the pipeline
-  // has. Stated from the spec rather than measured: the gate's adapter has no
-  // `dual-source-blending` feature, so Tint answers `extension 'dual_source_blending' is not
-  // allowed in the current environment` before it reaches the rule.
+  // Why: WGSL requires a struct that declares one `@blend_src` to declare both. This is stated
+  // from the specification: the gate's adapter has no `dual-source-blending` feature, so Tint
+  // refuses the extension before it reaches the rule.
   if (blendSources.size === 1) {
     const only = [...blendSources][0]!;
     diagnostics.push(
