@@ -103,6 +103,40 @@ describe('inlineLinearAll — refusals the source states', () => {
     expect(inlineLinearAll(m)).toBe(m);
   });
 
+  const withPrelude = (prelude: Stmt[]): ModuleDecl => {
+    const helper = func('helper', ['x'], [...prelude, { s: 'return', expr: param('x') }]);
+    const caller = func('caller', ['y'], [{ s: 'return', expr: call('helper', param('y')) }]);
+    return bare([helper, caller]);
+  };
+  const always: Expr = { op: 'lit', type: boolT, value: true };
+  const guarded = (body: Stmt[]): Stmt => ({ s: 'if', arms: [{ cond: always, body }] });
+  const ownLoop = (body: Stmt[]): Stmt => ({
+    s: 'for',
+    init: { s: 'var', name: 'i', type: f32T, init: lit(0) },
+    cond: { op: 'compare', cop: '<', type: boolT, a: varref('i'), b: lit(2) },
+    update: { s: 'assign', target: varref('i'), expr: binop('+', varref('i'), lit(1)) },
+    body,
+  });
+
+  it('leaves a helper whose continue is not inside a loop of its own', () => {
+    const m = withPrelude([guarded([{ s: 'continue' }])]);
+    const out = inlineLinearAll(m);
+    expect(names(out)).toContain('helper');
+    expect(JSON.stringify(out.funcs.find((f) => f.name === 'caller')!.body)).toContain(
+      '"fn":"helper"',
+    );
+  });
+
+  it('inlines a helper whose continue is inside a loop of its own', () => {
+    const out = inlineLinearAll(withPrelude([ownLoop([guarded([{ s: 'continue' }])])]));
+    expect(names(out)).not.toContain('helper');
+  });
+
+  it('leaves a helper whose prelude holds a statement the pass does not know', () => {
+    const out = inlineLinearAll(withPrelude([{ s: 'placeholder', tag: 'later' }]));
+    expect(names(out)).toContain('helper');
+  });
+
   it('leaves a helper that nothing calls', () => {
     const idle = func(
       'idle',
@@ -125,7 +159,30 @@ describe('inlineLinearAll — what the inlining keeps', () => {
     b.ret(a.add(c).mul(2).add(1));
   });
 
-  it('keeps the order of nested calls: the inner call lands before the outer', () => {
+  it('binds the arguments and results of nested calls inner first, then outer', () => {
+    const helper = func(
+      'helper',
+      ['p'],
+      [
+        { s: 'let', name: 'a', expr: binop('*', param('p'), lit(2)) },
+        { s: 'return', expr: binop('+', varref('a'), param('p')) },
+      ],
+    );
+    const caller = func(
+      'caller',
+      ['x'],
+      [{ s: 'return', expr: call('helper', call('helper', param('x'))) }],
+    );
+    const body = inlineLinearAll(bare([helper, caller])).funcs.find(
+      (f) => f.name === 'caller',
+    )!.body;
+    const lets = body.flatMap((s) => (s.s === 'let' ? [[s.name, JSON.stringify(s.expr)]] : []));
+    expect(lets.map(([n]) => n)).toEqual(['_inl0_a', '_inl0_ret', '_inl1_a', '_inl1_ret']);
+    expect(lets[0]![1]).toContain('"name":"x"');
+    expect(lets[2]![1]).toContain('"name":"_inl0_ret"');
+  });
+
+  it('computes the same value for nested calls as the source does', () => {
     const m = module({
       funcs: [
         twice,

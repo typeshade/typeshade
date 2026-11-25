@@ -81,6 +81,48 @@ export function f(x: f32, k: f32): f32 {
     expect((caught as TypeShadeError).message).toContain('by reference');
   });
 
+  it('differentiates atan2 with the first argument as y and the second as x', () => {
+    const m = moduleOf(`export function f(x: f32, k: f32): f32 {
+  return atan2(k, x)
+}`);
+    const wrtK = grad(m, 'f', 'k');
+    const wrtX = grad(m, 'f', 'x');
+    for (const make of [compileModule, compileModuleJs]) {
+      expect((make(wrtK.module).fns[wrtK.name] as Fn)(3, 2)).toBeCloseTo(3 / 13, 6);
+      expect((make(wrtX.module).fns[wrtX.name] as Fn)(3, 2)).toBeCloseTo(-2 / 13, 6);
+    }
+  });
+
+  it.each([
+    [
+      'a module variable',
+      `let g: f32 = 0.
+export function f(x: f32, k: f32): f32 {
+  g = k * x
+  return x
+}`,
+      '"f" writes a value that depends on the parameter to "g", which is a module variable or a binding; grad carries a derivative through f32, float-vector and float-matrix locals only',
+    ],
+    [
+      'an array element',
+      `export function f(x: f32, k: f32): f32 {
+  let a: array<f32, 2> = [0., 0.]
+  a[0] = k * x
+  return x
+}`,
+      '"f" writes a value that depends on the parameter to "a", which is a struct, an array or a parameter; grad carries a derivative through f32, float-vector and float-matrix locals only',
+    ],
+  ])('refuses an assignment of a dependent value to %s', (_name, src, message) => {
+    let caught: unknown;
+    try {
+      grad(moduleOf(src), 'f', 'k');
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(TypeShadeError);
+    expect((caught as TypeShadeError).message).toContain(message);
+  });
+
   it('writes a zero matrix tangent as zero columns that both targets spell', () => {
     const m = moduleOf(`export function f(x: f32, k: f32): vec2 {
   let acc: mat2 = mat2(1., 0., 0., 1.)

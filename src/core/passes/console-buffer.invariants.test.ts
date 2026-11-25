@@ -63,6 +63,41 @@ function next(): u32 {
     expect(r.events).toEqual([[1, 11, 111]]);
   });
 
+  it('binds every argument with a let before the let that calls the reservation', () => {
+    const src = kernel(`  console.log(next(), next());`, `function next(): u32 { return 1; }`);
+    const k = consoleBuffer(compile(src).module).module.funcs.find((f) => f.name === 'k')!;
+    const lets = k.body.flatMap((s) => (s.s === 'let' ? [s] : []));
+    const names = lets.map((s) => s.name);
+    const reserve = lets.findIndex(
+      (s) => s.expr.op === 'call' && s.expr.fn === CONSOLE_NAMES.reserve,
+    );
+    expect(names.slice(0, reserve)).toEqual(['_console_0_0', '_console_0_1']);
+    expect(lets.slice(0, reserve).every((s) => s.expr.op === 'call')).toBe(true);
+    expect(JSON.stringify(lets[reserve]!.expr)).not.toContain('next');
+  });
+
+  it('writes an entry that fits the buffer exactly', () => {
+    const entry = CONSOLE_ENTRY_HEADER + 1;
+    const r = run(kernel(`  console.log(1.);`), entry);
+    expect(r.events).toEqual([[1]]);
+    expect(r.dropped).toBe(0);
+    expect(r.buf.cursor).toBe(entry);
+  });
+
+  it.each([
+    ['a function', `function _console_reserve(): void {}`, '_console_reserve'],
+    ['a class', `class _Console { a: f32; }`, '_Console'],
+  ])(
+    'does not record a call when the module declares %s of the buffer name',
+    (_n, prelude, taken) => {
+      const r = consoleBuffer(compile(kernel(`  console.log(1.);`, prelude)).module);
+      expect(r.log).toBeUndefined();
+      expect(r.notRecorded.map((n) => [n.method, n.reason])).toEqual([
+        ['log', `the module declares "${taken}", the name the console buffer takes`],
+      ]);
+    },
+  );
+
   it('writes the site word of an entry that straddles the end, and counts it as dropped', () => {
     const src = kernel(`  console.log(1.);\n  console.log(2.);`);
     const entry = CONSOLE_ENTRY_HEADER + 1;

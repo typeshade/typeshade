@@ -84,11 +84,40 @@ describe('atomicWriteRoot', () => {
 const WRITES = `"use typeshade";
 declare const dst: storage<array<f32>, "read_write">;
 declare const bins: storage<array<atomic<u32>>, "read_write">;
+let gp: f32 = 0.;
+let gq: f32 = 0.;
+let gr: f32 = 0.;
+function inElse(i: u32, c: bool): void {
+  if (c) {
+    gr = 1.;
+  } else {
+    dst[i] = 1.;
+  }
+}
+function inSwitch(i: u32): void {
+  switch (i) {
+    case 0:
+      dst[i] = 1.;
+      break;
+    default:
+      gr = 2.;
+  }
+}
+function inForInit(): void {
+  for (gp = 0.; gr < 2.; gr = gr + 1.) {
+    gr = gr + 0.;
+  }
+}
+function inForUpdate(): void {
+  for (let j = 0; j < 2; gq = gq + 1.) {
+    j = j + 1;
+  }
+}
 function byValue(x: f32): f32 {
   x = x + 1.;
   return x;
 }
-function localAtomic(): void {
+function localAssign(): void {
   let t = 1.;
   t = 2.;
 }
@@ -122,7 +151,25 @@ describe('fnWrites', () => {
   it('does not count a write to a by-value parameter or a local', () => {
     const w = fnWrites(moduleOf(WRITES));
     expect([...w.get('byValue')!]).toEqual([]);
-    expect([...w.get('localAtomic')!]).toEqual([]);
+    expect([...w.get('localAssign')!]).toEqual([]);
+  });
+
+  it('finds a write in an else branch, a switch case, a hoisted for initializer and a for update', () => {
+    const w = fnWrites(moduleOf(WRITES));
+    expect([...w.get('inElse')!].sort()).toEqual(['dst', 'gr']);
+    expect([...w.get('inSwitch')!].sort()).toEqual(['dst', 'gr']);
+    expect([...w.get('inForInit')!].sort()).toEqual(['gp', 'gr']);
+    expect([...w.get('inForUpdate')!]).toEqual(['gq']);
+  });
+
+  it('finds a write that the initializer of a for statement of the IR makes', () => {
+    const m = moduleOf(WRITES);
+    const source = funcOf(m, 'inForInit');
+    const loop = source.body.find((s) => s.s === 'for') as Stmt & { s: 'for' };
+    const assign = source.body.find((s) => s.s === 'assign') as Stmt;
+    const rewritten = { ...source, name: 'initWrites', body: [{ ...loop, init: assign }] };
+    const w = fnWrites({ ...m, funcs: [...m.funcs, rewritten] });
+    expect(w.get('initWrites')!.has('gp')).toBe(true);
   });
 
   it('finds a write inside a branch or a loop, and carries a call there to the caller', () => {
@@ -194,6 +241,36 @@ describe('what a call writes, in its caller words', () => {
     expect(exprWrites(callOf(m, 'k', 4), w)).toBe(false);
     expect(exprHasEffect(callOf(m, 'k', 4), w)).toBe(true);
     expect(bodyHasEffectfulCall([funcOf(m, 'k').body[4]!], w)).toBe(true);
+  });
+});
+
+describe('a callee that writes its receiver', () => {
+  const OWNED = `"use typeshade";
+class P {
+  v: f32;
+  bump(d: f32): void {
+    this.v = this.v + d;
+  }
+}
+function ownsLocal(): void {
+  let p = new P();
+  p.bump(0.25);
+}
+function viaParam(q: P): void {
+  q.bump(0.25);
+}
+@compute([1, 1, 1]) export function k(): void {
+  ownsLocal();
+}
+`;
+
+  it('drops a receiver the caller owns as a local from what the caller writes', () => {
+    const m = moduleOf(OWNED);
+    const w = fnWrites(m);
+    expect([...w.get('ownsLocal')!]).toEqual([]);
+    expect([...w.get('viaParam')!]).toEqual(['q']);
+    expect([...w.get('k')!]).toEqual([]);
+    expect(exprHasEffect(callOf(m, 'ownsLocal', 1), w)).toBe(true);
   });
 });
 

@@ -3,7 +3,7 @@ import { compile } from '../../compiler/ts/compile.js';
 import { dispatchCompute } from '../debug/dispatch.js';
 import { runGlModel } from '../testing/gl-model.js';
 import type { CpuValue } from '../cpu-runtime.js';
-import type { ModuleDecl } from '../ir/index.js';
+import { f32T, type ModuleDecl, type Stmt } from '../ir/index.js';
 import { lowerMemoryWords, referenced } from './memory-words.js';
 import { splitPhases } from './phase-split.js';
 import { autoVars } from './opt/index.js';
@@ -99,6 +99,34 @@ declare const out: storage<array<f32>, "read_write">;
     for (const h of helpers) {
       expect(JSON.stringify(h.body)).not.toContain('"_phStore"');
     }
+  });
+
+  it('does not lower the length of a local that has the name of a runtime-sized binding', () => {
+    const src = `"use typeshade";
+declare const xs: storage<array<f32>>;
+declare const out: storage<array<f32>, "read_write">;
+function len(): u32 { return xs.length; }
+@compute([4, 1, 1]) export function main(gid: builtin<"global_invocation_id">): void {
+  out[gid.x] = f32(xs.length) + f32(len());
+}
+`;
+    const m = moduleOf(src);
+    const localXs: Stmt = {
+      s: 'var',
+      name: 'xs',
+      type: { kind: 'array', elem: f32T, size: 4 },
+    };
+    const patched: ModuleDecl = {
+      ...m,
+      funcs: m.funcs.map((f) => (f.name === 'len' ? { ...f, body: [localXs, ...f.body] } : f)),
+    };
+    const plan = lowerMemoryWords(splitPhases(autoVars(patched), 'main'));
+    const len = plan.module.funcs.find((f) => f.name === 'len')!;
+    expect(plan.roots.map((r) => r.name)).toContain('xs');
+    expect(JSON.stringify(len.body)).toContain('"fn":"arrayLength"');
+    expect(JSON.stringify(len.body)).not.toContain('_phx_len_xs');
+    const main = plan.module.funcs.find((f) => f.name === 'main')!;
+    expect(JSON.stringify(main.body)).toContain('_phx_len_xs');
   });
 
   it('declares the length of a runtime-sized array that the entry reads', () => {
@@ -246,6 +274,12 @@ declare const out: storage<array<f32>, "read_write">;
 }
 `;
     expect(planOf(src, 'main').module.vars?.map((v) => v.name)).toContain('_phx_len_xs');
+    const r = both(src, 'main', () => ({
+      xs: [10, 11, 12, 13, 14],
+      out: new Array<number>(8).fill(0),
+    }));
+    expect(r.model).toEqual(r.oracle);
+    expect(r.model.out).toEqual([13, 14, 10, 11, 12, 13, 14, 10]);
   });
 
   it('reads memory in the index of a local array it writes', () => {

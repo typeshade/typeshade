@@ -68,6 +68,26 @@ describe('the pool keeps a number[] as Float32Array words', () => {
   });
 });
 
+describe('the pool key includes the element type', () => {
+  it('does not hand a released Float32Array to an Int32Array or a Uint32Array of the same length', async () => {
+    const dev = await createDevice({ prefer: ['cpu'] });
+    const floats = dev.array(Float32Array.of(1, 2, 3));
+    dev.release(floats);
+    const ints = dev.array(Int32Array.of(-1, -2, -3));
+    const uints = dev.array(Uint32Array.of(7, 8, 9));
+    expect(residentState(ints)).not.toBe(residentState(floats));
+    expect(residentState(uints)).not.toBe(residentState(floats));
+    expect(dev.statistics).toMatchObject({ allocations: 3, reuses: 0 });
+    expect(await ints.read()).toEqual(Int32Array.of(-1, -2, -3));
+    expect(await uints.read()).toEqual(Uint32Array.of(7, 8, 9));
+    dev.release(ints);
+    const again = dev.array(Int32Array.of(4, 5, 6));
+    expect(residentState(again)).toBe(residentState(ints));
+    expect(dev.statistics).toMatchObject({ allocations: 3, reuses: 1 });
+    await dev.dispose();
+  });
+});
+
 describe('dispose order on a device the owner requested', () => {
   it('destroys each texture before the WebGPU device', async () => {
     const log: string[] = [];

@@ -87,6 +87,16 @@ describe('Core dirty ranges', () => {
     expect(core.ranges()).toEqual([[8, 24]]);
   });
 
+  it('keeps 16 separate ranges and joins them into one at the 17th', () => {
+    const core = new Core(new Region(1024), 8 * 64, 'Buffer<X>', 'zeros()', 8);
+    core.clean();
+    for (let i = 0; i < 16; i++) core.mark(16 * i, 16 * i + 8);
+    expect(core.ranges()).toHaveLength(16);
+    expect(core.ranges()[15]).toEqual([240, 248]);
+    core.mark(16 * 16, 16 * 16 + 8);
+    expect(core.ranges()).toEqual([[0, 264]]);
+  });
+
   it('joins all ranges into one past the limit', () => {
     const n = 4 * DIRTY_RANGE_LIMIT;
     const core = new Core(new Region(1024), 8 * n, 'Buffer<X>', 'zeros()', 8);
@@ -118,11 +128,20 @@ describe('Core.current and Core.live', () => {
     );
   });
 
-  it('gives the error of a device copy, else the kept error', () => {
+  it('gives the kept error when no state holds an error, and none when there is none', () => {
     const core = new Core(new Region(64), 8, 'Buffer<X>', 'zeros()', 4);
     expect(core.error()).toBeUndefined();
     core.kept = 'kept';
     expect(core.error()).toBe('kept');
+  });
+
+  it('gives the error of a state before the kept error', () => {
+    const core = new Core(new Region(64), 8, 'Buffer<X>', 'zeros()', 4);
+    core.kept = 'kept';
+    core.states.set({} as never, {} as never);
+    expect(core.error()).toBe('kept');
+    core.states.set({} as never, { error: 'failed call' } as never);
+    expect(core.error()).toBe('failed call');
   });
 });
 
@@ -133,7 +152,7 @@ describe('readValue', () => {
     return dv;
   };
 
-  it('gives a bool word and a key id as the word a call takes, without decode', () => {
+  it('gives a bool word as the word a call takes without decode, and as a boolean with decode', () => {
     const bool: Layout = { k: 's', t: 'u32', b: 1 } as Layout;
     expect(readValue(word(1), 0, bool)).toBe(1);
     expect(readValue(word(1), 0, bool, undefined, true)).toBe(true);
