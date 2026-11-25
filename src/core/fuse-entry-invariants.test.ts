@@ -14,6 +14,11 @@ export function copy(out: array<f32>, x: array<f32>): void {
     out[i] = x[i];
   }
 }
+export function shift(out: array<f32>, x: array<f32>): void {
+  for (let i: u32 = 0; i < out.length; i++) {
+    out[i] = x[(i + 1) % x.length];
+  }
+}
 export function icopy(out: array<i32>, x: array<i32>): void {
   for (let i: u32 = 0; i < out.length; i++) {
     out[i] = x[i];
@@ -174,6 +179,15 @@ describe('an edge between two calls', () => {
   it('is made only for a read after the write, never for a read before it', () => {
     const f = wgsl({ k: 'copy', slots: [0, 1] }, { k: 'copy', slots: [1, 2] });
     expect(f.match(/if \(_live\)/g)).toHaveLength(2);
+    expect(f).not.toMatch(/_fe\d/);
+  });
+
+  it('is no edge for a read at an index other than the invocation index', () => {
+    const shifted = loopOf(face('shift')).arrays.find((a) => a.param === 'x');
+    expect(shifted?.atI).toBe(false);
+    const f = wgsl({ k: 'copy', slots: [1, 0] }, { k: 'shift', slots: [2, 1] });
+    expect(f).not.toMatch(/_fe\d/);
+    expect(f.match(/if \(_live\)/g)).toHaveLength(2);
   });
 
   it('leaves the reads of the writer itself on the array', () => {
@@ -193,7 +207,9 @@ describe('a member that the builder reads', () => {
   });
 
   it('refuses a map whose iteration is not its entry', () => {
-    expect(alone(withLoop(copy, { iterates: 'other' }))).toMatch(/^copy\(\) has no map entry /);
+    expect(alone(withLoop(copy, { iterates: 'other' }))).toBe(
+      'copy() has no map entry "copy_loop0" in its fuse record',
+    );
   });
 
   it('refuses a reduction whose face lacks the reduction', () => {
@@ -201,8 +217,8 @@ describe('a member that the builder reads', () => {
     const loops = plain.gpu!.loops.map((l) => ({ ...l }));
     delete (loops[0] as { reduce?: unknown }).reduce;
     const bare: KernelFace = { ...plain, gpu: { ...plain.gpu!, loops } };
-    expect(refusal(fusedFor([{ k: bare, slots: [0] }]))).toMatch(
-      /^plain\(\) has no reducing entry /,
+    expect(refusal(fusedFor([{ k: bare, slots: [0] }]))).toBe(
+      'plain() has no reducing entry "plain_loop0" with its helper and fold entry in its fuse record',
     );
   });
 
@@ -222,7 +238,7 @@ describe('a member that the builder reads', () => {
   it('refuses an array whose binding is not in its module', () => {
     const arrays = copy.gpu!.arrays.map((a) => ({ ...a, binding: a.binding + 40 }));
     const k: KernelFace = { ...copy, gpu: { ...copy.gpu!, arrays } };
-    expect(alone(k)).toMatch(/^copy\(\) has no binding for "/);
+    expect(alone(k)).toBe('copy() has no binding for "out"');
   });
 
   it('refuses an arguments struct that is not in its module', () => {

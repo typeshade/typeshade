@@ -188,13 +188,14 @@ describe('the random-IR generator keeps what its comments state', () => {
       const k = dev.module.funcs[dev.module.funcs.length - 1]!;
       expect(typeKey(k.ret)).toBe('void');
       expect(stmtsOf(k).some(({ st }) => st.s === 'return' && st.expr !== undefined)).toBe(false);
-      held++;
+      if (stmtsOf(k).some(({ st }) => st.s === 'for')) held++;
       const pushing = generateKernelModule(seed, { pushes: true, deviceRange: true });
       expect(pushing.arrays.some((a) => a.name === 'c0')).toBe(false);
       expect(pushing.features['deviceRange'] ?? 0).toBe(0);
       const flat = generateKernelModule(seed, { pushes: false, loops: 0, deviceRange: true });
       expect(flat.arrays.some((a) => a.name === 'c0')).toBe(false);
     }
+    expect(held).toBeGreaterThan(0);
     expect(held).toBe(SEEDS.length);
   });
 

@@ -61,6 +61,10 @@ describe('component-wise builtins', () => {
   it('fma is component-wise and rounds once to f32', () => {
     expect(call('fma', [1, 2], [3, 4], [5, 6])).toEqual([8, 14]);
     expect(call('fma', 0.1, 1, 0)).toBe(Math.fround(0.1));
+    const a = 1 + 2 ** -12;
+    expect(Math.fround(a)).toBe(a);
+    expect(Math.fround(Math.fround(a * a) - (1 + 2 ** -11))).toBe(0);
+    expect(call('fma', a, a, -(1 + 2 ** -11))).toBe(2 ** -24);
   });
   it('round ties to even and fract is exact for a negative', () => {
     expect(call('round', [0.5, 1.5, 2.5])).toEqual([0, 2, 2]);
@@ -195,7 +199,7 @@ describe('32-bit integer builtins', () => {
     expect(bitBuiltin('extractBits', [[0xf0, 0x0f], 4, 4], 'u32')).toEqual([15, 0]);
     expect(bitBuiltin('extractBits', [[0xf0, 0xf00], [4, 8], 4], 'u32')).toEqual([15, 15]);
   });
-  it('counts agree for u32 and i32', () => {
+  it('counts of 32-bit zero and all-ones inputs and of a vector', () => {
     expect(call('countOneBits', -1)).toBe(32);
     expect(call('countLeadingZeros', 0)).toBe(32);
     expect(call('countTrailingZeros', 0)).toBe(32);

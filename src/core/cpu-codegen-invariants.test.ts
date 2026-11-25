@@ -236,7 +236,9 @@ describe('a host-provided global has no CPU value', () => {
       funcs: [func('read', [], f32T, [ret({ op: 'externref', type: f32T, name: 'host' })])],
     });
     for (const engine of [compileModule(m), compileModuleJs(m)]) {
-      expect(() => engine.fns.read!()).toThrow();
+      expect(() => engine.fns.read!()).toThrow(
+        "typeshade/cpu: host-provided global 'host' has no CPU value",
+      );
     }
   });
 });

@@ -234,8 +234,10 @@ describe('the WebGL2 programs of a module whose writer refuses it whole', () => 
     expect(p.glsl).toBeUndefined();
     const vertex = p.gl?.vertices?.['vs'];
     const draw = p.gl?.draws?.['fs'];
-    expect(vertex !== undefined && !('none' in vertex)).toBe(true);
-    expect(draw !== undefined && !('none' in draw)).toBe(true);
+    expect(vertex).toBeDefined();
+    expect(vertex).not.toHaveProperty('none');
+    expect(draw).toBeDefined();
+    expect(draw).not.toHaveProperty('none');
     expect((draw as { fragment: string }).fragment).not.toContain('data');
     expect((draw as { blocks: object }).blocks).toEqual({ frame: 'Frame' });
   });
