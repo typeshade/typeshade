@@ -148,7 +148,7 @@
   "src/core/oracle.ts": 869,
   "src/core/passes/console-buffer.ts": 454,
   "src/core/passes/derivative-rewrite.test.ts": 424,
-  "src/core/passes/derivative-rewrite.ts": 1457,
+  "src/core/passes/derivative-rewrite.ts": 1305,
   "src/core/passes/determinism.test.ts": 733,
   "src/core/passes/determinism.ts": 456,
   "src/core/passes/fp64-lower.test.ts": 962,
