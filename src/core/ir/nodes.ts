@@ -1,36 +1,25 @@
 import type { ShaderType } from './types.js';
 import type { SourceSpan } from './span.js';
-import type { DerivedCapability } from './derived-capabilities.js';
-
-/** The operator tag on `Expr.binop`: arithmetic (`+ - * /`), remainder (`%`) and
- *  bitwise (`& | ^ << >>`). Each is spelled the same way in WGSL and GLSL and evaluated
- *  the same way by the CPU backend. On floats `%` is a truncating remainder, so its sign
- *  follows the dividend: WGSL's native `%` behaves this way, and the GLSL backend writes
- *  `a - b * trunc(a / b)` because GLSL ES 3.00's own `%` is integer-only. When a negative
- *  operand is possible and a floor modulo is wanted, use {@link mod}, which is floor-mod on
- *  every target; the `.mod()` method on `Node` emits this truncating `%`. For integer
- *  operands the CPU backend follows WGSL: two's-complement wrap, truncating `/` with
- *  `x / 0 = x` and `x % 0 = 0`, and `<<`/`>>` as logical shifts on `u32`, with `>>` on
- *  `i32` an arithmetic (sign-preserving) shift.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export type BinOp = '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' | '<<' | '>>';
-/** The operator tag on `Expr.compare`: the six relational operators. A comparison
- *  produces a `bool`, or a `vecN<bool>` when the operands are vectors. The WGSL, GLSL
- *  and CPU backends spell or evaluate it identically.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export type CmpOp = '<' | '>' | '<=' | '>=' | '==' | '!=';
-/** The operator tag on `Expr.logical`: the short-circuiting boolean operators `&&` and
- *  `||`. Both operands and the result are `bool`. It is a separate `Expr.op` from
- *  `binop` because WGSL and GLSL give `&&` and `||` short-circuit evaluation, which a
- *  plain binary operator does not have.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export type LogOp = '&&' | '||';
+import type { DeclarableCapability } from './nodes/capabilities.js';
+import type { BinOp, CmpOp, LogOp } from './nodes/operators.js';
+import type { StructDecl } from './nodes/struct-decl.js';
+import type { OverrideDecl, BindingDecl, ExternVarDecl } from './nodes/host-interface-decls.js';
+import type { DiagnosticDirective, WorkgroupShape } from './nodes/entry-and-directive.js';
+export type {
+  DiagnosticDirective,
+  WorkgroupShape,
+  EntryParam,
+} from './nodes/entry-and-directive.js';
+export type {
+  OverrideDecl,
+  AddressSpace,
+  BindingDecl,
+  ExternVarDecl,
+} from './nodes/host-interface-decls.js';
+export type { StructField, StructDecl } from './nodes/struct-decl.js';
+export type { BinOp, CmpOp, LogOp } from './nodes/operators.js';
+export { ALL_CAPABILITIES } from './nodes/capabilities.js';
+export type { Capability, DeclarableCapability } from './nodes/capabilities.js';
 
 /** Every expression shape the IR can hold: the closed set that {@link Node} and
  *  {@link ReadonlyNode} build and that the WGSL, GLSL and CPU backends walk to emit or
@@ -379,24 +368,6 @@ export interface ConstDecl {
   readonly valueExpr?: Expr;
 }
 
-/** A pipeline specialization constant, the declaration behind {@link overrideConst}.
- *  On WGSL it emits a module-scope `override name: type = default;`, which the host
- *  specializes through `createRenderPipeline({ constants: { name } })`. On GLSL ES 3.00 it
- *  emits `#define name default` after the `#version` line, and the host specializes it by
- *  emitting again with `emitGlslModule(m, stage, { overrideValues })`. The value is chosen
- *  when the pipeline is created, so a single authored module yields as many
- *  driver-specialized variants as the host needs, and the driver eliminates the branches
- *  a constant turns dead. Only WGSL scalar types are allowed (`bool`, `i32`, `u32`,
- *  `f32`); a vector, matrix, array or struct type is rejected at authoring with
- *  `SD0014`. */
-export interface OverrideDecl {
-  readonly name: string;
-  readonly type: ShaderType;
-  /** The default value emitted into the `override` declaration or `#define`: the
-   *  value a pipeline gets when the host supplies nothing for this constant. */
-  readonly default: number | boolean;
-}
-
 /** One entry of {@link ModuleDecl.vars}: a module-scope variable that is not a resource
  *  (roadmap 0.2 item 5, #82). `workgroup` is WGSL's `var<workgroup>`, memory one workgroup's
  *  invocations share, zero at the start of each workgroup and never initialised. `private` is
@@ -413,149 +384,6 @@ export interface ModuleVarDecl {
   /** The initial value, a constant expression over literals and module consts. Only a
    *  `private` variable carries one; WGSL forbids an initializer on `workgroup` memory. */
   readonly init?: Expr;
-}
-
-/** One field of a {@link StructDecl}: a plain data member of a uniform or storage struct,
- *  or, in a vertex/fragment I/O struct, a member carrying a `@builtin` or `@location`
- *  attribute. Build these with {@link builtin} and {@link location}, which fill both
- *  `attr` and the structured `builtin`/`location` fields. The GLSL backend ignores `attr`
- *  and reads `location`/`builtin` directly: GLSL ES 3.00 has no struct-field attribute
- *  syntax, so an I/O struct is flattened into individual `in`/`out` globals keyed off
- *  those fields.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export interface StructField {
-  readonly name: string;
-  readonly type: ShaderType;
-  /** Optional WGSL field attribute(s) for I/O structs, e.g.
-   *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`.
-   *  This is the emitted spelling; the structured fields below (`location`,
-   *  `builtin`, `interpolate`) are what the backends read. They never re-parse
-   *  this string. */
-  readonly attr?: string;
-  /** Structured `@location(n)`. Set by {@link location}. */
-  readonly location?: number;
-  /** Structured `@builtin(name)`. Set by {@link builtin}. */
-  readonly builtin?: string;
-  /** Structured `@interpolate(mode)` (set alongside `location`). */
-  readonly interpolate?: string;
-  /** Structured `@blend_src(0|1)` on a fragment output (§53): the two colours a dual-source
-   *  blend mixes, which both sit at `@location(0)`. It derives the `dualSourceBlending`
-   *  capability. The GLSL writer does not spell a second source yet, so a module that carries
-   *  one fails closed there: not supported yet by the GLSL backend (Rule 10.3). */
-  readonly blendSrc?: number;
-  /** The byte size WGSL's `@size(n)` gives this field, when the field's own type is smaller.
-   *  Set by the uniform-layout pass (§51) and by nothing else: it is how the wrapper struct
-   *  that gives a uniform array its 16-byte element stride is spelled,
-   *  `struct _Pad16_f32 { @size(16) v: f32, }`. It is NOT an author attribute — `@size` on a
-   *  field is still refused at the front end, because `reflect`'s layout engine does not read
-   *  this, and an attribute the emit honoured while reflection ignored it is the very
-   *  emit-versus-reflection disagreement §51 exists to close. The WGSL writer emits it; GLSL
-   *  ES 3.00 has no equivalent, and no module reaches that writer carrying one (the pass runs
-   *  on the WGSL side alone). */
-  readonly size?: number;
-  /** The byte alignment WGSL's `@align(n)` gives this field. Set by the uniform-layout pass
-   *  (§51) and by nothing else, for the same reason `size` is, and it is the other half of the
-   *  same fix: `@size(16)` on a wrapper's field gives the ARRAY ELEMENT its 16-byte stride,
-   *  and `@align(16)` on the MEMBER holding that array gives the array its 16-byte offset.
-   *  With the stride fixed but the member unaligned the array lands at offset 4, which is the
-   *  offset `reflect()` does NOT report; Chromium 141 states it outright (`the offset of a
-   *  struct member of type 'array<_Pad16_f32, 3>' in address space 'uniform' must be a
-   *  multiple of 16 bytes, but 'xs' is currently at offset 4`), and an implementation with
-   *  `uniform_buffer_standard_layout` accepts the same text while laying it out differently
-   *  from what reflection reports. */
-  readonly align?: number;
-}
-/** A `ModuleDecl.structs` entry: a WGSL `struct` declaration. On GLSL it becomes a
- *  plain struct, or a flattened set of `in`/`out` globals when its fields carry
- *  `location`/`builtin` (see {@link StructField}). Use {@link uniformStruct} or
- *  {@link ioStruct} to derive one together with its binding and typed field access
- *  instead of writing this shape by hand.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export interface StructDecl {
-  readonly name: string;
-  readonly fields: readonly StructField[];
-}
-
-/** The `BindingDecl.space` a resource binding lives in: WGSL's `var<uniform>` or
- *  `var<storage, ...>`. It selects the WGSL declaration spelling and, on GLSL, the choice
- *  between a `uniform` block and an emulated storage-buffer path (WebGL2 GLSL ES 3.00 has
- *  no native storage buffer). See {@link BindingDecl.access}, which applies only when
- *  this is `'storage'`.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export type AddressSpace = 'uniform' | 'storage';
-/** A `ModuleDecl.bindings` entry: a resource bound at a `(group, binding)` slot. It is a
- *  uniform buffer, a storage buffer, a texture, or a sampler, keyed by `type` (a struct,
- *  scalar or array type means a buffer; a `texture` or `sampler` `ShaderType.kind` means
- *  a handle resource with no address space). WGSL emits both `group` and `binding`.
- *  GLSL ES 3.00 has a single binding namespace, so its backend reads `binding` only;
- *  `group` is still used by {@link reflect}, which groups resources per WGSL bind group.
- *  Use {@link uniformStruct}, {@link resource} or {@link storageBuffer} to derive one
- *  instead of constructing it directly.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`.
- */
-export interface BindingDecl {
-  readonly group: number;
-  readonly binding: number;
-  readonly name: string;
-  readonly space: AddressSpace;
-  /** Storage access, `read` or `read_write`. Ignored for `uniform`. */
-  readonly access?: 'read' | 'read_write';
-  readonly type: ShaderType;
-  /** Who owns this resource. `'module'` (the default) means the module declares it and
-   *  describes its layout, and a host builds its bind group from {@link reflect}.
-   *  `'host'` means the resource belongs to the surrounding host, such as a bind group a
-   *  host-integrated WebGPU renderer hands the module, so the host's layout is the
-   *  authority and {@link reflect} reports it under `hostResources`. Ownership does not
-   *  change the spelling: a host-owned binding is still declared in the emitted source,
-   *  which is what makes it type-checkable; it is just not the module's to allocate. For
-   *  a symbol the host's prelude already declares, use {@link externVar}, which emits
-   *  nothing. */
-  readonly owner?: 'module' | 'host';
-  /** GLSL ES 3.00 precision qualifier for this declaration. GLSL only; WGSL has no such
-   *  concept and ignores it. Without it the declaration takes the stage default from the
-   *  precision preamble, which is right for a module that owns its own header and wrong
-   *  for a fragment composed into a host program whose preamble the module does not
-   *  control. */
-  readonly precision?: 'highp' | 'mediump' | 'lowp';
-  /** How a struct-typed uniform binding is spelled on GLSL ES 3.00. Ignored on WGSL, which
-   *  has exactly one spelling, and ignored for non-struct types.
-   *
-   *  `'std140-block'` (the default, and the only choice for a module-owned block) emits
-   *  `layout(std140) uniform Name { … } var;`. `'loose'` emits one default-block
-   *  `uniform <type> <field>;` per member and rewrites every `var.field` read to the bare
-   *  `field`, which is the form a GLSL host prelude provides. Only a host-owned block may
-   *  choose `'loose'`: for a module-owned block the two spellings are not interchangeable
-   *  (std140 is the only one with a defined layout for a host to write into), so the
-   *  choice would be a silent ABI change. */
-  readonly glsl?: 'std140-block' | 'loose';
-}
-
-/** A host-provided global, the declaration behind {@link externVar}. It is the variable
- *  counterpart of {@link externFn}.
- *
- *  It emits nothing on either backend: the host's prelude declares the symbol. The
- *  declaration exists so that reads of it type-check, survive renaming, and appear in
- *  `reflect().requires`, where a host can check them against what its prelude provides.
- *
- *  `spelling` maps the logical name onto what each target writes, so moving to a host
- *  that exposes the same value differently (a WGSL struct member or a bound uniform in
- *  place of a GLSL prelude global) is a change to the spelling map and leaves the shader
- *  source alone. */
-export interface ExternVarDecl {
-  readonly name: string;
-  readonly type: ShaderType;
-  /** Per-target spelling. A missing side falls back to `name`. */
-  readonly spelling?: { readonly wgsl?: string; readonly glsl?: string };
-  /** Restrict the symbol to one stage, for a host global only that stage's prelude
-   *  provides. Advisory metadata for `reflect().requires`; nothing gates on it. */
-  readonly stage?: 'vertex' | 'fragment' | 'compute';
 }
 
 /** Non-enumerable marker key on a {@link FuncDecl}: the name the declaration was last
@@ -674,110 +502,6 @@ export interface FuncDecl {
   readonly [ASSEMBLED_AS]?: string;
 }
 
-/** A GPU or language feature a target backend may or may not support. Emitting a module
- *  that needs an unsupported feature throws {@link UnsupportedFeatureError}: a capability
- *  absent from the target's `capProfile` fails closed, naming the capability.
- *
- *  Ids are neutral; a module never names a raw `EXT_*` or `OVR_*` string. Each backend's
- *  `capProfile` row translates the id into that target's `hostFeature` (what the host
- *  activates: `gl.getExtension(...)` on WebGL2, a `requiredFeatures` entry on WebGPU) and
- *  its `directive` (what the emitted source says), so the same module ports across
- *  targets whose extension names differ.
- *
- *  There are three classes:
- *  - Derived resource capabilities, `storageBuffer`, `compute`, `msaaTextureLoad` and
- *    `storageTexture`, are inferred from a module's shape (a storage binding, a `@compute`
- *    entry, a multisampled texture load, a storage-texture binding) and never declared.
- *  - Opt-in language capabilities, `f16`, `subgroups`, `clipDistances` and
- *    `primitiveIndex`, are declared in `ModuleDecl.enables`, or — for the two that a
- *    `@builtin(...)` id names outright — derived from that use by `requiredCaps`, the way
- *    `enable clip_distances;` is what WGSL asks for before `@builtin(clip_distances)` is
- *    spelled. Each is a WGSL `enable` directive with no GLSL ES 3.00 counterpart, so a
- *    module using one fails closed on the GLSL backend.
- *  - Opt-in device capabilities are also declared in `ModuleDecl.enables`. They change
- *    what the device can do and leave what the source may spell unchanged.
- *    `floatRenderTarget` (WebGL2 `EXT_color_buffer_float`, WebGPU core), `float32Blend`
- *    (`EXT_float_blend`, WebGPU `'float32-blendable'`) and `float32Filterable`
- *    (`OES_texture_float_linear`, WebGPU `'float32-filterable'`) are host-side: on WebGL2
- *    the host activates them with `gl.getExtension` before creating the pipeline, and
- *    they have no shader-source token, so declaring one leaves the emitted source
- *    unchanged on both targets. `multiview` is the one source-directive capability:
- *    GLSL ES 3.00 needs `#extension GL_OVR_multiview2 : require` in the shader itself. It
- *    is absent from the WGSL profile, since WebGPU has no equivalent, so a multiview
- *    module fails closed there. Note that `multiview` buys the directive only: a module
- *    declaring it emits the `#extension` line and still renders single-view, because the
- *    DSL cannot spell `layout(num_views = N) in;` or read `gl_ViewID_OVR`.
- *
- *  A bit width appears in an id only where the feature is bit-width specific:
- *  `float32Blend` and `float32Filterable` carry the `32` because both underlying features
- *  are 32-bit-float only. `floatRenderTarget` carries none, because
- *  `EXT_color_buffer_float` makes both 16-bit and 32-bit float attachments renderable.
- *
- *  A host reads what to activate from `reflect().requiredFeatures`. */
-export type Capability =
-  | 'storageBuffer'
-  | 'compute'
-  | 'msaaTextureLoad'
-  | 'storageTexture'
-  | 'texture1d'
-  | 'textureCubeArray'
-  | 'textureGather'
-  | 'f16'
-  | 'subgroups'
-  | 'clipDistances'
-  | 'primitiveIndex'
-  | 'dualSourceBlending'
-  | 'floatRenderTarget'
-  | 'float32Blend'
-  | 'float32Filterable'
-  | 'multiview'
-  | 'bgra8unormStorage'
-  | 'packed4x8Dot';
-
-/** Every {@link Capability}, as a runtime value: the list a capability matrix, a doc
- *  generator or a coverage check iterates. A union type has no runtime form, so the list
- *  is written out, and the `satisfies` clause keeps it in step with the union. */
-export const ALL_CAPABILITIES = [
-  'storageBuffer',
-  'compute',
-  'msaaTextureLoad',
-  'storageTexture',
-  'texture1d',
-  'textureCubeArray',
-  'textureGather',
-  'f16',
-  'subgroups',
-  'clipDistances',
-  'primitiveIndex',
-  'dualSourceBlending',
-  'floatRenderTarget',
-  'float32Blend',
-  'float32Filterable',
-  'multiview',
-  'bgra8unormStorage',
-  'packed4x8Dot',
-] as const satisfies readonly Capability[];
-
-/** The capabilities a module may name in `ModuleDecl.enables`: {@link Capability} minus
- *  the nine capabilities DERIVED from the module's shape. `requiredCaps` infers each of
- *  those from what the module already says (a storage binding means `storageBuffer`, a
- *  `@compute` entry means `compute`, a multisampled texture means `msaaTextureLoad`, and so
- *  on through the texture ids, a `bgra8unorm` storage format and the packed 4x8 calls), so
- *  declaring one would at best restate the shape and at worst assert a feature the module
- *  does not use. This type makes that a compile error. The excluded list is the private
- *  `DERIVED_CAPABILITIES` (`derived-capabilities.ts`), the same list
- *  `capabilityMatrix` reads for its `declarable` column.
- *
- *  `clipDistances`, `primitiveIndex` and `subgroups` are on BOTH sides and deliberately so:
- *  each is derived from a `@builtin(...)` id the module spells (§50), and each is still
- *  declarable, because a module may hold the directive for a feature it reaches another way.
- *  Deriving and declaring meet in one set, so naming one changes nothing.
- *
- *  Only the authoring surface narrows: `requiredCaps`, {@link Capabilities} and
- *  {@link CapProfile} keep reading the full `Capability`, because the derived ids are
- *  exactly what they must express. */
-export type DeclarableCapability = Exclude<Capability, DerivedCapability>;
-
 /** The whole-shader unit: everything a backend needs to emit a complete WGSL or GLSL ES 3.00
  *  module, or to evaluate one on the CPU oracle. It holds the four declaration arrays,
  *  `consts`, `structs`, `bindings` and `funcs`, plus the opt-in seams `overrides`, `externs`
@@ -866,12 +590,6 @@ export interface ModuleDecl {
   readonly diagnostics?: readonly DiagnosticDirective[];
 }
 
-/** One WGSL `diagnostic(severity, rule);` directive. */
-export interface DiagnosticDirective {
-  readonly severity: 'off' | 'info' | 'warning' | 'error';
-  readonly rule: string;
-}
-
 /** The stage of a function declaration: `'vertex'`, `'fragment'` or `'compute'` for an
  *  entry point, `undefined` for a helper. It reads the structured `stage` field first and
  *  falls back to the `attrs` strings for a hand-built `FuncDecl` literal. Every stage
@@ -889,11 +607,6 @@ export const stageOf = (
       : f.attrs?.some((a) => a.startsWith('@compute'))
         ? 'compute'
         : undefined);
-
-/** The `x`, `y` and `z` extents of a compute entry's workgroup, WGSL's `@workgroup_size(x, y, z)`.
- *
- *  Exported from `typeshade`, `typeshade/core/ir`. */
-export type WorkgroupShape = readonly [number, number, number];
 
 /** The `x` workgroup size of a compute entry: the structured `workgroupSize` field first,
  *  then the `@workgroup_size(n)` attribute string; `undefined` when neither is present. A
@@ -921,11 +634,3 @@ export const workgroupShapeOf = (
     .find(Boolean);
   return m ? [Number(m[1]), Number(m[2] ?? 1), Number(m[3] ?? 1)] : undefined;
 };
-
-/** An entry-point parameter: it carries a `@builtin(...)` or a `@location(n)`. */
-export interface EntryParam {
-  readonly name: string;
-  readonly type: ShaderType;
-  readonly builtin?: string;
-  readonly location?: number;
-}

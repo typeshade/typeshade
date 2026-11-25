@@ -1,5 +1,3 @@
-// === TypeScript type node -> TypeShade ShaderType (Phase 2+) ===
-//
 // Implements: Rule 4.1, Rule 4.8, Rule 6.6 (docs/language-design.md; traced in reqs/).
 
 import { logicalTypeKey as typeKey } from './optional.js';
@@ -68,8 +66,6 @@ import { isReadonlyArrayOperator } from './type-map/readonly-array.js';
 
 const vec3iT = { kind: 'vec', n: 3, elem: 'i32' } as const satisfies ShaderType;
 
-/** Matrix name -> its (cols, rows), for the generic `matCxR<T>` arm. Derived from the same
- *  two loops {@link MAT_TYPE_NAMES} uses, so a name spellable bare is spellable generic. */
 const MAT_SHAPE: Readonly<Record<string, readonly [2 | 3 | 4, 2 | 3 | 4]>> = Object.fromEntries(
   ([2, 3, 4] as const).flatMap((cols) =>
     ([2, 3, 4] as const).flatMap((rows) =>
@@ -80,10 +76,8 @@ const MAT_SHAPE: Readonly<Record<string, readonly [2 | 3 | 4, 2 | 3 | 4]>> = Obj
   ),
 );
 
-/** Every matrix name the surface spells, as the `matCxR` of wgsl.txt:4621 (C, R each 2, 3 or
- *  4) plus the `matN` shorthand both targets give a square one. GLSL ES 3.00 has all nine
- *  (glsl-es-300.txt:955-967), so the set is the same on both. `f32` is the default element;
- *  `mat3<f64>` and the rest go through the generic arm. */
+// Why: wgsl.txt:4621 and glsl-es-300.txt:955-967 give a matrix of 2, 3 or 4 columns and rows on
+// both targets.
 const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries([
   ...([2, 3, 4] as const).flatMap((cols) =>
     ([2, 3, 4] as const).flatMap((rows) => {
@@ -93,9 +87,6 @@ const MAT_TYPE_NAMES: Readonly<Record<string, ShaderType>> = Object.fromEntries(
         : [[`mat${cols}x${rows}`, t] as const];
     }),
   ),
-  // WGSL's predeclared `matCxRf` aliases (Predeclared aliases, Rule 2.1(a), #183), after the
-  // names above so that a refusal still quotes `mat2x2` (see AUTHOR_NAME_BY_KEY). An alias takes
-  // no type argument, so it stays out of MAT_SHAPE, the generic arm's table.
   ...([2, 3, 4] as const).flatMap((cols) =>
     ([2, 3, 4] as const).map((rows) => [`mat${cols}x${rows}f`, matT(cols, rows)] as const),
   ),
@@ -123,9 +114,6 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec3b: vec3bT,
   vec4b: vec4bT,
   ...MAT_TYPE_NAMES,
-  // The `f64` spelling before the `d` shorthand, and `vec2` before `vec2f`, because the FIRST
-  // key that names a type is the one {@link authorTypeName} quotes back (every example in the
-  // tree writes `vec2f64`). Two names for one type is otherwise a matter of taste.
   vec2f64: vec2f64T,
   vec3f64: vec3f64T,
   vec4f64: vec4f64T,
@@ -134,16 +122,6 @@ const SCALAR_AND_VEC_MAP: Readonly<Record<string, ShaderType>> = {
   vec4d: vec4f64T,
 };
 
-/** The spelling an AUTHOR writes for a type this file parses: the inverse of
- *  {@link SCALAR_AND_VEC_MAP}, built from that map rather than retyped beside it, so a name a
- *  refusal quotes is a name this file reads back. Where several names give one type
- *  (`vec2`/`vec2f`, `mat2x2`/`mat2`, `vec2f64`/`vec2d`) the first key in the map wins.
- *
- *  Keyed by {@link typeKey} because that is what makes two structurally equal types one entry.
- *  It is NOT itself an author spelling: `typeKey` writes `vec2<f32>` and `mat2x3<f32>`, and
- *  neither is authorable — the ambient `vec2` alias takes no type argument and a NON-SQUARE
- *  matrix alias takes none either, so a remedy that quoted the key was refused by the editor
- *  the moment it was pasted (TS2315, "Type 'vec4' is not generic"). */
 const AUTHOR_NAME_BY_KEY: ReadonlyMap<string, string> = (() => {
   const out = new Map<string, string>();
   for (const [name, t] of Object.entries(SCALAR_AND_VEC_MAP)) {
@@ -153,25 +131,14 @@ const AUTHOR_NAME_BY_KEY: ReadonlyMap<string, string> = (() => {
   return out;
 })();
 
-/** The author's spelling of a type with a name of its own — every scalar, vector, matrix and
- *  emulated double — or `undefined` for a type that is spelled from its parts (a struct, an
- *  array, an atomic), which {@link authorTypeText} composes. */
-/** The spelling of a type in a sentence about an optional: the author's name of it where there
- *  is one, else its key. */
 const spell = (t: ShaderType): string => authorTypeName(t) ?? typeKey(t);
 
 export function authorTypeName(t: ShaderType): string | undefined {
   return AUTHOR_NAME_BY_KEY.get(typeKey(t));
 }
 
-/** The resource-handle types, which carry no value and appear only in a `declare const`
- *  (#8 A7). `sampler` takes no type argument, so it lives here beside the scalars; the
- *  `texture_*` names are generic and are handled in {@link mapGeneric}. */
 const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
   sampler: samplerT,
-  // A depth texture and the comparison sampler that reads it (roadmap 0.4 item 11). Bare names,
-  // like `sampler`: a depth texture has no element type to write, every one is single-channel
-  // float.
   sampler_comparison: samplerComparisonT,
   texture_depth_2d: textureDepth2dT,
   texture_depth_2d_array: textureDepth2dArrayT,
@@ -180,10 +147,6 @@ const HANDLE_MAP: Readonly<Record<string, ShaderType>> = {
   texture_depth_multisampled_2d: textureDepthMultisampled2dT,
 };
 
-/** The generic texture names and the `dim` each one carries. A cube and a 3d texture (roadmap
- *  0.4 item 12) are core in both targets and need nothing declared; the WebGPU-only ones each
- *  derive their capability from the binding. `texture_multisampled_2d` (item 13) was left out
- *  while nothing read it; `textureLoad(t, coords, sampleIndex)` does now. */
 const TEXTURE_DIM: Readonly<
   Record<string, '2d' | '2d-array' | 'cube' | '3d' | '1d' | 'cube-array' | '2d-ms'>
 > = {
@@ -196,17 +159,11 @@ const TEXTURE_DIM: Readonly<
   texture_multisampled_2d: '2d-ms',
 };
 
-/** The storage texture names and the `dim` each one carries (roadmap 0.4 item 10). Separate
- *  from {@link TEXTURE_DIM} because the two take different type arguments: a sampled texture
- *  takes an element type, a storage texture takes a FORMAT and an ACCESS mode, both written as
- *  string literal types so `tsc` checks them before this compiler does. */
 const STORAGE_TEXTURE_DIM: Readonly<Record<string, '2d' | '2d-array'>> = {
   texture_storage_2d: '2d',
   texture_storage_2d_array: '2d-array',
 };
 
-/** The handle type names — a sampler and every texture. One authority: `bindings.ts` reads
- *  this rather than keeping a second list that could drift from the map that does the mapping. */
 export const HANDLE_TYPE_NAMES: ReadonlySet<string> = new Set([
   ...Object.keys(HANDLE_MAP),
   ...Object.keys(TEXTURE_DIM),
@@ -220,8 +177,6 @@ export const SUPPORTED_TYPE_NAMES: readonly string[] = [
   ...Object.keys(STORAGE_TEXTURE_DIM),
 ];
 
-/** Every type name the surface spells: the ones above, and the wrappers that take a type
- *  argument. What a misspelled type is measured against (Rule 12.1). */
 export const BUILTIN_TYPE_NAMES: readonly string[] = [
   ...SUPPORTED_TYPE_NAMES,
   'array',
@@ -230,20 +185,9 @@ export const BUILTIN_TYPE_NAMES: readonly string[] = [
   'workgroup',
   'atomic',
   'override',
-  // The attribute types of change 0111 (amendment 1).
   ...Object.keys(ATTRIBUTE_TYPES),
 ];
 
-/** The file's type aliases that are NOT object types, by name (roadmap 0.3 item T2, #92).
- *  `type Meters = f32`, `type Color = vec3`, `type Grid = array<f32, 16>`: ordinary TypeScript
- *  for "another name for this type", and the shape a developer reaches for before any of the
- *  GPU ones. An alias of an object type (`type P = { x: f32 }`) is a STRUCT and is collected by
- *  `structs.ts`, so it is left out here; a generic alias has no one target type and is left to
- *  the generic refusal.
- *
- *  Measured before this: the alias fell through to the capitalized-name arm below and became a
- *  struct named after itself, so `type Meters = f32` made `m * 0.5` "cannot * struct:Meters and
- *  f32" and a lowercase alias was an unknown type. */
 export function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.TypeNode> {
   const cached = ALIAS_CACHE.get(sourceFile);
   if (cached) return cached;
@@ -252,8 +196,6 @@ export function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, t
     if (!ts.isTypeAliasDeclaration(stmt)) continue;
     if (ts.isTypeLiteralNode(stmt.type)) continue;
     if ((stmt.typeParameters?.length ?? 0) > 0) continue;
-    // First declaration wins, as everywhere else in the front end; TypeScript reports the
-    // duplicate itself.
     if (!out.has(stmt.name.text)) out.set(stmt.name.text, stmt.type);
   }
   ALIAS_CACHE.set(sourceFile, out);
@@ -262,9 +204,6 @@ export function aliasTargetsOf(sourceFile: ts.SourceFile): ReadonlyMap<string, t
 
 const ALIAS_CACHE = new WeakMap<ts.SourceFile, ReadonlyMap<string, ts.TypeNode>>();
 
-/** The names the file declares as an `enum` (roadmap 0.3 item T1, #92). A member of a numeric
- *  enum is an integer constant, so the enum's name as a TYPE is `i32`, the type its members
- *  have. `module-const.ts` owns the members themselves and the refusal of a string enum. */
 function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const cached = ENUM_CACHE.get(sourceFile);
   if (cached) return cached;
@@ -278,9 +217,6 @@ function enumNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
 
 const ENUM_CACHE = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
-/** Every type name the file declares, wherever it declares it: a class, an interface, a type
- *  alias, an enum and a namespace, at the top level, in a namespace or in a body, and a name it
- *  imports, which another file declares. A name none of them gives is no type at all. */
 export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const cached = DECLARED_TYPES.get(sourceFile);
   if (cached) return cached;
@@ -308,39 +244,28 @@ export function declaredTypeNamesOf(sourceFile: ts.SourceFile): ReadonlySet<stri
 
 const DECLARED_TYPES = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
-/** The type an author writes for a library type that stands for one in TypeScript. */
 const LIBRARY_TYPE_REMEDY: Readonly<Record<string, string>> = {
   Number: 'Write f32, i32 or u32.',
   Boolean: 'Write bool.',
   Array: 'Write array<T, N>.',
 };
 
-/** The sentence a type of {@link LIBRARY_TYPE_NAMES} gets where a shader type is due. */
 const libraryTypeMessage = (name: string): string => {
   const remedy = LIBRARY_TYPE_REMEDY[name];
   const mistake = `"${name}" is not a shader type: the library declares it for TypeScript's own use.`;
   return remedy === undefined ? mistake : `${mistake} ${remedy}`;
 };
 
-/** The conversion an author writes for a library type called as one, `Number(x)`. */
 const LIBRARY_CALL_REMEDY: Readonly<Record<string, string>> = {
   Number: 'Write f32(x), i32(x) or u32(x).',
   Boolean: 'Write bool(x).',
 };
 
-/** The objects of functions the ambient library keeps (Rule 2.1), with a call of one. */
 const LIBRARY_OBJECTS: Readonly<Record<string, string>> = {
   Math: 'Math.sin(x)',
   console: 'console.log(x)',
 };
 
-/**
- * What a name the ambient library declares is, where a value, a callee or a `new` reads it and
- * the file declares nothing of the name, or undefined for any other name (Rule 2.1, Rule 12.1).
- * A type of {@link LIBRARY_TYPE_NAMES} is a type, which TypeScript says too (TS2693), with the
- * conversion to write where one is called; `Math` and `console` are objects of functions; and
- * `Symbol`, which TypeScript's `for…of` reads an iterator through, is the library's own.
- */
 export function libraryNameSentence(
   name: string,
   as: 'value' | 'callee' | 'class',
@@ -361,8 +286,6 @@ export function libraryNameSentence(
   return undefined;
 }
 
-/** Whether `name` is a type parameter of a declaration around `node`, a mapped type's key
- *  (`[K in keyof T]`) or a conditional type's `infer U` included. */
 function isTypeParameterAround(node: ts.Node, name: string): boolean {
   const infers = (n: ts.Node): boolean =>
     (ts.isInferTypeNode(n) && n.typeParameter.name.text === name) ||
@@ -377,15 +300,10 @@ function isTypeParameterAround(node: ts.Node, name: string): boolean {
   return false;
 }
 
-/** Whether the file gives the type name `name` written at `node`: a class, an interface, a type
- *  alias, an enum or a namespace it declares anywhere, a name it imports, or a type parameter of a
- *  declaration around it. */
 export function fileDeclaresType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
   return declaredTypeNamesOf(sourceFile).has(name) || isTypeParameterAround(node, name);
 }
 
-/** The WGSL types written with type arguments, which the mapper reads in {@link mapGeneric}: a
- *  bare one is a mistake of arity, not a name nothing declares. */
 const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
   'array',
   'atomic',
@@ -397,18 +315,12 @@ const GENERIC_TYPE_NAMES: ReadonlySet<string> = new Set([
   ...Object.keys(ATTRIBUTE_TYPES),
 ]);
 
-/** Whether the ambient library declares a type of `name`: a WGSL type, bare or generic, or one of
- *  {@link LIBRARY_TYPE_NAMES}. `ambient-parity.test.ts` holds it to the library. */
 export const isLibraryTypeName = (name: string): boolean =>
   LIBRARY_TYPE_NAMES.has(name) ||
   SUPPORTED_TYPE_NAMES.includes(name) ||
   GENERIC_TYPE_NAMES.has(name) ||
   lookupTypeName(name) !== undefined;
 
-/** The sentence a type name nothing declares gets, wherever it is written: the name a
- *  misspelled one is spelled like among `declared` (the type names in scope where it is written,
- *  innermost first) and the surface's own, else a capitalized name's declaration, else the WGSL
- *  names, which is what a lowercase type name is usually meant to be (Rule 12.1). */
 export const unknownTypeSentence = (name: string, declared: NameScopes): string =>
   unknownNameSentence(
     `Unknown type "${name}".`,
@@ -419,10 +331,6 @@ export const unknownTypeSentence = (name: string, declared: NameScopes): string 
       : `Supported names: ${SUPPORTED_TYPE_NAMES.join(', ')}.`,
   );
 
-/** The wrappers that map their type argument as a type of its own, `array<Foo, 4>` and
- *  `uniform<Foo>`, where a name nothing declares is the mapper's `Unknown type` too. Every other
- *  generic of the library reads its argument itself and says what it takes (`vec3<T> T must be
- *  f32, i32, u32, or f64.`, `ptr<function, f32>`), which is that argument's one diagnostic. */
 const MAPS_ITS_ARGUMENT: ReadonlySet<string> = new Set([
   'array',
   'uniform',
@@ -431,11 +339,6 @@ const MAPS_ITS_ARGUMENT: ReadonlySet<string> = new Set([
   'override',
 ]);
 
-/** Whether `generic`, a generic of the library written with type arguments, is mapped as a
- *  type of its own where it is written, and so says what it takes of them: not when it is itself
- *  a type argument of a class of the file, `B<vec3<Foo>>` or `new B<vec3<Foo>>()`, whose
- *  instance is collected from the arguments as written and says nothing of them when it cannot
- *  be (through the wrappers that map their argument, `B<array<vec3<Foo>, 4>>` as well). */
 function mappedWhereWritten(generic: ts.TypeReferenceNode, sourceFile: ts.SourceFile): boolean {
   for (let at: ts.Node = generic; ; at = at.parent) {
     const outer = at.parent;
@@ -448,10 +351,6 @@ function mappedWhereWritten(generic: ts.TypeReferenceNode, sourceFile: ts.Source
   }
 }
 
-/** Whether the type name `name`, written at `node`, names nothing: not WGSL and not the ambient
- *  library ({@link isLibraryTypeName}), not a type parameter of the instantiation being lowered,
- *  and not a type the file declares or imports ({@link fileDeclaresType}). The one test a bare
- *  name and the base of a generic, `groupshared` in `groupshared<T>`, are both asked. */
 function namesNoType(node: ts.Node, name: string, sourceFile: ts.SourceFile): boolean {
   return (
     !isLibraryTypeName(name) &&
@@ -460,10 +359,6 @@ function namesNoType(node: ts.Node, name: string, sourceFile: ts.SourceFile): bo
   );
 }
 
-/** Whether `node`, a type written as an argument, is one the generic around it says what it
- *  takes of: `Foo` in `vec3<Foo>`, a generic of the library that reads its own argument
- *  ({@link MAPS_ITS_ARGUMENT}) and is mapped where written ({@link mappedWhereWritten}). That
- *  generic's sentence is the one diagnostic for the argument (Rule 12.4). */
 function saidByOuterGeneric(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   const outer = node.parent;
   return (
@@ -476,13 +371,6 @@ function saidByOuterGeneric(node: ts.Node, sourceFile: ts.SourceFile): boolean {
   );
 }
 
-/** The name a type position writes, bare and with no type argument, when nothing declares it:
- *  not WGSL, not the ambient library, and nothing of the file ({@link fileDeclaresType}). A
- *  type reference, or a name a heritage clause writes: an `implements` and an interface's
- *  `extends` name a type, and a class's `extends` a class, which a value of the file declares
- *  too (`const Base = Tinted(B)`). An argument of a generic of the library that reads its own
- *  ({@link MAPS_ITS_ARGUMENT}) is that generic's to say, where it is mapped. `as const` names
- *  no type, and the retired `perInvocation` has a refusal of its own. */
 export function undeclaredTypeName(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -490,9 +378,6 @@ export function undeclaredTypeName(
   let id: ts.Node;
   let isClassBase = false;
   if (ts.isTypeReferenceNode(node)) {
-    // The second argument of `array<T, N>` is a compile-time length expression. A named
-    // override is value metadata, not an unresolved TypeScript type; mapGeneric validates it
-    // against the collected override declarations at the annotation.
     if (
       ts.isTypeReferenceNode(node.parent) &&
       ts.isIdentifier(node.parent.typeName) &&
@@ -522,10 +407,6 @@ export function undeclaredTypeName(
   return namesNoType(node, name, sourceFile) ? id : undefined;
 }
 
-/** The base of a generic, `groupshared` in `groupshared<T>`, when nothing declares it: the name
- *  {@link undeclaredTypeName} finds in a reference with no type argument, and the one `mapGeneric`
- *  says where it maps the reference (#218). Not an argument the generic around it says what it
- *  takes of ({@link saidByOuterGeneric}). */
 export function undeclaredGenericBase(
   node: ts.TypeReferenceNode,
   sourceFile: ts.SourceFile,
@@ -536,29 +417,18 @@ export function undeclaredGenericBase(
   return namesNoType(node, id.text, sourceFile) ? id : undefined;
 }
 
-/** Whether a type nothing declares is written anywhere in `node` ({@link undeclaredTypeName}),
- *  which then names no layout; it was said where it is written. */
 export const writesUndeclaredType = (node: ts.Node, sourceFile: ts.SourceFile): boolean =>
   undeclaredTypeName(node, sourceFile) !== undefined ||
   (ts.forEachChild(node, (child) => writesUndeclaredType(child, sourceFile) || undefined) ?? false);
 
-/** The retired module-variable wrapper, refused by name wherever it is written.
- *  `perInvocation<T>` (#83) was a second spelling of the variable a plain top-level `let`
- *  declares, and was removed (§24). It lives here rather than in module-vars.ts because
- *  module-vars.ts imports this file, and both refusals want the one sentence. */
 export const RETIRED_VAR_WRAPPER = 'perInvocation';
 
-/** The sentence an author who writes the retired wrapper gets. `fix` is the remedy for the
- *  site: a top-level `let` knows the author's own name and type argument, so it names the line
- *  they meant, and every other site says it with `name` and `T`. */
 export const retiredWrapperMessage = (fix: string): string =>
   `${RETIRED_VAR_WRAPPER}<T> was removed: a top-level let is already the per-invocation ` +
   `variable. ${fix}`;
 
 const CONTRACTS = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
 
-/** The interfaces of the file that declare a method: contracts a class implements, which a
- *  shader value cannot be, since a call through one would need to pick its body at run time. */
 function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
   const cached = CONTRACTS.get(sourceFile);
   if (cached !== undefined) return cached;
@@ -572,28 +442,18 @@ function contractInterfaces(sourceFile: ts.SourceFile): ReadonlySet<string> {
   return out;
 }
 
-/** The types a file refuses where they are declared, having said why there: each generic
- *  interface or object-type alias something uses (TS8010), and a struct none of whose fields is
- *  left because each names one. `collectStructs` sets it before it maps a type, and a type that
- *  names one of these maps to nothing and says nothing more (Rule 12.4). */
 const REFUSED_TYPES = new WeakMap<ts.SourceFile, Set<string>>();
 
-/** Records the generic interfaces and aliases `collectStructs` refuses in `sourceFile`. */
 export function setRefusedGenerics(sourceFile: ts.SourceFile, names: ReadonlySet<string>): void {
   REFUSED_TYPES.set(sourceFile, new Set(names));
 }
 
-/** Records a struct `collectStructs` left out because every field it declares names a type
- *  refused where it is declared: a type that names it is refused with them. */
 export function refuseTypeName(sourceFile: ts.SourceFile, name: string): void {
   const names = REFUSED_TYPES.get(sourceFile) ?? new Set<string>();
   names.add(name);
   REFUSED_TYPES.set(sourceFile, names);
 }
 
-/** Whether a type names, anywhere in it and through the plain aliases it names, a type the
- *  file refused where it is declared: `G<f32>`, `array<G<f32>, 4>`, `GF` for `type GF =
- *  G<f32>`. What it types has nothing to lay out, and that declaration said why. */
 export function writesRefusedType(typeNode: ts.Node, sourceFile: ts.SourceFile): boolean {
   const refused = REFUSED_TYPES.get(sourceFile);
   if (refused === undefined || refused.size === 0) return false;
@@ -626,8 +486,6 @@ export function mapTsTypeToShaderType(
   return mapType(typeNode, sourceFile, diagnostics, undefined, sizeOverrides);
 }
 
-/** {@link mapTsTypeToShaderType} plus the alias names already being resolved, which is how a
- *  cycle (`type A = B; type B = A`) stops instead of recursing forever. */
 function mapType(
   typeNode: ts.TypeNode | undefined,
   sourceFile: ts.SourceFile,
@@ -663,66 +521,40 @@ function mapType(
 
   if (ts.isTypeReferenceNode(typeNode)) {
     const name = typeNameOf(typeNode);
-    // A type parameter of the instantiation being lowered, ahead of every other meaning of a
-    // name, because a type parameter shadows in TypeScript too (roadmap 0.3 item T9, #92).
     if (name !== undefined) {
       const bound = boundTypeArgument(name);
       if (bound !== undefined) return bound;
     }
     if (name !== undefined && HANDLE_MAP[name]) {
-      // Checked BEFORE the handle is returned: this arm runs ahead of the generic branch, so
-      // `sampler<f32>` was accepted as a bare `sampler` and the type argument vanished.
       if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
         pushDiag(diagnostics, sourceFile, typeNode, `${name} takes no type argument.`);
         return undefined;
       }
       return HANDLE_MAP[name];
     }
-    // `Pair<f32>` names the struct the file collected for that set of type arguments, and a bare
-    // `Grid` names the one its declared defaults give (roadmap 0.3 item T9, #92). Both are asked
-    // before `mapGeneric`, which is the builtin generic names — `array<T, N>`, `uniform<T>` —
-    // and would report "type arguments are not supported" for a class, and before the
-    // capitalized-name arm below, which would make a struct of the name as written.
-    // `N.Pair<f32>` is a dotted name, so `name` is undefined for it; the class it reaches is the
-    // flattened `N_Pair` (#107), which is the name generic classes are keyed under too.
     const generic = name ?? dottedTypeName(typeNode.typeName);
     if (generic !== undefined && isGenericClass(generic, sourceFile)) {
       const instance = genericStructName(generic, typeNode.typeArguments, sourceFile);
       if (instance !== undefined) return structT(instance);
-      // A type argument that writes a name nothing declares, `Foo` or `vec3<Foo>`, names no
-      // layout, and was said where it is written.
       if (typeNode.typeArguments?.some((a) => writesUndeclaredType(a, sourceFile))) {
         return undefined;
       }
-      // Arguments that name no layout — the wrong number of them, or one that is a type
-      // parameter — were reported once, where the instances were collected. Recovering as a
-      // struct of the written name is what an unknown capitalized name does below, and it keeps
-      // the binding alive, so one mistake still reads as one sentence instead of a second
-      // refusal here and an "Unknown identifier" at every read of it (T10, #111).
       return structT(generic);
     }
-    // A generic interface or type alias was refused where it is declared, with the class that
-    // says it (structs.ts), so `G<f32>` names no type and says nothing more (Rule 12.4).
     if (name !== undefined && REFUSED_TYPES.get(sourceFile)?.has(name) === true) {
       return undefined;
     }
     if (typeNode.typeArguments && typeNode.typeArguments.length > 0) {
       return mapGeneric(name, typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
     }
-    // `N.P` names the class `P` inside the namespace `N`, which the module emits as `N_P`
-    // (#107). A dotted type name reaches here before the "unsupported reference" arm, which is
-    // what it used to be.
     if (name === undefined) {
       const dotted = dottedTypeName(typeNode.typeName);
       if (dotted !== undefined && namespaceStructsOf(sourceFile).flattened.has(dotted)) {
         return structT(dotted);
       }
-      // An interface or a type alias inside a namespace was refused where it is written
-      // (TS8014), so a type that names it, `N.I`, says nothing more (Rule 12.4).
       if (dotted !== undefined && namespaceStructsOf(sourceFile).types.has(dotted)) {
         return undefined;
       }
-      // A misspelled member names the class of a namespace it is spelled like (Rule 12.1).
       pushDiag(
         diagnostics,
         sourceFile,
@@ -739,19 +571,13 @@ function mapType(
     }
     const mapped = SCALAR_AND_VEC_MAP[name];
     if (mapped !== undefined) return mapped;
-    // Inside a namespace, the class it declares under the short name, in any of its blocks,
-    // ahead of one further out, as TypeScript resolves it and as a `new` there builds it (#107).
     const around = namespaceClassAround(typeNode, name);
     if (around !== undefined) return structT(around);
-    // A type alias of anything but an object type is another name for its target (T2, #92).
-    // After the builtin names, so no alias can shadow `f32` or `vec3`, and before the
-    // capitalized-name arm, so the alias resolves instead of becoming a struct of its own.
     if (enumNamesOf(sourceFile).has(name))
       return numericDomainT(i32T, () => numericRecordValues(typeNode, sourceFile));
     const alias = aliasTargetsOf(sourceFile).get(name);
     if (alias !== undefined) {
       if (resolving?.has(name)) {
-        // The chain as written, so a mutual cycle reads as one: "A -> B -> A".
         const chain = [...resolving.values()];
         const cycle = [...chain.slice(chain.indexOf(name)), name].join(' -> ');
         pushDiag(
@@ -770,10 +596,6 @@ function mapType(
         sizeOverrides,
       );
     }
-    // Outside every namespace that declares it, a namespace class's short name is still read,
-    // which is more than TypeScript allows (a Rule 12.7 divergence, surface §26). A top-level
-    // declaration of the name wins, as it does in TypeScript, and a short name two namespaces
-    // both declare is refused rather than guessed at.
     const ns = namespaceStructsOf(sourceFile);
     if (!ns.topLevel.has(name)) {
       const candidates = ns.short.get(name);
@@ -790,49 +612,25 @@ function mapType(
         return undefined;
       }
     }
-    // An interface that declares a method is a contract and never a value (Rule 6.9); it was
-    // said so where it declares the method, once, and a type it names here names nothing.
     if (contractInterfaces(sourceFile).has(name)) return undefined;
-    // A name the file declares as a type, or imports, is a struct: a class or an interface,
-    // declared above or below the use, here or in the module it is imported from. A name
-    // declared nowhere was a struct too, and emitted as one, so `l: Lihgt` compiled in silence
-    // and died at Tint on a type the author never declared; it is an unknown type now, with the
-    // name it is spelled like (Rule 12.1).
     const declared = namesInScope(typeNode, 'type');
     if (declared.some((group) => group.includes(name))) return structT(name);
-    // A type the library declares for TypeScript's own use, where the file declares none of
-    // its name, names no value a shader has: it is not unknown, and the sentence says what it
-    // is (Rule 12.1). After the file's own, so a `class Mat` or an `interface Pick` is the
-    // file's, as TypeScript resolves it (Rule 2.1).
     if (LIBRARY_TYPE_NAMES.has(name)) {
       pushDiag(diagnostics, sourceFile, typeNode.typeName, libraryTypeMessage(name));
       return undefined;
     }
-    // The file's own pass (semantic.ts) says it in the same words at the same span, wherever
-    // the type is written and whether or not a body maps it, and the two are one diagnostic.
     pushDiag(diagnostics, sourceFile, typeNode.typeName, unknownTypeSentence(name, declared));
     return undefined;
   }
 
-  // A tuple is a list of a length the type fixes, which is what `array<T, N>` is (roadmap 0.3
-  // item T10, #92). Both targets take a fixed array in every position a tuple is written in,
-  // a return included, so refusing `[f32, f32]` would be this compiler's limit and not the
-  // GPU's. A tuple of several types is the one with no representation, and it says so.
   if (ts.isTupleTypeNode(typeNode))
     return mapTuple(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
 
-  // One string literal type is a key type of one member (change 0081), as a union of them is.
   if (isStringLiteralType(typeNode)) return keyTypeT([stringLiteralText(typeNode)]);
 
-  // A union is more than one type, and a value has exactly one. The exception is the common
-  // case: members that all denote the same type. `0 | 1 | 2` is an i32, `true | false` a bool,
-  // `Meters | f32` an f32.
   if (ts.isUnionTypeNode(typeNode))
     return mapUnion(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
 
-  // An intersection with a brand is TypeScript's nominal-typing idiom, and a brand carries no
-  // data: `f32 & { [m]: 'm' }` is an f32 that only a Meters may be passed to. Erase the brands
-  // and what is left is the one type the value has.
   if (ts.isIntersectionTypeNode(typeNode)) {
     return mapIntersection(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
   }
@@ -847,16 +645,11 @@ function mapType(
     );
     return undefined;
   }
-  // `null` alone as a type is a literal type to TypeScript's parser, not the keyword: the
-  // keyword's sentence names the spelling that works (Rule 7.10, change 0088).
   if (isNull(typeNode)) {
     pushDiag(diagnostics, sourceFile, typeNode, KEYWORD_ADVICE[ts.SyntaxKind.NullKeyword]!);
     return undefined;
   }
 
-  // A function type anywhere but on a parameter of a function (Rule 8.18): a return, a field, a
-  // variable, an element. A parameter that takes one is read before its type is mapped
-  // (lower/function-types.ts), so what reaches here would be a value holding a function.
   if (ts.isFunctionTypeNode(typeNode)) {
     const text = typeNode.getText(sourceFile);
     pushDiag(
@@ -879,9 +672,6 @@ function mapType(
   return undefined;
 }
 
-/** The keyword types a developer reaches for out of TypeScript habit, each with the shader
- *  type that is the thing they meant (roadmap 0.3 item T10, #92). The rest keep the general
- *  sentence: there is no useful advice to give for `any` beyond naming a type. */
 const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
   [ts.SyntaxKind.NumberKeyword]:
     'A number on the GPU has a width. Write f32 for a float, i32 or u32 for an integer.',
@@ -902,10 +692,6 @@ const KEYWORD_ADVICE: Readonly<Partial<Record<ts.SyntaxKind, string>>> = {
     'may be absent: the compiler carries whether the value is there (Rule 7.10).',
 };
 
-/** The type a literal type node denotes as a value: `1` an i32, `1.5` an f32, `true` a bool.
- *  Integer literals give i32 for the same reason an enum member does (T1): the shape they are
- *  written in, `0 | 1 | 2`, is the one an enum has. A string literal and `null` have no GPU
- *  representation, and return undefined so the caller can say which one it found. */
 function literalBase(node: ts.TypeNode): ShaderType | undefined {
   if (!ts.isLiteralTypeNode(node)) return undefined;
   const lit = node.literal;
@@ -919,7 +705,6 @@ function literalBase(node: ts.TypeNode): ShaderType | undefined {
   return undefined;
 }
 
-/** `1.` and `1e3` are floats the way a shader author writes them; `1` and `0xE` are integers. */
 const numericBase = (lit: ts.NumericLiteral): ShaderType => (isIntegerWritten(lit) ? i32T : f32T);
 
 const isNull = (node: ts.TypeNode): boolean =>
@@ -929,7 +714,6 @@ const isNull = (node: ts.TypeNode): boolean =>
 const isStringLiteralType = (node: ts.TypeNode): boolean =>
   ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal);
 
-/** The text of a string literal type, `"r"` as `r`. */
 const stringLiteralText = (node: ts.TypeNode): string =>
   ((node as ts.LiteralTypeNode).literal as ts.StringLiteral).text;
 
@@ -943,14 +727,9 @@ function mapUnion(
     { readonly type: ShaderType; readonly default: number | boolean }
   >,
 ): ShaderType | undefined {
-  // A union of string literal types is a key type (change 0081): a closed set of names, each
-  // a u32 id on every target. `string` itself stays refused, by the keyword's own sentence.
   if (typeNode.types.every(isStringLiteralType)) {
     return keyTypeT(typeNode.types.map(stringLiteralText));
   }
-  // Mapped without diagnostics: a member that names nothing is reported once below, as part of
-  // the sentence about the union, rather than as its own complaint about a type nobody wrote
-  // on its own line.
   const text = typeNode.getText(sourceFile);
   const members = typeNode.types.filter(
     (m) => !isNull(m) && m.kind !== ts.SyntaxKind.UndefinedKeyword,
@@ -987,7 +766,6 @@ function mapUnion(
     return undefined;
   }
   if (optional && members.length === 1) {
-    // The one member names no type: said once, as the member's own refusal says it.
     mapType(members[0]!, sourceFile, diagnostics, resolving, sizeOverrides);
     return undefined;
   }
@@ -1048,8 +826,6 @@ function mapTuple(
   const parts = elements.map((e) => (ts.isNamedTupleMember(e) ? e.type : e));
   const mapped = parts.map((p) => mapType(p, sourceFile, undefined, resolving, sizeOverrides));
   const bad = mapped.findIndex((t) => t === undefined);
-  // The element says why it names no type, on its own span. Re-run it for the message rather
-  // than complaining about the tuple, which is not what is wrong.
   if (bad >= 0) return mapType(parts[bad], sourceFile, diagnostics, resolving, sizeOverrides);
   const head = mapped[0];
   if (head === undefined) return undefined;
@@ -1068,9 +844,6 @@ function mapTuple(
   return arrayT(head, elements.length);
 }
 
-/** Whether `node` is a brand: an object type whose every member is a property that no GPU
- *  value could carry, under a computed (symbol) key or typed as a string literal. Both are
- *  the nominal-typing idiom, both hold no data, and both are erased. */
 function isBrandType(node: ts.TypeNode): boolean {
   if (!ts.isTypeLiteralNode(node)) return false;
   return node.members.every(
@@ -1161,14 +934,10 @@ function mapGeneric(
   if (name === 'Record' && !namesInScope(typeNode, 'type').some((g) => g.includes(name)))
     return mapRecord(typeNode, sourceFile, diagnostics, resolving, sizeOverrides);
   if (name === 'array') {
-    // An array holds no Map and no Set (change 0080).
     const elem = withoutCollections(() =>
       mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides),
     );
     const nNode = args[1];
-    // A negative length is a `PrefixUnaryExpression` inside the literal type, not a
-    // `NumericLiteral` — read through the minus so `array<f32, -1>` is a length of -1 and
-    // meets the rule below, rather than reading as a runtime-sized array.
     const nLiteral = nNode && ts.isLiteralTypeNode(nNode) ? nNode.literal : undefined;
     const n =
       nLiteral && ts.isNumericLiteral(nLiteral)
@@ -1179,9 +948,6 @@ function mapGeneric(
             ts.isNumericLiteral(nLiteral.operand)
           ? -Number(nLiteral.operand.text)
           : undefined;
-    // `array<T, 0>` has no element and no use: WGSL requires N to be positive, and every
-    // index into it is out of range. Refused at the type, so the author hears it once rather
-    // than once per read (§51).
     if (n !== undefined && (!Number.isInteger(n) || n < 1)) {
       pushDiag(
         diagnostics,
@@ -1216,22 +982,15 @@ function mapGeneric(
       return undefined;
     }
     if (elem === undefined) return undefined;
-    // An optional element is a function-scope array's (Rule 7.10, change 0093); a binding, a
-    // module variable or an entry that holds one is refused where it is declared.
     return arrayT(elem, n);
   }
   if (name === 'uniform' || name === 'storage') {
     return mapType(args[0], sourceFile, diagnostics, resolving, sizeOverrides);
   }
-  // An attribute type of change 0111 is its value type, `builtin<'position'>` a `vec4`;
-  // its attribute is read where it is written (`attribute-types.ts`).
   if (name !== undefined && Object.hasOwn(ATTRIBUTE_TYPES, name)) {
     const value = attributeArgumentsOf(typeNode).value;
     if (value !== undefined)
       return mapType(value, sourceFile, diagnostics, resolving, sizeOverrides);
-    // `builtin<N>` is the value WGSL defines for `N`, of the type WGSL gives it (change 0135,
-    // decision D1.2). `clip_distances` has no single type and an unknown name has none: each
-    // is refused once, where it is written (`builtin-type-form.ts`), and types nothing here.
     const id = name === 'builtin' ? builtinNameOf(typeNode) : undefined;
     if (id !== undefined) {
       return Object.hasOwn(WGSL_BUILTIN_TYPES, id)
@@ -1239,10 +998,6 @@ function mapGeneric(
         : undefined;
     }
   }
-  // `atomic<u32>` / `atomic<i32>` (roadmap 0.2 item 4): a location in storage memory for the
-  // atomic builtins. Where it may be declared is decided by the declaration sites, not here.
-  // The module-variable wrapper (§24) belongs on a top-level `let`; anywhere else it is a
-  // misplaced declaration, not a type.
   if (name === 'workgroup') {
     pushDiag(
       diagnostics,
@@ -1252,11 +1007,6 @@ function mapGeneric(
     );
     return undefined;
   }
-  // The retired wrapper anywhere a type can stand. module-vars.ts catches it on a top-level
-  // `let`, where every author who has written it will be, and puts their own name in the fix;
-  // this arm is the rest of the file, where the name is simply gone. Without it the annotation
-  // falls to `mapGeneric`'s tail and is an unknown type, which names neither the removal nor
-  // what to write.
   if (name === RETIRED_VAR_WRAPPER) {
     pushDiag(
       diagnostics,
@@ -1284,13 +1034,7 @@ function mapGeneric(
     return undefined;
   }
   if (name !== undefined && TEXTURE_DIM[name]) {
-    // `texture_2d<f32>` / `texture_2d_array<u32>` — the sampled element kind, which decides
-    // both the WGSL spelling and which read intrinsics apply. Only the three native scalars;
-    // WGSL has no f64 texture and a bool one is not a thing either.
     const dim = TEXTURE_DIM[name]!;
-    // `?? 'f32'` used to stand here, so a type argument that is not a NAME at all —
-    // `texture_2d<{ a: f32 }>`, `texture_2d<f32[]>` — silently became a `texture_2d<f32>`
-    // rather than being reported. An omitted argument is the one shape that still defaults.
     const elemName = args[0] === undefined ? 'f32' : typeNameOfArg(args[0]);
     if (elemName !== 'f32' && elemName !== 'i32' && elemName !== 'u32') {
       pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32, i32, or u32.`);
@@ -1323,9 +1067,6 @@ function mapGeneric(
       return undefined;
     }
     if (elemName === 'f64') {
-      // The emulation has one df64 body per DIMENSION, not per shape (DF64MatN, matmul,
-      // matvec, transpose), so only a square matrix of doubles can be lowered. A non-square
-      // one is refused HERE rather than accepted and raised as SD0041 from the backend.
       if (cols !== rows) {
         pushDiag(
           diagnostics,
@@ -1344,14 +1085,6 @@ function mapGeneric(
     pushDiag(diagnostics, sourceFile, typeNode, `${name}<T> T must be f32 or f64.`);
     return undefined;
   }
-  // A generic whose name nothing declares: not WGSL, not the library, not the file. It is an
-  // unknown type as a bare one is, said on the name, and its remedy comes in the one order
-  // (Rule 12.1): TypeShade's spelling of a GLSL or HLSL name, `groupshared<T>` for
-  // `workgroup<T>`, else the name it is spelled like, `arrray<f32, 4>` for `array<f32, 4>`,
-  // else the place's own. Every such name was "Type arguments are not supported yet", which names
-  // no fix, and the span was the whole `groupshared<array<f32, 64>>`, not the name (#218). A
-  // name that is known keeps the sentence: `ptr` is the library's and no type here, `f32<T>`
-  // takes none, and a generic alias of the file is not read yet.
   const base = undeclaredGenericBase(typeNode, sourceFile);
   if (base !== undefined) {
     pushDiag(
@@ -1385,8 +1118,6 @@ function typeNameOfArg(node: ts.TypeNode | undefined): string | undefined {
   return undefined;
 }
 
-/** `N.P` as the flattened `N_P`, or undefined when the type name is not a chain of
- *  identifiers. */
 function dottedTypeName(name: ts.EntityName): string | undefined {
   const parts: string[] = [];
   let node: ts.EntityName = name;
@@ -1401,21 +1132,14 @@ function dottedTypeName(name: ts.EntityName): string | undefined {
 }
 
 interface NamespaceStructs {
-  /** Every flattened name a namespace class takes: `N_P`, `A_B_P`. */
   readonly flattened: ReadonlySet<string>;
-  /** The short name each was written under, to the flattened names that carry it. */
   readonly short: ReadonlyMap<string, string[]>;
-  /** Every struct name the file declares at its top level, which wins over a short name. */
   readonly topLevel: ReadonlySet<string>;
-  /** The flattened name of each interface and type alias a namespace declares, which the
-   *  namespace walk refuses (TS8014). */
   readonly types: ReadonlySet<string>;
 }
 
 const NS_STRUCT_CACHE = new WeakMap<ts.SourceFile, NamespaceStructs>();
 
-/** The classes a file declares inside its namespaces, by both names (#107). Cached per source
- *  file the way the alias and enum tables are, since every annotation in the file asks. */
 function namespaceStructsOf(sourceFile: ts.SourceFile): NamespaceStructs {
   const hit = NS_STRUCT_CACHE.get(sourceFile);
   if (hit) return hit;
@@ -1473,12 +1197,8 @@ function isKeywordTypeSyntax(node: ts.TypeNode): boolean {
   }
 }
 
-/** Whether the type being mapped is a kernel function's parameter, the one place a `Map` or a
- *  `Set` stands (change 0080). {@link withCollections} sets it around that one mapping. */
 let collectionsHere = false;
 
-/** `fn()` with a `Map` or a `Set` accepted as the type it maps: a kernel function's parameter
- *  (Rule 8.22, change 0080). Everywhere else one is refused where it is written. */
 export function withCollections<T>(fn: () => T): T {
   const was = collectionsHere;
   collectionsHere = true;
@@ -1489,7 +1209,6 @@ export function withCollections<T>(fn: () => T): T {
   }
 }
 
-/** The types a `Map`'s value may have: those an array parameter may hold (change 0080). */
 const MAP_VALUE_KINDS: ReadonlySet<ShaderType['kind']> = new Set([
   'scalar',
   'f64',
@@ -1500,8 +1219,6 @@ const MAP_VALUE_KINDS: ReadonlySet<ShaderType['kind']> = new Set([
   'array',
 ]);
 
-/** ECMAScript's `Set<K>` and `Map<K, V>` as a kernel function's parameter (change 0080): `K` is
- *  `u32`, `i32`, `f32` or a key type (change 0081), and `V` a type an array may hold. Refused anywhere else. */
 function mapCollection(
   name: 'Map' | 'Set',
   typeNode: ts.TypeReferenceNode,
@@ -1555,7 +1272,6 @@ function mapCollection(
   return collectionKeyT({ kind: 'collection', key, value }, keyType!);
 }
 
-/** `fn()` with a `Map` or a `Set` refused again: a collection's value holds neither. */
 function withoutCollections<T>(fn: () => T): T {
   const was = collectionsHere;
   collectionsHere = false;
@@ -1581,8 +1297,6 @@ export function lookupTypeName(name: string): ShaderType | undefined {
   return SCALAR_AND_VEC_MAP[name];
 }
 
-/** `Record<K, V>` with `K` a key type (change 0081, section 2): an `array<V, N>` indexed by the
- *  key's id ({@link recordT}). */
 function mapRecord(
   typeNode: ts.TypeReferenceNode,
   sourceFile: ts.SourceFile,
@@ -1637,9 +1351,6 @@ function mapRecord(
   return recordT(values === undefined ? key! : numericDomainT(i32T, () => values), elem, values);
 }
 
-/** Ask TypeScript for a closed numeric domain, including enum constant expressions and aliases.
- *  Bind a fresh tree: the language service owns the symbols of the authored tree. Only this
- *  domain query uses the checker; ordinary type mapping still reads syntax. */
 function numericRecordValues(
   node: ts.TypeNode,
   sourceFile: ts.SourceFile,

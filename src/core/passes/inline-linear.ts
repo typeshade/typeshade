@@ -1,52 +1,3 @@
-// ═══ Shader DSL — linear (multi-statement) function inlining ═══
-//
-// Extends `inlineFn` (single-return-EXPRESSION only) to SINGLE-EXIT helpers: a
-// body that is any number of statements followed by exactly one trailing
-// `return e`. `noise() { let i = …; let f = …; return mix(…) }` is the simplest
-// shape; the prelude may also contain `if`/`for`/`switch`, because the lift
-// splices it into the CALL SITE's own block, so a branch stays a branch and a
-// loop stays a loop. `fp64-mandelbrot`'s `escape_f32`/`escape_f64` — vars, a
-// bounded escape loop, one trailing return — are the reason that matters: they
-// are the shader's actual algorithm, and leaving them standing while the generic
-// df64 library was flattened defeated the point of an obfuscation pass.
-// `preludeBlocker` lists what the prelude may NOT contain and why.
-// ("LINEAR" survives in this file's and `inlineLinearAll`'s names for API
-// stability; SINGLE-EXIT is the real condition.) Inlining such a body into an
-// expression position is done by
-// LIFTING: the helper's prelude statements (with its locals freshly renamed and
-// its params bound to temps) are spliced into the caller's block immediately
-// before the statement that contains the call, and the call is replaced by a
-// varref to a temp holding the (substituted) return expression.
-//
-// WHY IT'S VALUE-SAFE. Shader code is pure — no I/O, no observable evaluation
-// order. So hoisting a pure sub-expression's computation earlier in the same
-// block (or ahead of an `if`/`switch` it fed) cannot change any result; at most
-// it computes a value a branch won't use, which is unobservable. That is the
-// whole license for this transform, and it's why the CONSERVATIVE exclusions
-// below are the only ones needed. It is the obfuscation counterpart of a JS
-// minifier's function inlining (`typeshade/emit-prod`'s `inline()`).
-//
-// CONSERVATIVE EXCLUSIONS (leave the function; never inline unsoundly):
-//   • body isn't single-exit, or its prelude holds a statement whose meaning moves
-//     with it — early return, a `break`/`continue` that would bind to the caller's
-//     loop, `discard` (impure), `raw` (unreadable). See `preludeBlocker`;
-//   • a call site sits in a `for` init/cond/update — lifting it out would change
-//     how many times it runs;
-//   • a fn marked `opaque` (the df64 EFT library — see FuncDecl.opaque), entry
-//     points, recursive fns — as in autoInline.
-// Everything else — calls in let/var/assign/return exprs, `if` conditions,
-// `switch` scrutinees, and inside any block body — is lifted within its own
-// block, so conditional execution is preserved.
-//
-// INLINING OWES A CLEANUP (X-GIS #1860). Copying a body to N call sites RE-CREATES the
-// redundancy the optimizer had already removed: every value the helper derives
-// from a shared argument is now computed once PER SITE, in the caller's own
-// block, where nothing has run since. `transformIR` fires AFTER `lowerForBackend`
-// has run its fixpoint, so without a cleanup that duplicated arithmetic reaches
-// the GPU — measured on the example corpus, raw inlining spends 1859 IR ops where
-// 1676 suffice (kaleidoscope −18%, domain-warp −14%). So `inlineLinearAll` ends by
-// re-running the value-hoisting passes over what it produced (`CLEANUP` below).
-
 import { stageOf } from '../ir/index.js';
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js';
 import { eachStmtExpr } from '../ir/visit.js';
@@ -57,26 +8,6 @@ import { inlineFn } from './inline.js';
 
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined;
 
-/** Why a prelude cannot be lifted, or undefined if it can.
- *
- *  `let`/`var`/`assign`/`assignOp` are the straight-line core. `if`/`for`/`switch`
- *  are admitted TOO: lifting splices the prelude into the call site's OWN block,
- *  so a branch stays a branch and a loop stays a loop — neither conditional nor
- *  repeated execution moves. What is refused is a statement whose MEANING depends
- *  on where it sits, or that is not pure:
- *
- *   • `return` — a second exit. The lift binds ONE trailing expression to a temp;
- *     an early return would have to become a flag plus a guarded remainder, which
- *     is a different transform (and would need a result `var` rather than a `let`).
- *   • `break` / `continue` NOT enclosed by the helper's own loop/switch. After
- *     lifting they would bind to whatever loop the CALLER happens to sit in —
- *     the one way a pure body can still change the caller's control flow.
- *   • `discard` — the purity argument above is what licenses the whole transform,
- *     and `discard` is the one statement that breaks it: WGSL `||`/`&&` short-
- *     circuit, so a call lifted out of a short-circuited operand would run a
- *     discard the original skipped. (`discard-cutout`'s helper is exactly this.)
- *   • `raw` — text this pass cannot read, so it cannot be renamed or reasoned about.
- *   • `placeholder` — not a real statement yet; refuse rather than guess. */
 function preludeBlocker(
   stmts: readonly Stmt[],
   loopDepth: number,
@@ -119,8 +50,6 @@ function preludeBlocker(
       case 'discard':
         return 'discard';
       case 'call':
-        // A call kept for its effect: lifting it ahead of the `if` or `switch` that guarded
-        // the call site would run the effect on a path that never called (issue #47).
         return 'effect-call';
       case 'raw':
         return 'raw';
@@ -137,9 +66,6 @@ function preludeBlocker(
   return undefined;
 }
 
-/** A single-exit body split into its prelude (all statements but the trailing
- *  `return`) and that return's expression — or undefined if `f` isn't that shape.
- *  The prelude may contain control flow; see `preludeBlocker` for what it may not. */
 function liftableBody(f: FuncDecl): { prelude: readonly Stmt[]; ret: Expr } | undefined {
   const body = f.body;
   if (body.length === 0) return undefined;
@@ -149,7 +75,6 @@ function liftableBody(f: FuncDecl): { prelude: readonly Stmt[]; ret: Expr } | un
   return preludeBlocker(prelude, 0, 0) === undefined ? { prelude, ret: last.expr } : undefined;
 }
 
-/** Does any expression in `e` call `name`? */
 function exprCallsName(e: Expr, name: string): boolean {
   let found = false;
   mapExpr(e, (x) => {
@@ -159,7 +84,6 @@ function exprCallsName(e: Expr, name: string): boolean {
   return found;
 }
 
-/** Does statement `s` (its OWN exprs, not nested block bodies) call `name`? */
 function stmtOwnExprCallsName(s: Stmt, name: string): boolean {
   switch (s.s) {
     case 'let':
@@ -178,8 +102,6 @@ function stmtOwnExprCallsName(s: Stmt, name: string): boolean {
   }
 }
 
-/** True if `name` is called anywhere in a `for` init/cond/update across the
- *  module — the one call-site position that isn't safely liftable. */
 function calledInForHeader(m: ModuleDecl, name: string): boolean {
   let found = false;
   const walk = (stmts: readonly Stmt[]): void => {
@@ -205,7 +127,6 @@ function calledInForHeader(m: ModuleDecl, name: string): boolean {
   return found;
 }
 
-/** True if the whole module still contains a call to `name`. */
 function moduleCallsName(m: ModuleDecl, name: string): boolean {
   return m.funcs.some((f) => f.body.some((s) => stmtDeepCallsName(s, name)));
 }
@@ -237,35 +158,23 @@ function stmtDeepCallsName(s: Stmt, name: string): boolean {
   }
 }
 
-/** Recursive: is `f` (single-return OR linear) a non-entry, non-df64,
- *  non-recursive, still-called helper safe to inline in every call position?
- *  `requireMultiStatement` gates the two passes so single-return goes through
- *  the simpler inlineFn first. */
 function isInlinable(m: ModuleDecl, f: FuncDecl, requireMultiStatement: boolean): boolean {
   if (isEntry(f) || f.opaque === true) return false;
   const lb = liftableBody(f);
   if (lb === undefined) return false;
   if (requireMultiStatement !== lb.prelude.length > 0) return false;
-  // DEEP: a self-call inside the helper's own loop body is still recursion, and a
-  // shallow check would let `inlineLinearAll` inline it into itself forever.
   if (exprCallsName(lb.ret, f.name) || lb.prelude.some((s) => stmtDeepCallsName(s, f.name)))
-    return false; // recursive
-  if (!moduleCallsName(m, f.name)) return false; // dead — leave to deadFnElim
-  // multi-statement lifting is unsound only for for-header call sites.
+    return false;
+  if (!moduleCallsName(m, f.name)) return false;
   if (requireMultiStatement && calledInForHeader(m, f.name)) return false;
   return true;
 }
 
-/** Inline a linear single-exit helper at every (liftable) call site, splicing
- *  its prelude into each caller's block. `counter` is a run-global uniquifier so
- *  spliced local names never collide across inline instances (and the result is
- *  deterministic — required for the two GLSL stage emits to agree). */
 export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number }): ModuleDecl {
   const target = m.funcs.find((f) => f.name === name);
   const lb = target && liftableBody(target);
   if (!target || !lb) return m;
 
-  // Params actually referenced by the body — only those get an arg temp.
   const usedParams = new Set<string>();
   const probeParam = (e: Expr): void => {
     mapExpr(e, (x) => {
@@ -274,17 +183,9 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
       return x;
     });
   };
-  // DEEP, not just the statement's own exprs: `escape_f32` reads `cx`/`cy` only
-  // inside its loop body and `iters` only in the loop CONDITION. A shallow probe
-  // leaves usedParams empty, no arg temp is bound, and `rw` then leaves the
-  // `param` nodes standing in a caller that has no such parameter — a miscompile,
-  // not a missed optimization.
   for (const s of lb.prelude) eachStmtExpr(s, probeParam);
   probeParam(lb.ret);
 
-  /** Replace every call to `name` in `e` with a fresh temp varref, pushing the
-   *  inlined prelude + temp bindings into `lifted` (bottom-up: nested calls
-   *  land first, preserving order). */
   const liftCalls = (e: Expr, lifted: Stmt[]): Expr =>
     mapExpr(e, (x) => {
       if (x.op !== 'call' || x.fn !== name) return x;
@@ -297,22 +198,6 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
         subst.set(param.name, { op: 'varref', type: param.type, name: argTmp });
       });
       const localRen = new Map<string, string>();
-      // `p` ends in `_` and optimizer locals start with `_` (`_cse0`, `_v0`) —
-      // concatenating would form `__`, which GLSL ES reserves. Drop the local's
-      // one leading underscore so the join stays a single separator.
-      //
-      // DEEP because `renameStmt` now descends, and the collector and the renamer
-      // must walk the same tree: a `for`'s induction variable and a `let` inside a
-      // branch are declarations the lift copies too.
-      //
-      // HONEST SCOPE — this is uniformity, NOT a miscompile guard, and the
-      // difference is worth writing down because it looks like one. Severing the
-      // nested collection entirely still passes every arm here: the builder hoists
-      // `var` declarations to function top (so they were never nested), and a
-      // nested `let` that two instances could collide over is copy-propagated away
-      // by the O1 cleanup before it can. It DOES move emitted bytes corpus-wide, so
-      // it is not inert — it just buys one invariant ("every declaration a lift
-      // copies carries its instance prefix") rather than correctness.
       for (const name of declaredNamesDeep(lb.prelude))
         localRen.set(name, `${p}${name.replace(/^_/, '')}`);
       const rw = (ex: Expr): Expr =>
@@ -360,7 +245,6 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
           };
           break;
         case 'for':
-          // header never calls `name` (calledInForHeader gate); only the body can.
           s2 = { ...s, body: inlineInBlock(s.body) };
           break;
         case 'switch':
@@ -386,8 +270,6 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
   return { ...m, funcs: stillCalled ? [target, ...others] : others };
 }
 
-/** Every name a block DECLARES, nested bodies and `for` init included. Names are
- *  unique per function (the builder auto-names), so a flat set is exact. */
 export function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
   const out = new Set<string>();
   const walk = (body: readonly Stmt[]): void => {
@@ -409,9 +291,6 @@ export function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
   return out;
 }
 
-/** Rename a prelude statement's declared name (let/var) and rewrite its exprs,
- *  DESCENDING into nested block bodies and loop headers — the prelude may now
- *  contain control flow, and a nested declaration is a declaration. */
 function renameStmt(s: Stmt, localRen: ReadonlyMap<string, string>, rw: (e: Expr) => Expr): Stmt {
   const sub = (body: readonly Stmt[]): Stmt[] => body.map((b) => renameStmt(b, localRen, rw));
   switch (s.s) {
@@ -456,38 +335,11 @@ function renameStmt(s: Stmt, localRen: ReadonlyMap<string, string>, rw: (e: Expr
   }
 }
 
-/** The post-inline cleanup: re-hoist the values inlining duplicated (see the
- *  header). `gvn` inside O1 is the pass this specifically needs — a lifted prelude
- *  repeats ACROSS statements of one block and reads the caller's LOCALS, which is
- *  exactly the gap between fn-top `cse` (input-only) and statement-local
- *  `cse-local`; the rest of the tier propagates the copies gvn exposes and drops
- *  what that orphans.
- *
- *  O1 and not O2, because BIT-EXACTNESS is required here:
- *  `_emit-obfuscate-gate.spec.ts` asserts a plain emit and an
- *  `[inline(), ...obfuscate()]` emit draw BYTE-IDENTICAL frames on real Tint +
- *  ANGLE. `LEVEL_PASSES.O1` is this repo's named tier of value MOVERS — none
- *  changes which float ops execute — so no result can move by a ULP. The
- *  float-semantics passes O2 adds (`constFold`, `algebraicSimplify`, `licm`) are
- *  deliberately out, and cost nothing to omit: including them reaches the SAME op
- *  count on every example that inlines. */
 const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1;
 
-/** Inline EVERY safely-inlinable helper — single-return via the proven inlineFn,
- *  then linear multi-statement via inlineLinearFn — until none remain, then clean
- *  up the duplication that created (`CLEANUP`). Pure (module -> module);
- *  `typeshade/emit-prod`'s inline() plugin.
- *
- *  `counter` is the lift-temp uniquifier, and it defaults to a FRESH one — correct for a
- *  single call, and wrong for a SEQUENCE. A caller that inlines in several passes over the
- *  same module (force-inline.ts's budgeted path does, one helper at a time) must thread ONE
- *  counter through them all: otherwise every call restarts at `_inl0_`, two rounds bind the
- *  same temp name, and the module comes out with an unbound reference — `unbound _inl1_ret`
- *  from the CPU oracle, caught by the df64 known-answer arms rather than by anything static. */
 export function inlineLinearAll(m: ModuleDecl, counter: { n: number } = { n: 0 }): ModuleDecl {
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m;
   let cur = m;
-  // Each step removes exactly one helper, so the fn count bounds the loop.
   for (let i = 0; i <= m.funcs.length; i++) {
     const single = cur.funcs.find((f) => isInlinable(cur, f, false));
     if (single) {
@@ -501,9 +353,5 @@ export function inlineLinearAll(m: ModuleDecl, counter: { n: number } = { n: 0 }
     }
     break;
   }
-  // Nothing inlined ⇒ nothing to clean up. `cur === m` is exact: both inliners
-  // return the module UNCHANGED when they find no target, so identity holds iff
-  // the loop broke on its first probe. Keeps inline() a true no-op on a module
-  // with no inlinable helper, instead of silently re-optimizing it.
   return cur === m ? m : fixpoint(cur, CLEANUP);
 }

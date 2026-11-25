@@ -1,34 +1,3 @@
-// ═══ grad — forward-mode differentiation of a function's IR (roadmap 0.7 item 18) ═══
-//
-// `grad(m, 'f', 'k')` adds a function to the module that returns the derivative of `f`'s
-// result with respect to its parameter `k`, at the same arguments. It is an IR → IR pass and
-// nothing else: the new function is ordinary IR, so the WGSL writer, the GLSL writer and the
-// CPU oracle take it as they take any other function, and the oracle can check it against a
-// finite difference.
-//
-// FORWARD MODE, as dual numbers written out. Every value of a differentiable type (`f32`, an
-// `f32` vector, an `f32` matrix) gets a TANGENT beside it: `let y = x * x` becomes
-// `let y = x * x; let d_y = d_x * x + x * d_x`. The primal statements stay, since the tangent
-// of a product reads the primal operands, and the optimizer drops the ones nothing reads. The
-// language has no pointer values, no recursion and only bounded loops (a call that writes
-// through an `inout` argument depending on the parameter is refused), so one walk over the body is
-// the whole transform: `if`, `switch` and `for` keep their primal conditions and carry the
-// tangents through their bodies.
-//
-// A tangent is `null` where it is known to be zero: a literal, a constant, a binding, an
-// integer, a comparison. That keeps the generated function as small as the dependence on `k`
-// actually is, and it is what lets the pass refuse precisely: a construct with no derivative
-// rule is refused only when a non-zero tangent reaches it (SD0118), never given a zero
-// derivative silently.
-//
-// A call to another function of the module is differentiated through a JVP helper,
-// `g_jvp(args…, d_args…)`, which takes a tangent for each differentiable parameter and
-// returns the tangent of `g`'s result. Helpers are generated once per callee, callee first,
-// and appended after the module's own functions.
-//
-// Piecewise-constant builtins (`floor`, `ceil`, `round`, `trunc`, `sign`, `step`) have a zero
-// derivative, which is the derivative almost everywhere; the docs say so.
-
 import type { Expr, FuncDecl, ModuleDecl, Stmt } from '../ir/nodes.js';
 import { type ShaderType, typeKey } from '../ir/types.js';
 import { isKnownIntrinsic } from '../intrinsics.js';
@@ -187,8 +156,6 @@ export function grad(
   return { module: { ...m, funcs: [...m.funcs, ...ctx.generated, out] }, name };
 }
 
-// ── types ────────────────────────────────────────────────────────────────────────────
-
 export const isDiffType = (t: ShaderType): boolean =>
   (t.kind === 'scalar' && t.scalar === 'f32') ||
   (t.kind === 'vec' && t.elem === 'f32') ||
@@ -199,13 +166,7 @@ const BOOL: ShaderType = { kind: 'scalar', scalar: 'bool' };
 
 export const refuse = (detail: string) => dslError('SD0118', detail);
 
-/** A type as an author wrote it: a struct by its name, anything else by its WGSL key. */
 export const shown = (t: ShaderType): string => (t.kind === 'struct' ? t.name : typeKey(t));
-
-// ── expression builders ─────────────────────────────────────────────────────────────
-//
-// Every builder takes the result type explicitly: the tangent of an expression has the type of
-// the expression, so the caller always knows it, and nothing here re-derives a type.
 
 export const lit = (value: number): Expr => ({ op: 'lit', type: F32, value });
 export const bin = (bop: '+' | '-' | '*' | '/', a: Expr, b: Expr, type: ShaderType): Expr => ({
@@ -237,8 +198,6 @@ const pick = (cond: Expr, ifTrue: Expr, ifFalse: Expr): Expr => ({
   ifFalse,
 });
 
-/** The zero of a differentiable type, or of the `f32` type of a non-float scalar or vector's
- *  shape (a converting constructor's integer argument has a zero `f32` tangent). */
 export function zero(t: ShaderType): Expr {
   if (t.kind === 'scalar') return lit(0);
   if (t.kind === 'vec') {
@@ -246,8 +205,6 @@ export function zero(t: ShaderType): Expr {
     return { op: 'construct', type: v, args: [lit(0)] };
   }
   if (t.kind === 'mat') {
-    // WGSL has no scalar-diagonal matrix constructor and GLSL has no zero-argument one, so the
-    // zero matrix is written as its zero columns, which both spell.
     const col: ShaderType = { kind: 'vec', n: t.rows, elem: 'f32' };
     return {
       op: 'construct',
@@ -258,14 +215,12 @@ export function zero(t: ShaderType): Expr {
   throw refuse(`no zero tangent for ${shown(t)}`);
 }
 
-/** Widen a scalar tangent to the vector type an operation broadcast it to. */
 function fit(x: Expr, type: ShaderType): Expr {
   if (typeKey(x.type) === typeKey(type)) return x;
   if (x.type.kind === 'scalar' && type.kind === 'vec') return { op: 'construct', type, args: [x] };
   throw refuse(`cannot widen a ${shown(x.type)} tangent to ${shown(type)}`);
 }
 
-/** Null-aware sum and difference of tangents: `null` is a zero tangent. */
 const add = (x: Expr | null, y: Expr | null, type: ShaderType): Expr | null =>
   x === null
     ? y === null
@@ -282,11 +237,8 @@ const sub = (x: Expr | null, y: Expr | null, type: ShaderType): Expr | null =>
     : y === null
       ? fit(x, type)
       : bin('-', x, y, type);
-/** `x * y` where `y` is a tangent that may be zero. */
 const scale = (x: Expr, y: Expr | null, type: ShaderType): Expr | null =>
   y === null ? null : bin('*', x, y, type);
-
-// ── the transform ───────────────────────────────────────────────────────────────────
 
 class GradContext {
   readonly generated: FuncDecl[] = [];
@@ -301,7 +253,6 @@ class GradContext {
     this.funcs = new Map(m.funcs.map((g) => [g.name, g]));
   }
 
-  /** The tangent body of `f` under `env`, the tangent of each parameter. */
   transform(f: FuncDecl, env: Map<string, Expr | null>): Stmt[] {
     for (const p of f.params) {
       if (p.mode === 'inout' && env.get(p.name) != null)
@@ -314,13 +265,11 @@ class GradContext {
     return new FnTransform(this, f, env, names).stmts(f.body);
   }
 
-  /** The user function a call reaches, if it reaches one. */
   callee(e: Extract<Expr, { op: 'call' }>): FuncDecl | undefined {
     if (e.declRef === undefined && isKnownIntrinsic(e.fn)) return undefined;
     return this.funcs.get(e.fn);
   }
 
-  /** The name of `g`'s JVP helper, generating it on first use. */
   jvpOf(g: FuncDecl): string {
     const done = this.jvpNames.get(g.name);
     if (done !== undefined) return done;
@@ -384,14 +333,12 @@ export function collectNames(body: readonly Stmt[], into: Set<string>): void {
   }
 }
 
-/** The root name an assignment target writes through: `v` of `v`, `v.x`, `v[i]`, `v[i].y`. */
 export function rootOf(e: Expr): string | undefined {
   if (e.op === 'varref' || e.op === 'param') return e.name;
   if (e.op === 'member' || e.op === 'index') return rootOf(e.base);
   return undefined;
 }
 
-/** The same access path as `target`, rooted at `tangent` instead. */
 export function retarget(target: Expr, tangent: Expr): Expr {
   if (target.op === 'varref' || target.op === 'param') return tangent;
   if (target.op === 'member') return { ...target, base: retarget(target.base, tangent) };
@@ -441,8 +388,6 @@ class FnTransform {
           this.env.set(s.name, null);
           return;
         }
-        // Every float variable gets a tangent variable, even one that starts at a zero tangent:
-        // a later assignment may give it one.
         const name = this.fresh(s.name);
         const init = s.init !== undefined ? this.d(s.init) : null;
         out.push({ s: 'var', name, type: s.type, init: init ?? zero(s.type) });
@@ -459,7 +404,6 @@ class FnTransform {
         const root = rootOf(s.target);
         const tangent = root !== undefined ? this.env.get(root) : undefined;
         if (tangent !== undefined && tangent !== null && tangent.op !== 'param') {
-          // The tangent is written first: the tangent of `x = x * x` reads the OLD `x`.
           out.push({
             s: 'assign',
             target: retarget(s.target, tangent),
@@ -534,7 +478,6 @@ class FnTransform {
     return 'a struct, an array or a parameter';
   }
 
-  /** Refuse a struct or array value that would carry a non-zero tangent. */
   private refuseCarrier(e: Expr, name: string, type: ShaderType): void {
     if (this.d(e) !== null)
       throw refuse(
@@ -542,7 +485,6 @@ class FnTransform {
       );
   }
 
-  /** The tangent of `e`: an expression of `e`'s type, or `null` for a zero tangent. */
   d(e: Expr): Expr | null {
     switch (e.op) {
       case 'lit':
@@ -619,14 +561,12 @@ class FnTransform {
           T,
         );
       case '/':
-        // d(a / b) = da / b - a * db / (b * b)
         return sub(
           da === null ? null : bin('/', da, e.b, T),
           db === null ? null : bin('/', bin('*', e.a, db, T), bin('*', e.b, e.b, e.b.type), T),
           T,
         );
       case '%':
-        // A float `%` truncates: a % b = a - b * trunc(a / b), and trunc has a zero derivative.
         return sub(
           da,
           db === null ? null : bin('*', db, call('trunc', [bin('/', e.a, e.b, T)], T), T),
@@ -640,7 +580,6 @@ class FnTransform {
   private call(e: Extract<Expr, { op: 'call' }>): Expr | null {
     const ts = e.args.map((a) => this.d(a));
     if (ts.every((t) => t === null)) return null;
-    // An integer or boolean result is piecewise constant in its arguments, whoever computes it.
     if (!isDiffType(e.type)) return null;
     const g = this.ctx.callee(e);
     if (g !== undefined) {
@@ -659,15 +598,8 @@ class FnTransform {
   }
 }
 
-// ── derivative rules ────────────────────────────────────────────────────────────────
-//
-// One entry per builtin id: the primal arguments, their tangents (`null` is zero) and the
-// result type, to the tangent of the result. Each is the textbook derivative, written with the
-// builtins both targets spell.
-
 type Rule = (a: readonly Expr[], d: readonly (Expr | null)[], T: ShaderType) => Expr | null;
 
-/** A rule for a component-wise function of one argument: `f'(x) * dx`. */
 const unary =
   (dfdx: (x: Expr, T: ShaderType) => Expr): Rule =>
   (a, d, T) =>
@@ -675,7 +607,6 @@ const unary =
 
 const c1 = (fn: string) => (x: Expr, T: ShaderType) => call(fn, [x], T);
 const sq = (x: Expr, T: ShaderType) => bin('*', x, x, T);
-/** A rule with a zero derivative almost everywhere. */
 const flat: Rule = () => null;
 
 export const RULES: Readonly<Record<string, Rule>> = {
@@ -708,7 +639,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
   trunc: flat,
   sign: flat,
   step: flat,
-  // saturate(x) = clamp(x, 0, 1): dx inside the interval, zero outside it.
   saturate: (a, d, T) =>
     d[0] === null
       ? null
@@ -733,8 +663,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
     );
   },
   smoothstep: (a, d, T) => {
-    // u = saturate(t), t = (x - e0) / (e1 - e0); the result is u * u * (3 - 2u), whose
-    // derivative 6u(1 - u) * dt is already zero wherever the saturate clamps.
     const [e0, e1, x] = a as [Expr, Expr, Expr];
     const w = bin('-', e1, e0, e1.type);
     const t = bin('/', bin('-', x, e0, T), w, T);
@@ -753,7 +681,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
     );
   },
   atan2: (a, d, T) => {
-    // d atan2(y, x) = (x dy - y dx) / (x² + y²)
     const [y, x] = a as [Expr, Expr];
     const num = sub(scale(x, d[0]!, T), scale(y, d[1]!, T), T);
     return num === null ? null : bin('/', num, bin('+', sq(x, T), sq(y, T), T), T);
@@ -763,7 +690,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
     return add(add(scale(y, d[0]!, T), scale(x, d[1]!, T), T), d[2]!, T);
   },
   mod: (a, d, T) => {
-    // Floor modulo: a - b * floor(a / b), and floor has a zero derivative.
     const [x, y] = a as [Expr, Expr];
     return sub(d[0]!, scale(call('floor', [bin('/', x, y, T)], T), d[1]!, T), T);
   },
@@ -797,7 +723,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
     return bin('/', call('dot', [diff, dd], T), call('distance', [x, y], T), T);
   },
   normalize: (a, d, T) => {
-    // (dv - n dot(n, dv)) / length(v), n = normalize(v)
     const [v] = a as [Expr];
     const dv = d[0]!;
     const n = call('normalize', [v], T);
@@ -805,7 +730,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
     return bin('/', bin('-', dv, along, T), call('length', [v], F32), T);
   },
   reflect: (a, d, T) => {
-    // reflect(i, n) = i - 2 dot(n, i) n
     const [i, n] = a as [Expr, Expr];
     const dDot = add(
       d[1] === null ? null : call('dot', [d[1], i], F32),
@@ -822,7 +746,6 @@ export const RULES: Readonly<Record<string, Rule>> = {
   select: (a, d, T) => call('select', [d[0] ?? zero(T), d[1] ?? zero(T), a[2]!], T),
 };
 
-/** A scalar broadcast to `T`'s shape, for a comparison against a vector. */
 function splat(v: number, T: ShaderType): Expr {
   return T.kind === 'vec' ? { op: 'construct', type: T, args: [lit(v)] } : lit(v);
 }

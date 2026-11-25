@@ -1,55 +1,22 @@
-// ═══ Shader DSL — df64 (double-float) emulation library ═══
-//
-// The two-f32 emulated-double arithmetic the fp64-lower pass (passes/
-// fp64-lower.ts) rewrites f64-typed IR into. An f64 value is an unevaluated
-// (hi, lo) pair carried as a vec2<f32> — x = hi, y = lo, |lo| ≤ ulp(hi)/2 —
-// giving ~48 significand bits at f32 exponent range.
-//
-// Lineage: DSFUN90 (D. H. Bailey) → the NVIDIA CUDA SDK Mandelbrot sample's
-// dsadd/dsmul → Thall, "Extended-Precision Floating-Point Numbers for GPU
-// Computation" (twoSum / quickTwoSum / Veltkamp split / twoProd) → luma.gl's
-// fp64 GLSL module, whose GUARDED formulation these bodies mirror.
-//
-// ── The ONE guard (why every body threads a runtime-opaque `one`) ──
-// The error-free transformations below are algebraically trivial (e.g.
-// `e = b - (s - a)` is 0 in real arithmetic). WGSL §15.7.5 explicitly PERMITS
-// reassociation/fusion, Metal defaults to fast-math, and ANGLE's D3D compiler
-// reassociates — any of which folds the error terms away and silently
-// collapses df64 to f32 precision. Neither WGSL nor GLSL ES 3.00 has a
-// `precise` qualifier. The portable defense (luma.gl's
-// LUMA_FP64_CODE_ELIMINATION_WORKAROUND lineage) is a runtime-opaque ONE
-// (value 1.0) multiplied through the EFT intermediates, so no compiler can
-// cancel them at compile time. The value is fetched from a 1×1 TEXTURE (the
-// `f64Guard` intrinsic → textureLoad/texelFetch on the injected `_fp64`
-// binding), NOT a uniform: uniforms are defeated by drivers that SPECIALIZE
-// pipelines on observed uniform values and hot-swap background-reoptimized
-// variants (seen in the field on Windows/NVIDIA — the f64 half alternated
-// with an f32-collapsed rendering mid-session); no driver constant-folds
-// texel values. The binding is AUTO-INJECTED by fp64Lower into any module
-// that uses these helpers (pin its slot with `fp64Guard()` when an engine's
-// bind-group layout demands it); the host MUST bind a 1×1 texture whose texel
-// reads back exactly 1.0 (e.g. RGBA8 255 or R32F 1.0).
-// FMA-based twoProd is deliberately NOT used — WGSL fma()'s accuracy is
-// "inherited from x*y+z" (fusion not guaranteed).
-//
-// ── What the ~48 bits rest on ──
-// twoSum, quickTwoSum, the Veltkamp split and twoProd are exact only when f32
-// `+ - *` round to nearest, ties to even; under another rounding the error term
-// is not the exact residual. Neither target's spec promises that: GLSL ES 3.00
-// §4.5.1 calls the three correctly rounded but leaves the rounding mode UNDEFINED
-// and lets any operation flush a subnormal to 0, and WGSL fixes no rounding mode.
-// The accuracy this library claims rests on HARDWARE PRACTICE — every shipping
-// GPU rounds f32 add/sub/mul to nearest even — not on either spec. A flushed
-// subnormal costs the low word of a result below ~2^-102 (the word falls under
-// the smallest normal f32).
-//
-// These fns are injected into a module by fp64-lower (never listed by
-// authors); the `df64_` name prefix is reserved (SD0043). Their bodies are
-// ordinary IR, but the emit optimizer must keep the calls OPAQUE — fp64-lower
-// stamps `opaque: true` on every helper it injects and both inliners honour it
-// (see FuncDecl.opaque). The rule is deliberately NOT a name test: `mangle`
-// renames this library on purpose, so a name test held or not depending on
-// plugin order (X-GIS #1926).
+// Why: the guarded EFT formulation is luma.gl's (via DSFUN90, the CUDA SDK dsadd/dsmul and
+// Thall's twoSum / quickTwoSum / Veltkamp split / twoProd). WGSL §15.7.5 permits reassociation
+// and fusion, Metal defaults to fast-math, and ANGLE's D3D compiler reassociates, and neither
+// WGSL nor GLSL ES 3.00 has a `precise` qualifier. Each error term of twoSum, quickTwoSum and the
+// Veltkamp split carries one guard factor, a runtime-opaque 1.0 (the `f64Guard` texel fetch).
+// It is a texture and not a uniform because drivers specialize pipelines on observed uniform
+// values and hot-swap re-optimized variants (seen on Windows/NVIDIA); none folds a texel.
+
+// Why: the ~48 bits rest on f32 `+ - *` rounding to nearest, ties to even. GLSL ES 3.00 §4.5.1
+// leaves the rounding mode undefined and lets any operation flush a subnormal, and WGSL fixes
+// no rounding mode, so the claim rests on hardware practice, not on either spec. A flushed
+// subnormal costs the low word of a result below about 2^-102.
+
+// Why: twoProd is split-based, not FMA-based, because WGSL fma() accuracy is "inherited from
+// x*y+z" and fusion is not guaranteed.
+
+// Why: the emit optimizer keeps calls to these helpers opaque through `opaque: true`, which
+// fp64-lower stamps, and not through a name test: `mangle` renames this library on purpose, so
+// a name test held or not depending on plugin order (X-GIS #1926).
 
 import {
   fn,
