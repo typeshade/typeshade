@@ -1,5 +1,6 @@
 import { breadth, summariseBreadth } from './code-shape/breadth.js';
 import { createContext, relativeToRoot } from './code-shape/context.js';
+import { home, summariseHome } from './code-shape/home.js';
 import { layer, summariseLayer } from './code-shape/layer.js';
 import { formatJson, formatMarkdown, type SignalReport } from './code-shape/report.js';
 import type { Finding, ShapeContext, Signal, SignalName } from './code-shape/types.js';
@@ -13,6 +14,7 @@ export interface RegisteredSignal {
 export const SIGNALS: readonly RegisteredSignal[] = [
   { name: 'layer', run: layer, summarise: summariseLayer },
   { name: 'breadth', run: breadth, summarise: summariseBreadth },
+  { name: 'home', run: home, summarise: summariseHome },
 ];
 
 const USAGE = 'Usage: bun scripts/code-shape.ts [--json] [--file <path>...] [--repo <path>]';
