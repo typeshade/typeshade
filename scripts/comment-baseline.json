@@ -196,7 +196,7 @@
   "src/compiler/ts/lower/const-call.ts": 24,
   "src/compiler/ts/lower/constructors.ts": 21,
   "src/compiler/ts/lower/control.ts": 271,
-  "src/compiler/ts/lower/expression-array.ts": 72,
+  "src/compiler/ts/lower/expression-array.ts": 65,
   "src/compiler/ts/lower/expression-call.ts": 524,
   "src/compiler/ts/lower/expression-misc.ts": 93,
   "src/compiler/ts/lower/expression-prop.ts": 155,
