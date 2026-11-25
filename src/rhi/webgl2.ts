@@ -33,12 +33,9 @@ import type {
   RhiCanvas,
   RhiCaps,
   RhiCommandEncoder,
-  RhiComputePass,
   RhiComputePipeline,
   RhiDevice,
   RhiNativeKinds,
-  RhiRenderPass,
-  RhiRenderPassDesc,
   RhiRenderPipeline,
   RhiRenderPipelineDesc,
   RhiSampler,
@@ -48,7 +45,7 @@ import type {
   RhiTextureDesc,
   RhiTextureView,
 } from './rhi.js';
-import type { GL, GlEncoderHost } from './webgl2/types.js';
+import type { GL } from './webgl2/types.js';
 import { formatOf } from './webgl2/format.js';
 import { GlState } from './webgl2/state.js';
 import { compareOf, drawStateOf } from './webgl2/draw-state.js';
@@ -67,7 +64,7 @@ import {
   GlGroup,
   GlCanvas,
 } from './webgl2/handles.js';
-import { GlRenderPass } from './webgl2/render-pass.js';
+import { NO_COMPUTE, GlEncoder } from './webgl2/encoder.js';
 export { glReadBindings } from './webgl2/pipeline.js';
 export { firstVertexLast } from './webgl2/first-vertex-last.js';
 export { DATA_WIDTH } from './webgl2/data-texture.js';
@@ -89,38 +86,6 @@ void main() {
   gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;
 }
 `;
-}
-
-const NO_COMPUTE =
-  'The WebGL2 backend has no compute pass: a dispatch on WebGL2 runs as the pass program of change 0054 (caps.compute is fragment-emulated).';
-
-class GlEncoder implements RhiCommandEncoder {
-  constructor(private readonly device: GlEncoderHost) {}
-
-  beginRenderPass(desc: RhiRenderPassDesc): RhiRenderPass {
-    return new GlRenderPass(this.device, this.device.state(), desc);
-  }
-
-  beginComputePass(): RhiComputePass {
-    throw new TypeError(NO_COMPUTE);
-  }
-
-  copyBufferToBuffer(
-    src: RhiBuffer,
-    srcOffset: number,
-    dst: RhiBuffer,
-    dstOffset: number,
-    size: number,
-  ): void {
-    const from = (src as GlBuffer).bytes;
-    const to = dst as GlBuffer;
-    if (from === undefined || to.bytes === undefined)
-      throw new TypeError(
-        'copyBufferToBuffer on WebGL2 copies between buffers the device made; a host WebGLBuffer holds no bytes the device keeps.',
-      );
-    to.bytes.set(from.subarray(srcOffset, srcOffset + size), dstOffset);
-    to.staleBuffer = to.staleTexture = true;
-  }
 }
 
 const isA = (name: string, o: object): boolean => {
