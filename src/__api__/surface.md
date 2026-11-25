@@ -1410,10 +1410,10 @@ src/core/measure.ts#countOps  function  (m: ModuleDecl) => OpCount
 src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
 src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "glsl-es300") => EmitProfile
-src/core/oracle.ts#CpuModule  interface  { dispatch: (entry: string, workgroups: WorkgroupCount) => DispatchReport; fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
-src/core/oracle.ts#CpuPrecision  type  "f32" | "f64"
-src/core/oracle.ts#DispatchReport  interface  { barrierPhases: number; invocations: number; workgroups: number }
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; consoleSink?: ConsoleSink; overrides?: Readonly<Record<string, CpuValue>>; }) => CpuModule
+src/core/oracle/types.ts#CpuModule  interface  { dispatch: (entry: string, workgroups: WorkgroupCount) => DispatchReport; fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
+src/core/oracle/types.ts#CpuPrecision  type  "f32" | "f64"
+src/core/oracle/types.ts#DispatchReport  interface  { barrierPhases: number; invocations: number; workgroups: number }
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
 src/core/passes/determinism.ts#DeterminismAccuracy  type  { readonly kind: "exact"; readonly note?: string; } | { readonly kind: "ulp" | "absolute" | "inherited" | "unbounded" | "filtered" | "target"; readonly bound: string; readonly note?: string; }

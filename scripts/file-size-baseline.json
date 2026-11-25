@@ -144,7 +144,7 @@
   "src/core/manifest.test.ts": 717,
   "src/core/manifest.ts": 910,
   "src/core/oracle-backend-parity.test.ts": 486,
-  "src/core/oracle.ts": 724,
+  "src/core/oracle.ts": 658,
   "src/core/passes/console-buffer.ts": 454,
   "src/core/passes/derivative-rewrite.test.ts": 424,
   "src/core/passes/derivative-rewrite.ts": 1459,
