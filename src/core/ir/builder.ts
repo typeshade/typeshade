@@ -1,9 +1,3 @@
-// ═══ Shader DSL — function/statement builder ═══
-//
-// The imperative authoring surface: Builder (collects Stmt nodes via
-// let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
-// computeFn / entryFn / module assemblers. Imports types + nodes + node.
-
 import { type ShaderType, type KeyOf, type ScalarKey, voidT, typeKey } from './types.js';
 import {
   type Stmt,
@@ -58,23 +52,13 @@ import { captureLoc, recordLoc } from '../diagnostics/loc.js';
  *  ```
  */
 export type ParamSpec = Record<string, ShaderType>;
-/** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
- *  `location(0, vec4fT)` (the SAME FieldSpec the ioStruct fields use). A plain ShaderType value is
- *  an ordinary param. Lets one `fn()` author both helpers and `@vertex`/`@fragment`/`@compute`
- *  entries from a single param record. */
 type ParamAttr = {
   readonly type: ShaderType;
   readonly attr: string;
-  // Structured IO fields (X-GIS #740 R3 / X-GIS #763 S5) — sot's builtin()/location() set these;
-  // fn() threads them into FuncDecl.params so reflect() sees vertex attributes
-  // WITHOUT re-parsing the attr string.
   readonly location?: number;
   readonly builtin?: string;
   readonly interpolate?: string;
 };
-/** A structDecl / ioStruct HANDLE used directly as a param spec value (X-GIS #740 R6):
- *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
- *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
 type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object };
 /** The parameter record `fn()` accepts. Each key is a parameter name and each value is one
  *  of three things: a plain {@link ShaderType} for an ordinary parameter; a {@link builtin}
@@ -107,10 +91,6 @@ type ParamTypeOf<E> = E extends ParamAttr
     : E extends ShaderType
       ? E
       : never;
-/** Body-side param values. Params are READ-ONLY in WGSL — the node type is
- *  `ReadonlyNode`, so `p.a.assign(…)` is a tsc error (X-GIS #763 G3; the runtime
- *  never guarded this: auto-vars skips param roots and the emitted assign
- *  died in the driver). Struct-handle params receive the handle's READ view. */
 type ParamNodes<P extends FnParamSpec> = {
   [K in keyof P]: P[K] extends StructParamHandle
     ? ReturnType<P[K]['of']>
@@ -141,13 +121,6 @@ type ParamNodes<P extends FnParamSpec> = {
 export class Builder {
   readonly stmts: Stmt[] = [];
 
-  // The auto-name counter is SHARED across a function's nested sub-builders (see
-  // child()), so an omitted binding name gets a function-unique `_v{n}`. A per-block
-  // counter would restart at _v0 inside each If/Loop body, letting an inner _v0 shadow
-  // an outer one — and the outer binding's varref (captured at author time) would then
-  // mis-resolve to the inner shadow. Function-scoped uniqueness rules that out. The
-  // counter is per-function (reset on each root Builder), so the emit stays deterministic
-  // across rebuilds — required by the byte-identical WGSL snapshot gates.
   constructor(private readonly autoNames: { n: number } = { n: 0 }) {}
 
   /** A builder for a nested scope (an `if`, loop or `switch` body) that shares this
@@ -224,8 +197,6 @@ export class Builder {
       commit: (type) => {
         stmt.type = type;
       },
-      // Drop the pushed decl — for a Switch used as a STATEMENT (no case returned a value), the
-      // reserved var is unused; removing it keeps the emit free of a stray typeless `var`.
       cancel: () => {
         const i = this.stmts.indexOf(stmt as Stmt);
         if (i >= 0) this.stmts.splice(i, 1);
@@ -289,8 +260,6 @@ export class Builder {
       { cond: cond.expr, body: subBody(this, body, 'If body', 'If') },
     ];
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined };
-    // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
-    // view only — the builder owns construction.
     this.push(stmt);
     return new IfChain(this, arms, (e) => {
       stmt.elseBody = e;
@@ -338,8 +307,6 @@ export class Builder {
     const updateStmt: Stmt = {
       s: 'assign',
       target: i.expr,
-      // stepNode's exact scalar-vs-K match is enforced at AUTHOR-RUN time (SD0004
-      // from binResultType), not by tsc — K is abstract at this generic call site.
       expr: i.add(stepNode as unknown as ArithArg<K>).expr,
     };
     this.push({
@@ -352,8 +319,6 @@ export class Builder {
   }
 
   switch(
-    // Integer keys only: WGSL and GLSL ES 3.00 both type `switch` over i32/u32 — an
-    // f32 scrutinee used to type-check (ScalarKey) and die at BOTH GPU compilers.
     scrut: ReadonlyNode<'i32' | 'u32'>,
     cases: Array<[number, (b: Builder) => ReadonlyNode | void]>,
     defaultBody?: (b: Builder) => ReadonlyNode | void,
@@ -406,24 +371,10 @@ export class IfChain {
   }
 }
 
-// ── Ambient current-builder stack (C2) ──
-// The free functions below (Let / Var / If / Loop / assign / …) push onto the
-// INNERMOST active scope, so authoring no longer threads a `Builder` param per
-// nesting level (the cb→d→cb2→e proliferation that caused the documented
-// line.ts:721-726 shadowing bug). push/pop is exception-safe (try/finally) — a
-// throw mid-body must not leak the stack into the next shader. This is a pure
-// authoring-surface change: it emits the same Stmt[] as the passed-builder API.
-// globalThis-backed (X-GIS #763 D2): a dual-loaded package copy used to get its OWN
-// empty stack — `Let` imported from copy B inside a body authored by copy A's
-// `fn` threw SD0013 at module load. Sharing the ambient state across copies
-// makes the duplication harmless.
 const scopeStack: Builder[] = ((globalThis as Record<symbol, unknown>)[
   Symbol.for('typeshade.scopeStack')
 ] ??= []) as Builder[];
 
-// Loud (once) when a second copy loads — the state above makes it SAFE, but a
-// duplicated package still doubles load cost and usually means a bundler
-// dedupe/config problem worth seeing.
 {
   const g = globalThis as Record<symbol, unknown>;
   const key = Symbol.for('typeshade.instanceLoaded');
@@ -451,19 +402,11 @@ function withScope<T>(b: Builder, run: () => T): T {
   }
 }
 
-// Wire the Node lvalue methods (`x.assign(v)`, and `x.addAssign(v)` and its siblings — #8 S2)
-// to the current scope — installed here so node.ts stays free of a builder import.
 installStmtSink({
   assign: (target, value) => currentBuilder().assign(target, value),
   assignOp: (target, bop, value) => currentBuilder().assignOp(target, bop, value),
 });
 
-// ═══ X-GIS #843 — authoring-error context ═══
-// When an author's callback throws (a JS ReferenceError, a sot field typo, …) the
-// stack leads with builder internals and the failing fn / statement is invisible.
-// Each callback boundary prefixes the SAME error object's message once — symbol-
-// tagged so nested scopes don't stack a prefix per level — preserving the error's
-// class (instanceof, coded SD#### diagnostics, substring-matching tests all hold).
 const AUTHOR_KIND_TAGGED = Symbol('shader-dsl authoring kind tagged');
 const AUTHOR_FN_TAGGED = Symbol('shader-dsl authoring fn tagged');
 
@@ -478,30 +421,17 @@ function subBody(
   parent: Builder,
   fn: (b: Builder) => ReadonlyNode | void,
   kind?: string,
-  // #8 B4 — the branch spelling this body belongs to (`If`, `elif`, `else`). Present means
-  // a returned value is REPORTED rather than dropped; see the throw below.
   branch?: string,
 ): Stmt[] {
-  // child() shares the parent's auto-name counter, so an omitted binding name inside this
-  // nested scope keeps incrementing the same `_v{n}` sequence (no inner-shadows-outer).
   const b = parent.child();
-  // A control-flow body does NOT capture a native `return value`: `If(c, () => x)` would
-  // then be an INVISIBLE early return that reads as fall-through. Early returns are
-  // explicit — `ReturnIf(cond, value)` (a guard clause) or `Return()` inside the branch.
   const result = withScope(b, () => {
     try {
       return fn(b);
     } catch (e) {
-      // innermost statement kind wins (the tag blocks outer scopes' re-prefixing)
       if (kind !== undefined) tagAuthoringError(e, AUTHOR_KIND_TAGGED, `in ${kind}`);
       throw e;
     }
   });
-  // #8 B4 — dropping that value SILENTLY is the part worth fixing. `If(c, () => Return(f32(1)))`
-  // and `If(c, () => f32(1))` differ by three characters and by everything else: the second
-  // computes a value nothing reads, and emits an empty `if` block. Nothing downstream can
-  // report it — by the time the module exists the value is gone — so it is reported here,
-  // where the callback's return is still in hand.
   if (branch !== undefined && isNodeValue(result)) {
     throw dslError(
       'SD0115',
@@ -511,22 +441,6 @@ function subBody(
   return b.stmts;
 }
 
-/** A function authored with fn() is a typed callable that also carries the FuncDecl shape
- *  (name/params/ret/body), so it drops straight into `module({ funcs: [foo] })` and `foo.decl`
- *  is the plain FuncDecl. This is the three.js TSL `Fn` shape (callable and function node in
- *  one value): a shader calls the handle itself, with no separate call-by-name step. Two call
- *  forms:
- *   - typed object-param `foo({ a, b })`: TypeScript checks argument names, types and
- *     completeness, and autocompletes the params (positional args cannot be typed: an object
- *     spec is not an ordered tuple in TS). The args are mapped to positional order at the call.
- *   - positional `foo(a, b)`: loose (NodeLike), deprecated in favour of the object form. */
-// R is the RETURN KEY (e.g. 'f32', 'vec2<f32>') — inferred from the body's return Node, so a fn declares
-// no return type. The args mapped-type's own K is the PARAM key (unrelated).
-/** A forwardable struct field proxy (a handle param / `.of()` view) — accepted
- *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
-// X-GIS #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
-// returns the proxy (`return o`) infers the fn's return key instead of collapsing to
-// `string`. Defaulted, so the loose ARGUMENT positions below stay unchanged.
 type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> };
 
 /** The type `fn()` returns: a typed, callable handle that is also a `FuncDecl`. The same
@@ -562,21 +476,10 @@ export type FnHandle<P extends FnParamSpec, R extends string> = FuncDecl & {
   (...args: (NodeLike | StructArg)[]): Node<R>;
 } & { readonly decl: FuncDecl };
 
-/** The call-node factory shared by fn()'s handle and externFn(): maps the typed
- *  object-param form `f({ a, b })` to positional arguments (names → declared order), else
- *  passes positional args straight through. One implementation guarantees that an extern call
- *  and the real fn's call emit the identical call-by-name node. */
 function makeCallFactory<R extends ShaderType>(
   name: string,
   ret: R,
   paramList: ReadonlyArray<{ name: string; type: ShaderType }>,
-  // The callee's decl, when the factory belongs to a real fn() handle (externFn has
-  // none). Stamped onto every call node as `declRef` so module() can auto-collect
-  // transitive callees and key-naming can re-spell calls. Note the call spells
-  // `declRef.name` at BUILD time (not the closed-over `name`): a key-named module
-  // may rename the decl AFTER call sites were authored in other fns' bodies —
-  // reading through the decl keeps handle-made calls rename-consistent, and the
-  // assembly-time rewrite covers nodes built before a rename.
   declRef?: FuncDecl,
 ): (...args: NodeLike[]) => Node<KeyOf<R>> {
   const mk = (args: NodeLike[]): Node<KeyOf<R>> => {
@@ -584,22 +487,12 @@ function makeCallFactory<R extends ShaderType>(
     if (declRef) (n.expr as { declRef?: FuncDecl }).declRef = declRef;
     return n;
   };
-  // A struct FIELD PROXY (a handle param / a `.of()` view) forwards as its raw
-  // struct-value Node via its `$` accessor (X-GIS #740 R6) — so `helper(p.input)` just
-  // works when p.input arrived as a typed handle param.
-  // isNodeValue, NOT instanceof (X-GIS #763 D1): a dual-loaded package splits the
-  // prototype identity, and a cross-instance node falling through instanceof
-  // was misrouted into the named-args parse (TypeError at load, or a silent
-  // mis-swizzle when a param name collides with a component getter).
   const unwrap = (v: unknown): unknown =>
     v !== null && typeof v === 'object' && !isNodeValue(v) && '$' in (v as object)
       ? (v as { $: ReadonlyNode }).$
       : v;
   return (...rawArgs: NodeLike[]): Node<KeyOf<R>> => {
     const args = rawArgs.map(unwrap) as NodeLike[];
-    // Typed object-param call `f({ lon, lat })` — map the named args to positional order.
-    // Distinguished from a single positional Node arg: a params object is a plain object, a
-    // Node is a class instance, and a struct field proxy unwraps to one above.
     const a0 = args[0];
     if (
       args.length === 1 &&
@@ -608,13 +501,7 @@ function makeCallFactory<R extends ShaderType>(
       typeof a0 === 'object' &&
       !Array.isArray(a0)
     ) {
-      // Principled cast: the preceding typeof / isNodeValue / Array.isArray guards prove
-      // a0 is a plain named-args record here; TS can't recover that through the `unwrap`
-      // map (args is pinned to NodeLike[]) without widening the public call signature.
       const obj = a0 as unknown as Record<string, NodeLike>;
-      // A raw number in the object form lifts to the DECLARED param type — the
-      // caller named the parameter, so its type is known (unlike the positional
-      // form, whose bare numbers can only default-lift). Struct proxies unwrap.
       return mk(
         paramList.map((p) => {
           const v = unwrap(obj[p.name]) as NodeLike;
@@ -627,67 +514,23 @@ function makeCallFactory<R extends ShaderType>(
 }
 
 type FnOpts = {
-  /** Record a deliberate deviation from the `single-exit` lint rule, for a body whose early
-   *  {@link Return} skips work. */
   allowEarlyReturn?: boolean;
-  /** Rule ids whose diagnostics are dropped for this function; the general form of
-   *  `allowEarlyReturn`. */
   lintDisable?: readonly string[];
-  /** Stage: makes this a pipeline entry point (`@vertex`, `@fragment` or
-   *  `@compute @workgroup_size(...)`). Omit it for an ordinary helper. */
   stage?: 'vertex' | 'fragment' | 'compute';
-  /** Workgroup size for a `stage: 'compute'` entry (defaults to 64): the `x` extent, or one to
-   *  three extents `[x, y, z]`, a missing `y` or `z` being 1. */
   workgroupSize?: number | readonly [number, number?, number?];
-  /** Declare this compute entry a portable kernel; compute-only, `SD0110` otherwise.
-   *
-   *  A portable kernel emits on both backends: natively as `@compute` on WGSL, where
-   *  `portable` changes no bytes since it is not a WGSL attribute, and on GLSL ES 3.00
-   *  through a compute-to-fragment translation, which WebGL2 dispatches as a fullscreen
-   *  draw into an R32UI target. In exchange the kernel stays inside the gather-only tier,
-   *  `out[gid.x] = f(reads)`: a `global_invocation_id` read only as `.x`, exactly one
-   *  `read_write` storage binding of `array<u32>` written exactly once at the invocation
-   *  index, a first `uniform` binding of `vec4<u32>` (the dispatch uniform: `.x` is the
-   *  invocation count, `.y` the output-grid width), and no `raw` statements anywhere the
-   *  entry can reach. Anything outside that shape fails validation at every emit on both
-   *  writers with `SD0111` and a per-violation remedy. Omit it and the compute entry runs on
-   *  WebGL2 as the pass program when it reaches no texture (Rule 8.24). */
   portable?: boolean;
-  /** Return-value attribute for a bare (non-struct) stage output, giving
-   *  `-> @location(0) vec4<f32>`. A typed `location(0, T)` spec is accepted and its `.attr`
-   *  is used. A bare non-struct fragment return defaults to `@location(0)`. */
   retAttr?: string | { readonly attr: string; readonly builtin?: string };
 };
-// A body may return the raw node OR a struct field proxy (`return o` — X-GIS #763 X14):
-// the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
-// a node. StructArg is the `{ $: ReadonlyNode }` shape every sot proxy carries.
 type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R> | void;
-// X-GIS #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
-// the TS level cannot tell tsc what it returns: `inferReturnType` walks the recorded
-// statements and finds `f32` for a guard-style body, but TS sees `void` and falls back to
-// `R = string`, which puts every call site outside the phantom-key checker. Such a body must
-// name its return type (or `voidT`) through the explicit-`ret` overloads.
 type FnBodyValue<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R>;
-// #8 B1 — the body shape the VOID-INFERRING overloads accept. It is the same `void` TS sees
-// for the guard-style body X-GIS #2458 turned away, so the separation cannot be made at the type
-// level; it is made at run time instead, by `assertInferredVoid` below. The declared
-// parameter type is `undefined` rather than `void` so a body that DOES return a node keeps
-// matching the value overloads first — `void` as a return type accepts any value.
 type FnBodyVoid<P extends FnParamSpec> = (p: ParamNodes<P>, b: Builder) => undefined | void;
 
-// #8 B1 — the runtime half of the void-inferring overloads. Those overloads pin the handle's
-// key to `'void'` without a `voidT` token, and X-GIS #2458 is right that a key which LIES is worse
-// than `string`: TypeScript reads `(p) => { If(c, () => Return(x)); Return(f32(0)) }` as
-// returning nothing too, and that body returns f32. So the claim is checked where the answer
-// exists — after the body has run, against what `inferReturnType` actually found. A body that
-// returns a value through an ambient Return() is turned away here, naming the token to pass,
-// instead of being handed a false key.
 function assertInferredVoid(name: string, ret: ShaderType): void {
   if (ret.kind === 'void') return;
   throw dslError(
@@ -696,9 +539,6 @@ function assertInferredVoid(name: string, ret: ShaderType): void {
   );
 }
 
-/** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
- *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
- *  an early `Return(value)` (a guard). voidT when nothing is returned (statement / compute entry). */
 function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): ShaderType {
   if (result !== undefined) return result.type;
   const scan = (ss: readonly Stmt[]): ShaderType | undefined => {
@@ -732,19 +572,6 @@ function inferReturnType(result: ReadonlyNode | void, stmts: readonly Stmt[]): S
   return scan(stmts) ?? voidT;
 }
 
-// Auto-name counter for fn() calls that omit the name. Advanced ONLY on omission (explicit
-// names never consume it). It is process-global + advanced in fn()-call order — deterministic
-// for fns authored at module load (fixed ES evaluation order), which is the safe case.
-// ⚠️ The caveat is about a BARE `_fn{n}` reaching emitted WGSL: the byte-identical snapshots
-// are baked in one process and checked in another, and a fn referenced by a STRING name
-// (externFn('project', …) / a callFn('…') / a placeholder-swap funcs[] lookup) must keep a
-// stable explicit name. Two ways to have one (X-GIS #763 H9): pass the name to fn(), OR list the
-// anonymous handle in a `funcs:` KEY-RECORD — the record key deterministically RENAMES the
-// decl (and every handle-made call site, via declRef + the assembly rewrite), so fnAutoId
-// never reaches the output. Only an anonymous fn used in an ARRAY-form module emits `_fn{n}`.
-// globalThis-backed counter (X-GIS #763 D2) — two copies each starting at `_fn0`
-// would collide in the name-keyed module dedup and silently mis-link
-// DIFFERENT anonymous fns as one.
 const fnAutoState = ((globalThis as Record<symbol, unknown>)[Symbol.for('typeshade.fnAutoId')] ??= {
   n: 0,
 }) as { n: number };
@@ -858,13 +685,6 @@ export function fn<P extends FnParamSpec, R extends string>(
   body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>;
-// #8 B1 — the void-body overloads. They sit AFTER the value overloads, so a body that returns
-// a value still matches those first and only a body TypeScript reads as returning nothing
-// falls through to here, where the handle lands on `'void'` with no `voidT` token written. The
-// guard-style body that shares that TypeScript shape is separated at run time (SD0113).
-// They sit BEFORE the explicit-`ret` overloads so the LAST signature stays the one it has
-// always been: `ReturnType<typeof fn>` reads the last overload, and moving it would retype
-// every `ReturnType<typeof fn>` annotation in the tree.
 export function fn<P extends FnParamSpec>(
   params: P,
   body: FnBodyVoid<P>,
@@ -899,25 +719,16 @@ export function fn(
   const named = typeof a === 'string';
   const name = named ? (a as string) : `_fn${fnAutoState.n++}`;
   const params = (named ? b : a) as FnParamSpec;
-  // The slot after params is either the EXPLICIT return type (a ShaderType) or the BODY (a function) when
-  // the return type is inferred. A ShaderType is a plain object; the body is a function — that tells them apart.
   const retOrBody = named ? c : b;
   const explicitRet = typeof retOrBody === 'function' ? undefined : (retOrBody as ShaderType);
   const inferred = explicitRet === undefined;
   const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>;
   const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined;
-  // The portable kernel tier is a COMPUTE declaration (X-GIS #1812) — the two-layer pattern's
-  // runtime half, checked here (before the body runs) because `FnOpts` is one flat bag and
-  // TS cannot make the pairing unrepresentable without splitting the overload set.
   if (opts?.portable === true && opts.stage !== 'compute')
     throw dslError(
       'SD0110',
       `fn '${name}' declares portable with ${opts.stage ? `stage: '${opts.stage}'` : 'no stage (an ordinary helper fn)'}`,
     );
-  // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
-  // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
-  // `@location(…)` — or a structDecl/ioStruct HANDLE (X-GIS #740 R6), whose param arrives in
-  // the body as the TYPED field proxy (no `X.of(p.in)` re-assertion).
   const entries = Object.entries(params).map(([n, spec]) => {
     const isHandle = 'of' in spec && typeof (spec as StructParamHandle).of === 'function';
     const fieldSpec = !isHandle && 'attr' in spec ? (spec as ParamAttr) : undefined;
@@ -927,9 +738,6 @@ export function fn(
         ? (spec as ParamAttr | StructParamHandle).type
         : spec) as ShaderType,
       attr: fieldSpec?.attr,
-      // X-GIS #763 S5 — thread the structured IO fields through to FuncDecl.params;
-      // dropping them here made reflect() see ZERO vertex attributes for
-      // location()-authored entry params (the string fallback was load-bearing).
       location: fieldSpec?.location,
       builtin: fieldSpec?.builtin,
       interpolate: fieldSpec?.interpolate,
@@ -951,45 +759,30 @@ export function fn(
     }),
   ) as ParamNodes<FnParamSpec>;
   const bld = new Builder();
-  // A body may `return value` (native TS) for its FINAL return — fn appends the
-  // ret Stmt, so authoring reads like a normal function. Early returns inside
-  // control flow still use Return() (a native return there only exits the closure).
   const rawResult = withScope(bld, () => {
     try {
       return body(paramNodes, bld);
     } catch (e) {
-      // X-GIS #843 — outermost authoring context: name the fn whose body threw, once
-      // (a nested subBody has already tagged the statement kind by this point).
       tagAuthoringError(e, AUTHOR_FN_TAGGED, `while building fn '${name}'`);
       throw e;
     }
   });
-  // A struct field proxy returned directly (`return o` — X-GIS #763 X14) forwards
-  // `.expr`/`.type` to its base var, so it reads like a node from here on.
   const result = rawResult as ReadonlyNode | void;
   if (result !== undefined) bld.ret(result);
-  // Return type: explicit token if given, else inferred from what the body returns.
   const ret = explicitRet ?? inferReturnType(result, bld.stmts);
-  // #8 B1 — a body that produced no TS-level value took one of the void-inferring overloads,
-  // whose handle says `'void'`. Hold it to that, or say which token to write.
   if (inferred && result === undefined) assertInferredVoid(name, ret);
-  // stage → pipeline attrs (@vertex / @fragment / @compute @workgroup_size(N)).
   const shape = opts?.stage === 'compute' ? toWorkgroupShape(opts.workgroupSize ?? 64) : undefined;
   const attrs = shape
     ? ['@compute', workgroupSizeAttr(shape)]
     : opts?.stage
       ? [`@${opts.stage}`]
       : undefined;
-  // retAttr: string | FieldSpec, with the fragment default (X-GIS #763 X3).
   const retAttrRaw = opts?.retAttr;
   const retAttr =
     (typeof retAttrRaw === 'string' ? retAttrRaw : retAttrRaw?.attr) ??
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
       : undefined);
-  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (X-GIS #1672): dropping
-  // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
-  // one authoring path where an absent builtin could still reach WGSL text silently.
   const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin;
   const decl: FuncDecl = {
     name,
@@ -997,35 +790,22 @@ export function fn(
     ret,
     body: bld.stmts,
     attrs,
-    // Structured stage (X-GIS #740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
     workgroupSize: shape?.[0],
-    // Only a shape with a `y` or `z` other than 1 is carried: an absent one reads as
-    // `[workgroupSize, 1, 1]`, so a one-dimensional entry's IR is what it always was.
     ...(shape !== undefined && (shape[1] !== 1 || shape[2] !== 1) ? { workgroupShape: shape } : {}),
-    // Structured-only, no attrs spelling (X-GIS #740 R3 / X-GIS #1812) — see FuncDecl.portable.
     portable: opts?.portable,
     retAttr,
     retBuiltin,
     allowEarlyReturn: opts?.allowEarlyReturn,
     lintDisable: opts?.lintDisable,
   };
-  // The handle IS the call node factory (shared with externFn); the FuncDecl fields are mixed
-  // onto it so it still duck-types as a FuncDecl in a module's funcs[]. `name` is a non-writable
-  // function prop, so it is set via defineProperty (Object.assign would throw on it under strict).
   const handle = makeCallFactory(name, ret, paramList, decl) as FnHandle<FnParamSpec, string>;
-  // enumerable so `{ ...handle }` (e.g. the projection-fn spread) carries the name; a
-  // function's own `name` is non-enumerable by default, which would drop it from a spread.
   Object.defineProperty(handle, 'name', { value: name, configurable: true, enumerable: true });
   Object.assign(handle, {
     params: paramList,
     ret,
     body: decl.body,
     attrs: decl.attrs,
-    // X-GIS #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
-    // it has no fallback to recover it from: a handle that did not mirror it would drop the
-    // declaration the moment module() put the handle (not the decl) into funcs[], and the
-    // whole tier would be silently dead on the only path that can author it — fn().
     portable: decl.portable,
     retAttr: decl.retAttr,
     retBuiltin: decl.retBuiltin,
@@ -1033,9 +813,6 @@ export function fn(
     lintDisable: decl.lintDisable,
     decl,
   });
-  // Stamp the handle (the object that lands in a module's funcs[] and that the lint
-  // engine iterates) with its authored location, so Func-level diagnostics can resolve
-  // a file:line:col. No-op unless source tracing is on.
   recordLoc(handle, captureLoc());
   return handle;
 }
@@ -1086,8 +863,6 @@ export function externFn<P extends ParamSpec, R extends ShaderType>(
   return makeCallFactory(name, ret, paramList) as ExternFn<P, R>;
 }
 
-// ── module assembly: transitive fn collection + key-naming (X-GIS #740 R1) ──
-
 /** A declarator handle accepted by `module({ uses })`: anything that carries its own
  *  declaration or binding. {@link uniformStruct} returns `{ struct, binding }`;
  *  {@link ioStruct}, {@link structDecl} and {@link constDecl} return `{ decl }`;
@@ -1123,10 +898,8 @@ export interface ModuleParts extends Omit<Partial<ModuleDecl>, 'funcs'> {
   readonly uses?: readonly UsesHandle[];
 }
 
-/** The decl behind a funcs[] item — FnHandle carries `.decl`; a plain FuncDecl is itself. */
 const declOf = (f: FuncDecl): FuncDecl => (f as { decl?: FuncDecl }).decl ?? f;
 
-/** Visit every call Expr in a body (the collector's only interest — full walk). */
 function walkCalls(
   stmts: readonly Stmt[],
   onCall: (e: Extract<Expr, { op: 'call' }>) => void,
@@ -1138,25 +911,12 @@ function walkCalls(
   for (const s of stmts) eachStmtExpr(s, onExpr);
 }
 
-/** Normalize `funcs` (array or key-named record) into the ModuleDecl array:
- *  1. Record form: each key names its decl (anonymous fns get their real name;
- *     a differing name is a rename — every handle-made call re-spells via declRef).
- *  2. Transitive collection: fns reached through handle calls (`declRef`) but not
- *     listed are PREPENDED in callee-first (post-order) discovery order — the
- *     authored list keeps its exact order, so existing full lists emit
- *     byte-identically and an entries-only list still satisfies GLSL's
- *     define-before-use. A call made by name through externFn carries no declRef and
- *     is linked at emit. */
 function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
   const record = input !== undefined && !Array.isArray(input);
   let renamed = false;
   const authored: FuncDecl[] = record
     ? Object.entries(input as Readonly<Record<string, FuncDecl>>).map(([key, f]) => {
         const d = declOf(f);
-        // X-GIS #763 D4 — a record-form rename mutates the SHARED FuncDecl in place.
-        // If this decl already participated in another assembly under a
-        // DIFFERENT name, renaming it now silently corrupts that module's
-        // re-emit (`fn old` definition vs `new(...)` calls). Fail loud.
         const prev = d[ASSEMBLED_AS];
         if (prev !== undefined && prev !== key) {
           throw new Error(
@@ -1165,30 +925,19 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
         }
         if (d.name !== key) {
           (d as { name: string }).name = key;
-          // Keep the handle's own (defineProperty'd, enumerable) name in step for spreads.
           if (d !== f)
             Object.defineProperty(f, 'name', { value: key, configurable: true, enumerable: true });
           renamed = true;
         }
-        // Non-enumerable — the optimizer's fixpoint compares modules via JSON;
-        // an enumerable marker would perturb it.
         Object.defineProperty(d, ASSEMBLED_AS, { value: key, configurable: true });
         return f;
       })
     : (input ?? []).map((f) => {
-        // Array-form assembly pins the CURRENT name for the same reason — a later
-        // record-form rename of this decl would corrupt THIS module's re-emit.
         const d = declOf(f);
         Object.defineProperty(d, ASSEMBLED_AS, { value: d.name, configurable: true });
         return f;
       });
 
-  // Transitive collection (post-order DFS over declRef edges), skipping listed decls.
-  // Dedup is by IDENTITY **and NAME**: module semantics are name-keyed (dup-func is a
-  // validation error), and a pass-transformed fn (e.g. the polygon composer's
-  // placeholder-swapped copies) is a NEW object whose body still carries declRefs to
-  // the ORIGINALS — identity alone would re-collect a fn the module already lists
-  // under the same name.
   const listed = new Set(authored.map(declOf));
   const listedNames = new Set(authored.map((f) => declOf(f).name));
   const collected: FuncDecl[] = [];
@@ -1198,14 +947,13 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
       if (!callee || listed.has(callee) || listedNames.has(callee.name)) return;
       listed.add(callee);
       listedNames.add(callee.name);
-      visit(callee); // callee's own callees first…
-      collected.push(callee); // …then the callee (post-order = define-before-use)
+      visit(callee);
+      collected.push(callee);
     });
   };
   authored.forEach((f) => visit(declOf(f)));
   const funcs = collected.length ? [...collected, ...authored] : authored;
 
-  // A rename can postdate call nodes authored in OTHER fn bodies — re-spell them.
   if (renamed) {
     for (const f of funcs) {
       walkCalls(declOf(f).body, (e) => {
@@ -1264,15 +1012,6 @@ function normalizeFuncs(input: ModuleParts['funcs']): FuncDecl[] {
  *  @see {@link reflect} for reading the assembled module's pipeline metadata.
  */
 export function module(parts: ModuleParts): ModuleDecl {
-  // X-GIS #763 X1 — `uses:` derives structs/bindings/consts from the HANDLES, which
-  // already know their own decls; every module used to restate them by hand,
-  // and a forgotten `U.binding` was green through tsc AND validate, dying at
-  // pipeline creation. Explicit arrays still work and merge (name-deduped —
-  // the dup-struct/dup-func validate rules would reject the overlap).
-  // Explicit arrays pass through UNTOUCHED — validate's dup-struct/dup-func
-  // rules must still see an author's accidental duplicates. Only the
-  // uses-DERIVED decls dedupe against what is already present (an explicit
-  // entry + the same handle in `uses` is the legal merge case).
   const consts: ConstDecl[] = [...(parts.consts ?? [])];
   const structs: StructDecl[] = [...(parts.structs ?? [])];
   const bindings: BindingDecl[] = [...(parts.bindings ?? [])];
@@ -1299,29 +1038,20 @@ export function module(parts: ModuleParts): ModuleDecl {
     }
   };
   for (const h of parts.uses ?? []) {
-    if ('struct' in h && h.struct)
-      addStruct(h.struct); // uniformStruct
-    else if ('decl' in h && h.decl && 'fields' in h.decl)
-      addStruct(h.decl); // ioStruct / structDecl
-    else if ('decl' in h && h.decl) addConst(h.decl as ConstDecl); // constDecl handle
-    if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl); // storageBuffer's struct element
-    if ('binding' in h && h.binding) addBinding(h.binding); // uniformStruct / storageBuffer / resource
+    if ('struct' in h && h.struct) addStruct(h.struct);
+    else if ('decl' in h && h.decl && 'fields' in h.decl) addStruct(h.decl);
+    else if ('decl' in h && h.decl) addConst(h.decl as ConstDecl);
+    if ('elementDecl' in h && h.elementDecl) addStruct(h.elementDecl);
+    if ('binding' in h && h.binding) addBinding(h.binding);
   }
   const decl: ModuleDecl = {
     consts,
     structs,
     bindings,
     funcs: normalizeFuncs(parts.funcs),
-    // X-GIS #923 — carry the specialization-constant declarators through (absent ⇒ omit the
-    // key, so an override-free module object stays byte-identical to before).
     ...(parts.overrides ? { overrides: parts.overrides } : {}),
-    // X-GIS #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
-    // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
-    // `'decl' in h` branch would route to addConst and silently emit as a module constant.
     ...(parts.externs ? { externs: parts.externs } : {}),
   };
-  // X-GIS #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
-  // enables-free module object stays byte-identical to before).
   return parts.enables ? { ...decl, enables: parts.enables } : decl;
 }
 
@@ -1388,11 +1118,6 @@ export function constExpr<T extends ShaderType>(
   value: Node,
 ): ConstExprDecl<T> {
   const decl = { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr };
-  // #8 B6 — `node` is NON-ENUMERABLE on purpose. The returned object IS the ConstDecl that
-  // goes into `module({ consts })` and from there into the emitted module, where it is spread,
-  // compared and serialized; an enumerable extra field carrying a whole Expr would show up in
-  // every one of those. Non-enumerable keeps the declaration byte-for-byte the object it was
-  // while still answering `SKY.node`.
   Object.defineProperty(decl, 'node', {
     value: constRef(name, type),
     enumerable: false,
@@ -1564,14 +1289,6 @@ export function externVar<T extends ShaderType>(
   };
 }
 
-// ── Ambient free-function authoring surface (C2) ──
-// Capitalised to avoid JS keyword clashes (If/Loop/Let/Var/Return/Switch); each
-// routes to the INNERMOST active scope (currentBuilder), so no `Builder` param is
-// threaded per nesting level. The old `cb.let(...)` / `(b) => …` callback API still
-// works (both push the same Stmt[]), so shaders migrate function-by-function and the
-// emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
-// (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
-
 /** Bind a value to an immutable local, emitting `let name = expr;` into the innermost active
  *  scope. It is the ambient counterpart of `Builder.let`, resolving the innermost active
  *  builder itself so a body reads plainly without threading `b` through every nested
@@ -1674,13 +1391,9 @@ export function Var<T extends ShaderType>(
   typeOrInit?: T | ReadonlyNode<KeyOf<T>>,
   maybeInit?: ReadonlyNode<KeyOf<T>>,
 ): Node<KeyOf<T>> {
-  // Var(init) — a mutable var seeded from a value infers its WGSL type from that value.
-  // Brand probe, not instanceof (X-GIS #763 D1) — a cross-instance init node must not
-  // fall through to the ShaderType arm and declare a garbage-typed var.
   if (isNodeValue(nameOrTypeOrInit))
     return currentBuilder().var(nameOrTypeOrInit.type, nameOrTypeOrInit) as Node<KeyOf<T>>;
   if (typeof nameOrTypeOrInit === 'string') {
-    // Var(name, init) — the second slot is a NODE, not a ShaderType (X-GIS #763 X9).
     if (isNodeValue(typeOrInit))
       return currentBuilder().var(nameOrTypeOrInit, typeOrInit.type, typeOrInit) as Node<KeyOf<T>>;
     return currentBuilder().var(nameOrTypeOrInit, typeOrInit as T, maybeInit);
@@ -1863,8 +1576,6 @@ export const If = (cond: ReadonlyNode<'bool'>, body: () => ReadonlyNode | void):
  *  @see {@link reduce} for the value-returning fold.
  *  @see {@link Break} and {@link Continue} for the terminators.
  */
-// #8 B1/B2 — the TRIP-COUNT overloads come first: a `number` in the init slot is a count,
-// never an init node, so there is nothing for them to steal from the three-part form below.
 export function Loop(count: number, body: (i: Node<'u32'>) => ReadonlyNode | void): void;
 export function Loop(
   name: string,
@@ -1899,10 +1610,6 @@ export function Loop<K extends string>(
   e?: ReadonlyNode<ScalarKey> | number,
 ): void {
   const named = typeof a === 'string';
-  // #8 B2 — the trip-count form. `Loop(96, body)` is `Loop(u32(0), (i) => i.lt(u32(96)), body)`
-  // built here rather than at the call site, so it goes down the same `forRange` path and
-  // reaches the same `for` statement. The counter is u32 because `u32(0)` is what 19 of the
-  // corpus's 21 loops already start from, and because a WGSL index wants to be unsigned.
   const countSlot = named ? b : a;
   if (typeof countSlot === 'number') {
     const count = countSlot;

@@ -1,42 +1,3 @@
-// ═══ A kernel function called from host code (Rules 8.21, 8.22, 8.23; surface §65) ═══
-//
-// `await render(k, 512, img)` on a kernel function a host file imported (change 0013). The call
-// is asynchronous from the start, as 0009 promised a later tier would be (Rule 8.21), and it
-// writes each array the function writes back into the caller's own, in place.
-//
-// When the function lowers (`core/passes/kernel-lower.ts`) and there is a WebGPU device, each of
-// its loops is one dispatch, in order: the call runs the loop's range function on the CPU tier
-// for its start and bound, checks each array against the index range the proof established
-// before anything is uploaded, dispatches one invocation per iteration and reads back what the
-// loop wrote. Otherwise the whole function runs on the CPU tier (Rule 11.7), the generated code
-// over the caller's arrays.
-//
-// A function that stores into its arrays after its loops (change 0094) has one more entry, of one
-// invocation, which the call dispatches after the loops: it combines what each loop reduced and
-// runs the stores, which the front end guards by each array's length. WebGL2 runs the stores on the
-// CPU tier over its copies of the arrays after its draws (`finishOnHost`).
-//
-// A loop whose range reads an element of an array (change 0094, part 1) has a range the device
-// holds: the call makes a trip buffer, dispatches the loop's range entry, then the loop's entry
-// with `dispatchWorkgroupsIndirect` from the counts the range entry wrote, and reads nothing back;
-// it checks no array against such a loop's writes, which the front end guards by each array's
-// length. WebGL2 computes such a range on the CPU tier over its host copies (`glRange`).
-//
-// An array a loop pushes onto may come with its held length, `{ array, length, offset? }` (change
-// 0094): the call checks it (`checkHeld`), runs the face's second WGSL text on WebGPU with the
-// held length's `Resident` bound as the array's length word, which the scans advance, and on the
-// CPU tier starts the array's count at the length the word holds and writes the new one into it.
-// An array whose word the caller does not hold gets a zeroed one of the call's.
-//
-// Inside the body of `fuse()` (`typeshade/fuse`, change 0058) a call whose written arrays are all
-// resident is recorded and not run (`core/fuse-scope.ts`); the scope's plan then runs each
-// recorded call through `runChecked` below, with the WebGPU dispatches of all of them in one
-// submission. Outside a scope a call is what it was, but for one thing: a loop that reduces and
-// the dispatches that fold its partials are one submission (`reduceOnGpu`), as they are inside.
-//
-// Like the rest of `typeshade/runtime` it imports no compiler: the plugin writes everything the
-// call needs into the generated module at build time.
-
 import { arityError, heldArgument } from './host-arity.js';
 import type { CpuValue } from './cpu-runtime.js';
 import { pushedLength, startPushesAt } from './push-count.js';
@@ -125,9 +86,7 @@ import {
   type Layout,
 } from './host-entry.js';
 
-/** A parameter of a kernel function, as the generated module writes it. */
 export type KernelParam =
-  /** A value, passed by value as a helper's parameter is (Rule 8.21). */
   | { readonly name: string; readonly k: 'value'; readonly type: HostType }
   /** An array with no size: the caller's storage (Rule 8.23). `s` is its TypeShade type.
    *  `pushed` marks an array a loop pushes onto, which the call also takes with a held length,
@@ -139,8 +98,6 @@ export type KernelParam =
       readonly writes: boolean;
       readonly s: string;
       readonly pushed?: true;
-      /** The members of a key element, in id order (change 0081), absent for any other
-       *  element: an `array<K>` takes a `Buffer<K>` (change 0138, Amendment A12, B2-2). */
       readonly keys?: readonly string[];
     }
   /** A texture (change 0077): a `texture_2d<f32>` the loops read, or a 2D storage texture of
@@ -158,20 +115,14 @@ export type KernelParam =
       readonly name: string;
       readonly k: 'collection';
       readonly key: 'u32' | 'i32' | 'f32';
-      /** String members in id order (change 0081), absent for a numeric collection. */
       readonly keys?: readonly string[];
       readonly value?: HostType;
       readonly writes: boolean;
       readonly s: string;
     };
 
-/** One loop of a kernel function the call dispatches. */
 export interface KernelLoop {
   readonly entry: string;
-  /** Whether the subgroup variant of the function's WGSL (change 0119) folds this
-   *  loop inside a subgroup: a reduction every operator of which gives one value in every order,
-   *  or a scatter whose writes a lane makes at most once. Absent when the variant runs the loop
-   *  as the tree and the per-lane atomics do. */
   readonly subgroupFold?: true;
   readonly range: string;
   readonly cop: '<' | '<=' | '>' | '>=';
@@ -182,44 +133,22 @@ export interface KernelLoop {
     readonly a: number;
     readonly c: number;
     readonly read?: true;
-    /** For a read under comparisons of the counter with a bound (#997): each comparison and the
-     *  CPU-tier function that gives its bound. The read is checked over the iterations where
-     *  they all hold. Absent in a face written before that change. */
     readonly guards?: readonly { readonly cop: '<' | '<=' | '>' | '>='; readonly fn: string }[];
   }[];
-  /** The textures it stores into at `vec2(i % W, i / W)`, each with the CPU-tier function that
-   *  gives `W` (change 0077). Absent in a face written before that change. */
   readonly texels?: readonly { readonly param: string; readonly width: string }[];
-  /** The arrays the loop writes at one index `i*k + b` (the `scaled` form of R3, #775), each
-   *  with the CPU-tier functions that give `k` and `b`; the call refuses `k = 0` and an index
-   *  past the array's end. Absent when the loop writes none. */
   readonly strides?: readonly {
     readonly param: string;
     readonly coefficient: string;
     readonly base: string;
   }[];
-  /** The arrays the loop writes at `i*W + x` over a nested `x < W` (the `row-major` form of R3,
-   *  #775), each with the CPU-tier function that gives `W`; the call refuses a last row past the
-   *  array's end. Absent when the loop writes none. */
   readonly rows?: readonly { readonly param: string; readonly width: string }[];
-  /** The workgroup size of its entry: 256 when it reduces. */
   readonly wg: number;
-  /** For a loop that pushes onto an array (change 0078): the entry that counts each
-   *  iteration's pushes, the entry that scans the counts into offsets and the total, and the
-   *  binding of the `n + 1` `u32`s that hold them. {@link entry} stores. */
   readonly push?: {
     readonly count: string;
     readonly scan: string;
     readonly binding: EntryBinding;
   };
-  /** For a loop whose range the device holds (change 0094, part 1): the entry of one invocation
-   *  that computes the range, and the element of the trip buffer it writes from: the start's bits,
-   *  the trip count and the workgroup count `[x, y, 1]` of {@link entry}, which the call dispatches
-   *  indirectly. {@link checks} is empty: a write past an array's end is dropped. Absent for a loop
-   *  whose range the call computes on the host. */
   readonly device?: { readonly entry: string; readonly at: number };
-  /** What it reduces, when it does (Rule 7.2): the entry that folds a level of partials, and
-   *  per variable its operator, its scalar, its component count and its partials' binding. */
   readonly reduce?: {
     readonly entry: string;
     readonly vars: readonly {
@@ -232,10 +161,6 @@ export interface KernelLoop {
   };
 }
 
-/** The length word of an array a loop pushes onto (change 0094): the `array<u32>` binding that
- *  holds it, the field of the call's uniform that holds the element it is at, and the loops whose
- *  scan step reads it and writes the new length into it. The call binds the held length's
- *  `Resident` there, or a zeroed word of its own when the caller holds none. */
 export interface PushWord {
   readonly param: string;
   readonly field: string;
@@ -243,8 +168,6 @@ export interface PushWord {
   readonly loops: readonly number[];
 }
 
-/** The WGSL a call runs, with the uniform and the length words it binds: the function's own, or
- *  the second text of a call that passes a held length (change 0094). */
 interface Variant {
   readonly wgsl: string;
   readonly wgslInteger?: string;
@@ -255,104 +178,51 @@ interface Variant {
   readonly guard?: { readonly group: number; readonly binding: number };
 }
 
-/** One array parameter a loop reaches, as the planner of `typeshade/fuse` reads it (change 0058). */
 export interface FuseArray {
-  /** The parameter, by its name in {@link KernelFace.params}. */
   readonly param: string;
-  /** What the loop does to it: reads it, writes it, or writes it and reads back what it wrote. */
   readonly access: 'read' | 'write' | 'readwrite';
-  /** Whether every access of it is at exactly the loop's counter. */
   readonly atI: boolean;
-  /** The first access that is not, in the author's words: `t[i - 1]` and its line. Absent when
-   *  `atI`. */
   readonly first?: { readonly text: string; readonly line?: number };
 }
 
-/** One array parameter whose name an iteration uses without an index (change 0058): `t.length`
- *  measures `t` and reads none of its elements. A fused entry cannot keep such an array as a
- *  local, which has no length. */
 export interface FuseBare {
-  /** The parameter, by its name in {@link KernelFace.params}. */
   readonly param: string;
-  /** The first place the iteration names it, in the author's words: `t.length` and its line. */
   readonly first: { readonly text: string; readonly line?: number };
 }
 
-/** What the planner of `typeshade/fuse` reads about one loop of a kernel function (change 0058).
- *  The compiler writes it at build time; the planner matches it and analyzes no IR. */
 export interface FuseLoop {
-  /** The loop's `@compute` entry in {@link KernelFuse.ir}: {@link KernelLoop.entry}. */
   readonly entry: string;
-  /** The entry that folds a level of partials, when the loop reduces. */
   readonly fold?: string;
-  /** The workgroup size of its entry: 256 when it reduces, the `@workgroup_size` of its function
-   *  or 64 otherwise. */
   readonly wg: number;
-  /** Whether its function declares the size with `@workgroup_size` (proposal 0067, decision D5).
-   *  A call that declares none has no preference, and joins a group at the group's size. Absent
-   *  when it declares none. */
   readonly declared?: boolean;
-  /** One per array parameter the loop reaches by an element, in the order of the parameters. An
-   *  array it only measures with `.length` is not in it: see {@link FuseLoop.bare}. */
   readonly arrays: readonly FuseArray[];
-  /** The array parameters its iteration names without an index, in the order of the parameters,
-   *  whether or not it also reaches their elements. Absent when it names none. */
   readonly bare?: readonly FuseBare[];
-  /** Whether it reduces (Rule 7.2). */
   readonly reduces: boolean;
-  /** Whether it scatters into an integer array, where two iterations may land on one element. */
   readonly scatters: boolean;
-  /** Whether its body has a `continue` of its own, which its entry spells as a `return`. */
   readonly continues: boolean;
-  /** The function in {@link KernelFuse.ir} whose body holds the iteration: the entry, or for a
-   *  loop that reduces its helper. */
   readonly iterates: string;
-  /** The index in the body of {@link iterates} where the iteration starts. */
   readonly iteration: number;
 }
 
-/** The facts and lowered module of an eligible kernel, emitted by default (changes 0058 and
- * 0085). `fuse: false` omits this record. */
 export interface KernelFuse {
-  /** The source module. A private helper has no identity but its name, so two faces of one
-   *  origin share a helper of one name, and two origins may not. */
   readonly origin: string;
-  /** One per loop, in order. */
   readonly facts: readonly FuseLoop[];
-  /** The lowered module cut to what its loop entries reach, as `toPortable` writes it. The
-   *  loop's entry and the functions it calls are in it, and no WGSL. */
   readonly ir: PortableIr;
 }
 
-/** A kernel function a host can call, as the generated module writes it. */
 export interface KernelFace {
   readonly name: string;
-  /** The prototypes of the module's exported classes by struct name (change 0109), present when
-   *  it exports one: a result `Buffer<S>` of such a class reads instances of it (change 0138,
-   *  Amendment A12, Q6). */
   readonly P?: () => HostClasses;
-  /** The function's name in the generated CPU code. */
   readonly fn: string;
   readonly params: readonly KernelParam[];
   readonly result: HostType;
-  /** What the WebGPU tier dispatches; absent when the function runs on the CPU. */
   readonly gpu?: {
     readonly wgsl: string;
-    /** The WGSL under the `'integer'` flavor of the emulated double, present when the module
-     *  emulates `f64` (change 0073): a call of an owner whose flavor is `'integer'` dispatches
-     *  it, and binds no guard. */
     readonly wgslInteger?: string;
-    /** The subgroup variant (change 0119): the same entries with each loop
-     *  {@link KernelLoop.subgroupFold} marks folded inside a subgroup first, which needs the
-     *  `subgroups` feature. Present when a loop has one; the bits it writes are the tree's. Under
-     *  the `'integer'` flavor too when the module emulates `f64`. */
     readonly wgslSubgroup?: string;
     readonly wgslSubgroupInteger?: string;
-    /** The uniform of the scalar parameters, `_start` and `_n`. */
     readonly args: EntryBinding;
-    /** Each array parameter's storage binding. */
     readonly arrays: readonly EntryBinding[];
-    /** Private compact inputs (change 0082). Logical params and the full variant stay intact. */
     readonly projected?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
@@ -360,35 +230,17 @@ export interface KernelFace {
       readonly wgslSubgroupInteger?: string;
       readonly arrays: readonly EntryBinding[];
     };
-    /** Each texture parameter's binding (change 0077). */
     readonly textures?: readonly HandleBinding[];
     readonly loops: readonly KernelLoop[];
-    /** The CPU-tier function that gives the result from the parameters and what the GPU folded
-     *  for each reduction, in loop order; absent when the function returns nothing. */
     readonly tail?: string;
     readonly countOnly?: true;
-    /** The stores after the loops (change 0094): the `@compute` entry of one invocation the call
-     *  dispatches after the loops, the CPU-tier function that runs them over the host's arrays
-     *  (WebGL2, after its draws), and the array parameters they write. Absent when the function
-     *  stores nothing after its loops. */
     readonly finish?: {
       readonly entry: string;
       readonly fn: string;
       readonly writes: readonly string[];
     };
-    /** The length word of each array whose pushes start at a length the device holds (change
-     *  0094): one that two loops push onto, or whose length the stores after the loops read.
-     *  Absent when the function has none. */
     readonly words?: readonly PushWord[];
-    /** The trip buffer of a function with a loop whose range the device holds (change 0094,
-     *  part 1): the binding the range entries write, and the read-only binding of the same buffer
-     *  the loops' entries read. The call makes the buffer, with the usages `STORAGE` and
-     *  `INDIRECT`, and frees it once the call has run. Absent when every range is the host's. */
     readonly trips?: { readonly write: EntryBinding; readonly read: EntryBinding };
-    /** What a call that passes a held length runs (change 0094): the same loops and bindings,
-     *  with a length word for every array a loop pushes onto, appended after the other bindings,
-     *  and the uniform that holds where each word is. Absent when the function pushes onto no
-     *  array, or when {@link words} has every pushed array already. */
     readonly held?: {
       readonly wgsl: string;
       readonly wgslInteger?: string;
@@ -396,52 +248,30 @@ export interface KernelFace {
       readonly wgslSubgroupInteger?: string;
       readonly args: EntryBinding;
       readonly words: readonly PushWord[];
-      /** Where its `_fp64` guard is, after the length words, when the module emulates `f64`. */
       readonly guard?: { readonly group: number; readonly binding: number };
     };
-    /** Where the `_fp64` guard is, when the module emulates `f64`: the call binds it. */
     readonly guard?: { readonly group: number; readonly binding: number };
-    /** Each Map or Set parameter a loop adds to (change 0080): the storage binding of the
-     *  records the loop pushes, one for each `add` or `set` in the order of a sequential run, the
-     *  loop, and the most records an iteration pushes. The call makes the binding `n` times that
-     *  long and applies the records to the caller's Map or Set in order. */
     readonly collections?: readonly {
       readonly param: string;
       readonly records: EntryBinding;
       readonly loop: number;
       readonly perIteration: number;
     }[];
-    /** Each Map or Set parameter the loops read and none adds to (change 0080): the binding of
-     *  its keys, the count then each key's order word sorted ({@link orderWord}), and a Map's
-     *  values in the same order, which the call fills from the caller's collection. */
     readonly lookups?: readonly {
       readonly param: string;
       readonly keys: EntryBinding;
       readonly values?: EntryBinding;
-      /** The first loop that reads it: the call uploads it then, after the records of the
-       *  loops before it are in the collection. */
       readonly loop: number;
     }[];
   };
-  /** What the WebGL2 tier draws, one program per loop, when every loop writes one array of
-   *  4-byte elements at `i` (Rule 11.8). */
   readonly gl?: { readonly loops: readonly KernelGlLoop[] };
-  /** Why it does not run on WebGL2, when it does not. */
   readonly noWebgl2?: string;
-  /** Why it runs on the CPU tier, when it does. */
   readonly noGpu?: string;
-  /** The facts and loop IR of an eligible function, written by default unless `fuse: false`
-   * is requested (change 0085). Full-layout metadata, independent of ordinary projection. */
   readonly fuse?: KernelFuse;
 }
 
-/** The compute entries of each loop, built once per kernel, flavor of the emulated double and
- *  WGSL text (a call that passes a held length runs the second, change 0094), since a pipeline is
- *  cached per entry object: the loop's, and the one that folds its partials when it reduces. */
 const entries = new WeakMap<KernelFace, Map<string, LoopEntries[]>>();
 
-/** The entries of one loop: its own, the fold of a reduction, the count and scan of a push, and
- *  the range entry of a loop whose range the device holds. */
 interface LoopEntries {
   loop: ComputeEntry;
   range?: ComputeEntry;
@@ -450,8 +280,6 @@ interface LoopEntries {
   scan?: ComputeEntry;
 }
 
-/** What a call runs (change 0094): the function's own WGSL, or, for a call that passes a held
- *  length, the second text when the face has one. Its key names it in the caches of entries. */
 function variantOf(k: KernelFace, held: boolean): Variant & { readonly key: string } {
   const g = k.gpu!;
   if (held && g.held !== undefined) return { ...g.held, key: 'held' };
@@ -474,15 +302,12 @@ const TREE_PARAMS = [
   'workgroup_id',
 ] as const;
 
-/** The WGSL a call dispatches: the subgroup variant where the owner selects it and the face has
- *  one (change 0119, Rule 11.23), under the owner's flavor of the emulated double (change 0073). */
 function textOf(v: Variant, integer: boolean, subgroup: boolean): string {
   if (subgroup && v.wgslSubgroup !== undefined)
     return integer && v.wgslSubgroupInteger !== undefined ? v.wgslSubgroupInteger : v.wgslSubgroup;
   return integer ? v.wgslInteger! : v.wgsl;
 }
 
-/** The key a text's entries are cached under: the flavor, the variant and the held form. */
 function underOf(
   v: Variant & { readonly key: string },
   integer: boolean,
@@ -499,7 +324,6 @@ function entriesOf(
 ): LoopEntries[] {
   const g = k.gpu!;
   const v = variantOf(k, held);
-  // A module that emulates no `f64` has one WGSL, and the flavor changes nothing (change 0073).
   const integer = flavor === 'integer' && v.wgslInteger !== undefined;
   const text = textOf(v, integer, subgroup);
   const under = underOf(v, integer, subgroup);
@@ -512,17 +336,12 @@ function entriesOf(
         ...(loop.reduce?.vars ?? []).map((v) => v.binding),
         ...(loop.push !== undefined ? [loop.push.binding] : []),
       ];
-      // The records of a Map or Set the loop adds to (change 0080), which only it binds, and the
-      // keys and values of each one the loops read.
       const records = [
         ...(g.collections ?? []).filter((c) => c.loop === j).map((c) => c.records),
-        // A lookup is uploaded before its first reading loop, and bound from it on.
         ...(g.lookups ?? [])
           .filter((l) => l.loop <= j)
           .flatMap((l) => (l.values !== undefined ? [l.keys, l.values] : [l.keys])),
       ];
-      // The `_fp64` guard of a module that emulates `f64`, which the runtime binds under the
-      // `'float'` flavor; the `'integer'` flavor declares none.
       const guard: DrawBinding[] =
         v.guard === undefined || integer
           ? []
@@ -536,8 +355,6 @@ function entriesOf(
         bindings: [...bindings, ...guard],
         workgroupZero: {},
       });
-      // A loop whose range the device holds reads its start and trip count from the trip buffer,
-      // and the statements before it may read a pushed array's length word (change 0094).
       const device =
         loop.device !== undefined ? [g.trips!.read, ...v.words.map((w) => w.binding)] : [];
       return {
@@ -566,9 +383,6 @@ function entriesOf(
         ...(loop.reduce !== undefined
           ? { fold: entry(loop.reduce.entry, [v.args, ...parts]) }
           : {}),
-        // A loop that pushes counts and scans before it stores (change 0078). Its scan reads the
-        // array's length word, and writes the new length into it, when the array has one (change
-        // 0094).
         ...(loop.push !== undefined
           ? {
               count: entry(loop.push.count, [
@@ -596,9 +410,6 @@ function entriesOf(
   return es;
 }
 
-/** The entry that runs the stores after the loops (change 0094), built once per kernel and flavor
- *  of the emulated double, as the loops' entries are. It binds the uniform, every array, and the
- *  partials of each loop that reduces, which it reads at the slot its uniform names. */
 const finishEntries = new WeakMap<KernelFace, Map<string, ComputeEntry>>();
 
 function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = false): ComputeEntry {
@@ -627,7 +438,6 @@ function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = fa
       ...g.loops.flatMap((l) =>
         (l.reduce?.vars ?? []).map((r) => ({ ...r.binding, writes: false })),
       ),
-      // The length words, which a store of a pushed array's length reads (change 0094).
       ...v.words.map((w) => w.binding),
       ...guard,
     ],
@@ -637,35 +447,14 @@ function finishOf(k: KernelFace, flavor: Fp64Flavor, held = false, subgroup = fa
   return entry;
 }
 
-/** The slot of the uniform's `_at<j>` that says loop `j` ran no iteration: the finish entry then
- *  combines the operator's identity, as the tail does (change 0094). */
 const NO_FOLD = 0xffffffff;
 
-/** The storage buffers a device allows a stage when it reports none: WebGPU's default. */
 const STORAGE_BUFFERS = 8;
 
-/** The words of the trip buffer each loop whose range the device holds has (change 0094): the
- *  lowering's `TRIP_WORDS`. */
 const TRIP_WORDS = 8;
 
-/** The layout of a held length's array: `u32`s, 4 bytes each (change 0094). */
 const WORDS = { k: 'a', n: null, st: 4, e: { k: 's', t: 'u32' } } as const;
 
-/**
- * Call a kernel function from host code (Rule 8.21): dispatch each of its loops on WebGPU when
- * it lowers and there is a device, and otherwise run it on the CPU tier, in the order of the
- * tiers its selected owner sets (Rule 11.8); either way each array it writes is read back into the
- * caller's array in place, or left on the device in a `Resident`, and the promise resolves to
- * its result. Calls run one after another, in the order they were made.
- *
- * Inside the body of `fuse()` (change 0058) a call whose written arrays are all resident is
- * recorded, and runs with the scope's plan, at the scope's place in that order.
- *
- * @throws `TypeError` naming the function and the parameter for a value that does not fit, and
- *   for an array shorter than the index range a loop writes; `Error` when no tier it may use can
- *   run it. Inside the body of `fuse()`, a `TypeError` at the call for a resource argument
- *   (change 0138, R4).
- */
 export function callKernel(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -675,8 +464,6 @@ export function callKernel(
 ): Promise<unknown> {
   const scope = fuseSlot.active;
   if (scope !== undefined) {
-    // A graph that takes resources is milestone 4's `fuse(fn)` (change 0138, R4).
-    // It records a `Buffer` of scalars, as it recorded a `Resident` (Amendment A10, slice 1).
     const r = args.findIndex(isRegionResource);
     if (r >= 0)
       throw new TypeError(
@@ -684,16 +471,12 @@ export function callKernel(
       );
     return scope.kernel(cpu, k, argc, args, reads, callSite(callKernel));
   }
-  // A call on a resource does not block (change 0138, R2). A held length's length is a
-  // `Buffer<u32>` (Amendment A10, confirmation item 3), so a call that takes one is one too.
   const onResource = args.some((a, i) => {
     if (isResource(a)) return true;
     const held = k.params[i]?.k === 'array' ? heldArgument(a) : undefined;
     return held !== undefined && (isResource(held.array) || isResource(held.length));
   });
-  // A use the check refuses fixes no open element (Amendment A12, D2).
   if (onResource) return tentatively(() => recordKernel(cpu, k, argc, args, reads)) as never;
-  // A recorded call that failed is thrown at the next call (Amendment A5, default 7).
   try {
     throwFailure();
   } catch (e) {
@@ -704,7 +487,6 @@ export function callKernel(
     owner = inferOwner(
       `${k.name}()`,
       k.params.flatMap((p, i): [string, CallOwner | undefined][] => {
-        // A held length (change 0094): its array, and the `Resident` that holds its length.
         const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
         if (held !== undefined)
           return [
@@ -734,7 +516,6 @@ export function callKernel(
     ].filter((s) => s !== undefined);
   }) as ResidentArrayState[];
   const call = kernelQueue.run(() => runKernel(cpu, k, argc, args, owner, reads));
-  // A call nobody awaits keeps its error on what it writes, for `read()` to throw.
   call.then(
     () => written.forEach((s) => (s.error = undefined)),
     (e: unknown) => written.forEach((s) => (s.error = e)),
@@ -760,21 +541,6 @@ function runKernel(
   }
 }
 
-/**
- * A call of a kernel function whose arguments include a resource (change 0138, R2): checked now,
- * recorded with the values it sees, and run once it is submitted. A function that returns nothing
- * returns nothing. A function that returns a value returns `Buffer`s at once (Amendment A10, Q-C):
- * a `Buffer` of length 1 for a number or a vector, a `Buffer` of `N` elements for an
- * `array<T, N>`, and for a struct an object of them with the struct's own fields (Amendment A11,
- * Q6). A call that also writes a plain array waits: it returns a promise of its result as plain
- * data, and fills the plain array when it has run (A10's answer to A7's deferred question 4;
- * A11, Q7). A number or vector parameter takes a `Buffer` of one element, read when the call runs
- * (A10, Q-C: a result is another call's argument).
- *
- * @throws `TypeError` naming the function and the parameter, now: for a result no `Buffer` holds,
- *   for a storage array of another class, and for a `Buffer` a parameter does not take; the error
- *   of an earlier recorded call that failed (Amendment A5, default 7).
- */
 function recordKernel(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -786,8 +552,6 @@ function recordKernel(
   throwFailure();
   const bad = arityError(k, argc);
   if (bad !== undefined) throw bad;
-  // The device of the call, at the call (R3): the one its resources belong to, or with none of
-  // its own the device in use. A call that mixes devices is refused before anything is taken.
   const owner = inferOwner(
     `${k.name}()`,
     k.params.flatMap((p, i): [string, CallOwner | undefined][] => {
@@ -801,10 +565,8 @@ function recordKernel(
     undefined,
     callDefault(),
   );
-  // Each argument is taken with nothing changed yet; a refusal ends the check of what was taken.
   const taken: RecordedArgument[] = [];
   const mapped: unknown[] = [];
-  // A number or vector parameter given a `Buffer` of one element: read when the call runs.
   const bound: { readonly i: number; readonly state: ResidentArrayState }[] = [];
   let waits = false;
   try {
@@ -813,15 +575,12 @@ function recordKernel(
       if (p.k === 'value' && residentState(args[i]) !== undefined) {
         const state = residentState(args[i])!;
         if (state.error !== undefined) throw state.error;
-        // The parameter fixes an open element (Amendment A12, decision 3).
         decide(state, valueKind(p.type), at, site);
         mapped[i] = placeholderOf(at, p.type, state);
         bound.push({ i, state });
         return;
       }
       const held = p.k === 'array' ? heldArgument(args[i]) : undefined;
-      // An array with no size fixes an open element, and a held length's `u32` its own
-      // (Amendment A12, decision 3 and D3).
       if (p.k === 'array') {
         decide(residentState(held?.array ?? args[i]), layoutKind(p.layout), at, site);
         if (held !== undefined)
@@ -837,8 +596,6 @@ function recordKernel(
       );
       taken.push(r);
       if (r.waits === true) waits = true;
-      // A held length (change 0094): its length is a `Buffer<u32>` (Amendment A10, confirmation
-      // item 3), which the call reads and writes, and refuses as it refuses a failed array.
       const lengthError = held === undefined ? undefined : residentState(held.length)?.error;
       if (lengthError !== undefined) throw lengthError;
       mapped[i] =
@@ -854,7 +611,6 @@ function recordKernel(
     for (const t of taken) t.buffer?.done();
     throw e;
   }
-  // The `Buffer`s of the result, planned before anything is taken out (Amendment A10, Q-C).
   let plan: ResultPlan | undefined;
   if (k.result.k !== 'void' && !waits) {
     const planned = resultPlan(k.result);
@@ -866,8 +622,6 @@ function recordKernel(
     }
     plan = planned;
   }
-  // Every argument is checked at the call, as a call with plain data checks it when it runs; only
-  // then are the values the call sees copied out (the review of #1236, B2 and S2).
   const { uploads } = commitArguments(taken, () => checkCall(cpu, k, argc, mapped));
   const written: ResidentArrayState[] = [];
   k.params.forEach((p, i) => {
@@ -900,10 +654,6 @@ function recordKernel(
   return results?.value;
 }
 
-/** The element a value parameter of type `t` fixes on an open `Buffer` (change 0138, Amendment
- *  A12, decision 3): the scalar of a number or a vector, `f32` for a matrix of `f32` (Q3);
- *  undefined for any other type, a matrix of `f64` among them, which takes no `Buffer` (the
- *  owner's answer to Q12, Amendment A13). */
 function valueKind(t: HostType): string | undefined {
   if (t.k === 'num') return t.t;
   if (t.k === 'vec') return t.e === 'bool' ? undefined : t.e;
@@ -911,9 +661,6 @@ function valueKind(t: HostType): string | undefined {
   return undefined;
 }
 
-/** How a `Buffer`'s element reads in a refusal: `3 f32 numbers`, `1 bool`, `2 vec3<bool>`,
- *  `1 mat4x4`, and `2 numbers whose element is not fixed` for a `Buffer<number>` whose element no
- *  use has fixed, the refused call included (Amendment A12, D2). */
 function heldText(state: ResidentArrayState): string {
   const n = lengthOf(state);
   const e = state.elem;
@@ -928,17 +675,9 @@ function heldText(state: ResidentArrayState): string {
   return `${plural(`${kindName(state)} number`, scalars)}`;
 }
 
-/** Whether two key types have the same members in the same order. */
 const sameKeys = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((m, i) => m === b[i]);
 
-/** A placeholder of a value parameter given a `Buffer` of one element, which the check at the call
- *  reads; the call reads the element when it runs ({@link boundValue}). A number or a vector takes
- *  a `Buffer` of it (Amendment A10, Q-C); a `bool`, a `vecN<bool>` and a key a `Buffer` of it
- *  (Amendment A12, Q1 and Q4); a matrix a `Buffer` of it or a `Buffer<f32>` of its `C * R`
- *  components, column-major (A12, Q3).
- *  @throws `TypeError` for a parameter of another type, and for a `Buffer` of another element or
- *    of more than one element. */
 function placeholderOf(at: string, t: HostType, state: ResidentArrayState): unknown {
   const scalars = lengthOf(state) * state.components;
   const e = state.elem;
@@ -978,12 +717,6 @@ function placeholderOf(at: string, t: HostType, state: ResidentArrayState): unkn
   );
 }
 
-/** The value a parameter bound from `state` takes when the call runs: the one element the
- *  `Buffer` holds after the calls made before (change 0138, Amendment A10, Q-C). It reads the host
- *  copy, which holds the values of the call: a `set()` made after the call waits in `state.next`
- *  until this call has run (Amendment A5, default 3). A `dispose()` made after the call releases
- *  the device buffer only after it, so the call reads the values still. A `bool` word is a
- *  `boolean`, and a key's id its member (Amendment A12, Q1 and Q4). */
 async function boundValue(k: KernelFace, i: number, state: ResidentArrayState): Promise<unknown> {
   if (state.error !== undefined) throw state.error;
   await state.fenced();
@@ -997,14 +730,6 @@ async function boundValue(k: KernelFace, i: number, state: ResidentArrayState): 
   return t?.k === 'vec' || t?.k === 'mat' ? Array.from(values) : values[0];
 }
 
-/**
- * Check that the `Buffer` given an array with no size holds an element it takes (change 0138,
- * Amendment A12, decision 4): a `Buffer<bool>` none, since no `array<bool>` exists; a
- * `Buffer<K>` an `array<K>` of the same key (B2-2); a `Buffer<matCxR>` an `array<matCxR>`, and a
- * `Buffer<f32>` of scalars a whole number of its matrices (B2-1). Any other `Buffer` is checked by
- * its typed array, as before.
- * @throws `TypeError` naming the function and the parameter.
- */
 function checkElement(
   k: KernelFace,
   p: KernelParam & { k: 'array' },
@@ -1027,10 +752,6 @@ function checkElement(
     );
 }
 
-/** How the `Buffer`s of a result are made: one handle of `n` elements of `c` words of `kind` for a
- *  number, a vector, a `bool`, a key, a matrix or an array of them (`elem` says what a word is,
- *  Amendment A12, Q1, Q2 and Q4); one `Buffer<S>` of the region for an `array<S, N>` (Q6, Q7); an
- *  object of them for a struct or a `Record` (Amendment A11, Q6; A12, Q5). */
 type ResultPlan =
   | {
       readonly k: 'leaf';
@@ -1047,8 +768,6 @@ type ResultPlan =
     }
   | { readonly k: 'struct'; readonly f: readonly (readonly [string, ResultPlan])[] };
 
-/** The plan of one element of type `t` held in a `Buffer` of `n` elements, or why no `Buffer`
- *  holds it. */
 function elementPlan(t: HostType, n: number): ResultPlan | string {
   switch (t.k) {
     case 'num':
@@ -1062,7 +781,6 @@ function elementPlan(t: HostType, n: number): ResultPlan | string {
         ? { k: 'leaf', kind: 'u32', n, c: t.n, elem: { k: 'bool' } }
         : { k: 'leaf', kind: t.e, n, c: t.n };
     case 'mat':
-      // A matrix of `f64` has no host value (Rule 8.21; Amendment A12, decision 4).
       return t.e === 'f64'
         ? 'which has no host value'
         : { k: 'leaf', kind: 'f32', n, c: t.c * t.r, elem: { k: 'mat', c: t.c, r: t.r } };
@@ -1071,9 +789,6 @@ function elementPlan(t: HostType, n: number): ResultPlan | string {
   }
 }
 
-/** The plan of a result of type `t`, or why no `Buffer` holds it (change 0138, Amendment A12,
- *  decision 4). An `array<Record<K, T>, N>` and a nested sized array stay refused, and so does a
- *  matrix of `f64`. */
 function resultPlan(t: HostType): ResultPlan | string {
   switch (t.k) {
     case 'arr': {
@@ -1092,7 +807,6 @@ function resultPlan(t: HostType): ResultPlan | string {
     }
     case 'struct':
     case 'rec': {
-      // One output for each field (R1; A11, Q6), and for each member of a `Record` (A12, Q5).
       const fields: readonly (readonly [string, HostType])[] =
         t.k === 'struct' ? t.f : t.m.map((m) => [m, t.e] as const);
       const f: (readonly [string, ResultPlan])[] = [];
@@ -1109,11 +823,6 @@ function resultPlan(t: HostType): ResultPlan | string {
   }
 }
 
-/** The std430 layout of a struct `t` for a result `Buffer<S>`, with its size and alignment
- *  (Rule 6.8): the layout the compiler gives a storage array of it, with a `bool` as one `u32`
- *  word and a `vecN<bool>` as a `vecN<u32>`, and a key's members kept for the host (change 0138,
- *  Amendment A12, Q4 and Q7). Or why it has none: a `Record` field (a `Buffer<S>` has no accessor
- *  of its members), and a matrix of `f64`. */
 function storageLayout(
   t: HostType,
 ):
@@ -1136,7 +845,6 @@ function storageLayout(
     case 'vec': {
       const align = t.n === 2 ? 8 : 16;
       if (t.e === 'f64') {
-        // `DF64VecN`: a `hi` and a `lo` plane of `vecN<f32>`, `lo` at the plane's aligned size.
         const lo = t.n === 2 ? 8 : 16;
         return leaf({ k: 'v', n: t.n, t: 'f64', lo }, up(lo + 4 * t.n, align), align);
       }
@@ -1176,7 +884,6 @@ function storageLayout(
   }
 }
 
-/** The typed array of each scalar a result `Buffer` holds (Rule 8.21; Amendment A11, Q2). */
 const RESULT_ARRAYS = {
   f32: Float32Array,
   i32: Int32Array,
@@ -1184,9 +891,6 @@ const RESULT_ARRAYS = {
   f64: Float64Array,
 } as const;
 
-/** The words of one element `v` of a result as the `Buffer` holds them: a vector's or a
- *  matrix's components one after another, a `bool` 0 or 1, a key its id (Amendment A12, Q1, Q2
- *  and Q4). */
 function wordsOf(v: unknown, elem: ElementKind | undefined): number[] {
   const xs = (Array.isArray(v) ? v.flat() : [v]) as unknown[];
   if (elem?.k === 'bool') return xs.map((x) => (x === true ? 1 : 0));
@@ -1194,9 +898,6 @@ function wordsOf(v: unknown, elem: ElementKind | undefined): number[] {
   return xs as number[];
 }
 
-/** The `Buffer`s of a result, made at the call on `owner` (R3): `value` is what the call returns,
- *  `states` the handles it writes, `uploads` what gives a `Buffer<S>` the region's values when the
- *  call runs, and `fill` writes the result into them when the call has run. */
 function makeResults(
   plan: ResultPlan,
   owner: CallOwner,
@@ -1211,7 +912,6 @@ function makeResults(
   const uploads: (() => void)[] = [];
   const make = (p: ResultPlan): { readonly value: unknown; fill(v: unknown): void } => {
     if (p.k === 'struct') {
-      // One output for each field, with the struct's own names (R1; Amendment A11, Q6).
       const parts = p.f.map(([name, sub]) => [name, make(sub)] as const);
       return {
         value: Object.fromEntries(parts.map(([name, m]) => [name, m.value])),
@@ -1221,8 +921,6 @@ function makeResults(
       };
     }
     if (p.k === 'structs') {
-      // One `Buffer<S>` of the region (Amendment A12, Q6): instances of `S`'s class where the
-      // module exports it, plain objects otherwise.
       const make = resources.structs;
       if (make === undefined)
         throw new TypeError(
@@ -1249,7 +947,6 @@ function makeResults(
   return { value: root.value, states, uploads, fill: root.fill };
 }
 
-/** Incoming contents in parameter order. A held length is data even for a write-only array. */
 export function kernelInputs(
   k: KernelFace,
   c: CheckedCall,
@@ -1265,50 +962,29 @@ export function kernelInputs(
   });
 }
 
-/** The refusal of a call that passes the wrong number of arguments, or undefined. */
 export { arityError } from './host-arity.js';
 
-/** A held length, checked (change 0094): the `Resident<Uint32Array>` whose element `offset` is
- *  the length of the array the call pushes onto, and the new length after the call. */
 export interface HeldLength {
   readonly state: ResidentArrayState;
   readonly offset: number;
 }
 
-/** A loop's start and trip count, as the call computed them before anything ran; or, with
- *  `device`, a range the device holds, which the call does not know (change 0094). */
 export interface KernelRange {
   readonly start: number;
   readonly n: number;
   readonly device?: true;
 }
 
-/** A call's arguments, checked: what `runChecked` runs. */
 export interface CheckedCall {
-  /** The owner captured by an ordinary call; a recorded call uses its scope's owner. */
   readonly owner?: CallOwner;
-  /** A call on a resource, recorded and submitted later (change 0138, R2): on WebGL2 its
-   *  submission flushes and a `read()` of what it wrote waits on a fence (Amendment A5, default 6).
-   *  A call with plain data keeps today's meaning, and marks nothing. */
   readonly recorded?: boolean;
   readonly states: readonly (ResidentArrayState | undefined)[];
   readonly hosts: readonly unknown[];
   readonly values: readonly unknown[];
-  /** Each loop's start and trip count; absent when the function runs on the CPU. A loop whose
-   *  range the device holds (change 0094) has `device` set, and no start or trip count the host
-   *  knows: its `start` and `n` are 0. */
   readonly ranges: readonly KernelRange[] | undefined;
-  /** For each parameter, the held length it was passed with, `{ array, length, offset? }`
-   *  (change 0094); undefined for a parameter passed without one. */
   readonly held: readonly (HeldLength | undefined)[];
 }
 
-/**
- * Check a call before anything runs or is uploaded: the number of arguments, one resident array
- * passed twice, every value against its type, and each array against the indices a loop writes.
- *
- * @throws `TypeError` naming the function and the parameter.
- */
 export function checkCall(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -1317,10 +993,8 @@ export function checkCall(
 ): CheckedCall {
   const bad = arityError(k, argc);
   if (bad !== undefined) throw bad;
-  // A held length (change 0094): the parameter takes its `array`, and the length is checked apart.
   const held = k.params.map((p, i) => (p.k === 'array' ? checkHeld(k, p, args[i]) : undefined));
   const plain = args.map((a, i) => held[i]?.array ?? a);
-  // A `Resident` stands for the array it holds.
   const states = plain.map((a) => residentState(a));
   states.forEach((s, i) => {
     if (s !== undefined && states.indexOf(s) !== i)
@@ -1328,7 +1002,6 @@ export function checkCall(
         `${k.name}(): parameter "${k.params[i]!.name}" is the same Buffer as parameter "${k.params[states.indexOf(s)]!.name}".`,
       );
   });
-  // A held length is a `Resident` of its own: no array of the call, and no other held length.
   held.forEach((h, i) => {
     if (h === undefined) return;
     const at = `${k.name}(): "${k.params[i]!.name}.length"`;
@@ -1339,14 +1012,10 @@ export function checkCall(
     if (other !== i)
       throw new TypeError(`${at} is the same Buffer as "${k.params[other]!.name}.length".`);
   });
-  // A `Buffer` of `bool`, of a key or of a matrix is taken only where its element is (A12).
   k.params.forEach((p, i) => {
     if (p.k === 'array') checkElement(k, p, states[i]);
   });
-  // A scratch array of a fuse scope holds no host array yet, so `hosts` has the handle there, and
-  // `checkArray` asks the array's own state instead of reading it.
   const hosts = plain.map((a, i) => states[i]?.host ?? a);
-  // Every value is checked before anything runs or is uploaded.
   const values = k.params.map((p, i) =>
     p.k === 'value'
       ? toShader(k.name, p.name, p.type, hosts[i])
@@ -1356,9 +1025,6 @@ export function checkCall(
           ? checkCollection(k, p, hosts[i])
           : checkArray(k, p, hosts[i], states[i]),
   );
-  // Each loop's range, and each array against the indices it writes, before anything runs: the
-  // loops write no scalar the ranges read (Rule 8.22), so every range that reads no element is
-  // known up front. A range that reads one is the device's (change 0094).
   const ranges = k.gpu !== undefined ? rangesOf(cpu, k, values) : undefined;
   return {
     states,
@@ -1369,15 +1035,6 @@ export function checkCall(
   };
 }
 
-/**
- * Check a held length for array parameter `p` (change 0094): `{ array, length, offset? }`, the
- * array and the element `offset` of the `Resident<Uint32Array>` `length` that holds its length.
- * Undefined for an argument of another shape, which the array's own check reads.
- *
- * @throws `TypeError` naming the function and the parameter, before anything runs: on a parameter
- *   no loop pushes onto (decision D5), and for a length that is no live `Resident<Uint32Array>`
- *   of the host's, or an offset that is no whole number from 0 or is past it.
- */
 function checkHeld(
   k: KernelFace,
   p: KernelParam & { k: 'array' },
@@ -1402,7 +1059,6 @@ function checkHeld(
     throw new TypeError(
       `${at} is a Buffer<u32> that holds the length of "${p.name}"; got ${describe(h.length)}.`,
     );
-  // A scratch array of a fuse scope lives only until its plan has run (change 0058).
   if (s.outside !== undefined)
     throw new TypeError(
       `${at} is a scratch array of fuse(), which the host never reads. Make the length with array() or device.array().`,
@@ -1419,43 +1075,25 @@ function checkHeld(
   return { array: h.array, state: s, offset };
 }
 
-/** What a fuse scope's plan hands each call it runs (change 0058): where the WebGPU dispatches
- *  of its calls go, what it counts, and the tiers its calls ran on. `runChecked` with none is
- *  the call as it always was. */
 export interface PlanRun {
-  /** Whose device the plan runs on, and whose tiers its calls try (change 0071). */
   readonly owner: CallOwner;
   readonly counts: GpuCounts;
   readonly tiers: Set<Tier>;
-  /** The group of the plan the call that is running belongs to (change 0066). */
   group: number | undefined;
-  /** The GPU time of each group, in nanoseconds, as the batch's flushes measured it; `null`
-   *  once a flush could not measure it. A group with no entry has no time. */
   readonly gpuTimes: Map<number, number | null>;
-  /** The batch the plan's WebGPU dispatches join: they reach the queue in one submission, and
-   *  the dispatches of a reduction's levels are among them. */
   batchOn(d: GpuDevice): DispatchBatch;
-  /** Submit what the batch holds, before a step that must see what it wrote. */
   flush(): Promise<void>;
 }
 
-/** What a call of a plan gives in place of its result (change 0058): the result waits for what
- *  its reductions folded to, which the device holds until the plan has submitted. Call it once
- *  the plan has flushed its last dispatch. */
 export type Finish = () => Promise<unknown>;
 
-/** What the loops of a call that reduces folded to, one value for each variable in loop order,
- *  once the dispatches that fold them have been submitted. */
 export type Folded = () => Promise<CpuValue[]>;
 
-/** The host copies of the arguments once `syncAll` has run: a scratch array of a fuse scope has
- *  its elements by then, and had none when the call was checked. */
 const heldBy = (
   states: readonly (ResidentArrayState | undefined)[],
   hosts: readonly unknown[],
 ): unknown[] => hosts.map((h, i) => states[i]?.host ?? h);
 
-/** Bring each resident array's host copy up to date; a read of the device is a submission. */
 async function syncAll(
   states: readonly (ResidentArrayState | undefined)[],
   run: PlanRun | undefined,
@@ -1464,25 +1102,12 @@ async function syncAll(
     if ((await s?.sync()) === true && run !== undefined) run.counts.submissions++;
 }
 
-/** What one tier of the call layer makes of a checked call (Rule 11.8): the reason it cannot run
- *  the call, or what it runs the call with. */
 export type TierFit =
   | { readonly why: string }
   | { readonly why?: undefined; readonly tier: 'webgpu'; readonly d: GpuDevice }
   | { readonly why?: undefined; readonly tier: 'webgl2'; readonly gl: WebGL2RenderingContext }
   | { readonly why?: undefined; readonly tier: 'cpu' };
 
-/**
- * Whether `tier` can run the checked call `c` of `k` for `owner` (Rule 11.8). It gives the WebGPU
- * device, the WebGL2 context with every program of the call compiled, or the CPU tier. Otherwise
- * it gives the reason in the words that the `Error` of a call no tier can run gives the tier,
- * after `webgpu: `, `webgl2: ` or `cpu: `.
- *
- * This is the one place that words the reason of each tier. `runChecked` runs a call on the first
- * tier that can run it. The planner of a `fuse` scope settles the same tier before anything runs,
- * and a group that runs on a later tier than its plan's says the reasons of the tiers before its
- * own (Rule 11.13, change 0118).
- */
 export async function tierFit(
   k: KernelFace,
   c: CheckedCall,
@@ -1493,12 +1118,9 @@ export async function tierFit(
   if (tier === 'webgpu') {
     if (k.gpu === undefined || ranges === undefined)
       return { why: `it runs on the CPU, ${k.noGpu ?? 'unknown'}` };
-    // A texture of the CPU tier's memory binds on no GPU tier (change 0077).
     const cpuOnly = k.params.find((p, i) => p.k === 'texture' && isCpuTexture(hosts[i]));
     if (cpuOnly !== undefined)
       return { why: `parameter "${cpuOnly.name}" is a texture of the CPU tier's memory` };
-    // The array a held length is passed for that the WGSL a call runs gives no length word: the
-    // pushes would start at 0 there, so such a call runs on the CPU tier (change 0094).
     const unheld = held.findIndex(
       (h, i) =>
         h !== undefined && !variantOf(k, true).words.some((w) => w.param === k.params[i]!.name),
@@ -1509,9 +1131,6 @@ export async function tierFit(
       };
     const d = await owner.device();
     if (d === null) return { why: 'there is no WebGPU device' };
-    // The entry that stores after the loops binds every array, the partials of each loop that
-    // reduces and the length words (change 0094): on a device that allows fewer storage buffers
-    // to a stage, the call runs on the next tier.
     const most = d.limits?.maxStorageBuffersPerShaderStage ?? STORAGE_BUFFERS;
     const stores =
       k.gpu.finish === undefined
@@ -1526,8 +1145,6 @@ export async function tierFit(
       return {
         why: `its stores after the loops bind ${String(stores)} storage buffers, and the device allows ${String(most)}`,
       };
-    // The range entry and the entry of a loop whose range the device holds bind the trip buffer
-    // and the length words besides the arrays (change 0094).
     const ranged = deviceBindings(
       k,
       owner.fp64Flavor(d),
@@ -1545,8 +1162,6 @@ export async function tierFit(
       return { why: `it runs on the CPU, ${k.noWebgl2 ?? k.noGpu ?? 'unknown'}` };
     const gl = glContext();
     if (gl === null) return { why: 'there is no WebGL2 context' };
-    // Every program first, so that one WebGL2 refuses leaves no array half written. A program is
-    // compiled once for each loop, so a plan that settled the tier compiles nothing again.
     try {
       for (const loop of k.gl.loops) compileGl(gl, loop);
     } catch (e) {
@@ -1554,7 +1169,6 @@ export async function tierFit(
     }
     return { tier, gl };
   }
-  // The CPU tier reads a texture of its own memory, and an ImageData, which it copies (change 0077).
   const unread = k.params.find((p, i) => p.k === 'texture' && !cpuReads(hosts[i]));
   if (unread !== undefined)
     return {
@@ -1563,16 +1177,6 @@ export async function tierFit(
   return { tier: 'cpu' };
 }
 
-/**
- * Run a checked call on the first tier it may use, and resolve to its result.
- *
- * With a `run`, the call is part of a fuse scope's plan, and it resolves to a {@link Finish}
- * instead. On WebGPU its dispatches join the plan's batch instead of reaching the queue apart,
- * those of a reduction's levels among them, and a step that reads what the device holds submits
- * the batch first. What a reduction folded to is read in the submission that holds its levels,
- * so the call has no result before the plan has submitted it, and its `Finish` gives the result
- * after that.
- */
 export function runChecked(cpu: GeneratedCpu, k: KernelFace, c: CheckedCall): Promise<unknown>;
 export function runChecked(
   cpu: GeneratedCpu,
@@ -1588,7 +1192,6 @@ export async function runChecked(
 ): Promise<unknown> {
   const { states, hosts, values, ranges, held } = c;
   const why: string[] = [];
-  // Outside a scope the call is over when it resolves. In a plan, only the result is left.
   const result = (get: Finish): unknown => (run === undefined ? get() : get);
   const owner = inferOwner(
     `${k.name}()`,
@@ -1601,14 +1204,12 @@ export async function runChecked(
             : undefined
           : ownerOf(states[i]),
       ]),
-      // The `Resident` of each held length (change 0094).
       ...held.flatMap((h, i): [string, CallOwner | undefined][] =>
         h === undefined ? [] : [[`"${k.params[i]!.name}.length"`, ownerOf(h.state)]],
       ),
     ],
     run?.owner ?? c.owner,
   );
-  // A held length's word, which the CPU tier reads and writes on the host (change 0094).
   const words = held.map((h) => h?.state);
   for (const tier of owner.tiers()) {
     const fit = await tierFit(k, c, owner, tier);
@@ -1621,8 +1222,6 @@ export async function runChecked(
       run?.tiers.add(tier);
       const physical =
         run === undefined && states.every((s) => s === undefined) ? projectedInputs(k, hosts) : k;
-      // The subgroup variant, where the owner's device passed the probe and the face has one
-      // (change 0119); the owner's statistics name the text the call ran.
       const subgroup = owner.subgroupFolds?.(d) === true;
       owner.dispatched?.(
         k.name,
@@ -1658,12 +1257,8 @@ export async function runChecked(
       const uniforms = new Map<string, unknown>();
       k.params.forEach((p, i) => {
         if (p.k === 'array') arrays.set(p.name, live[i]);
-        // Arrays already carry their checked element count here, including flat vectors and
-        // typed subarrays. A length uniform names that parameter, never its backing capacity.
         uniforms.set(p.name, values[i]);
       });
-      // A range the device holds is computed here, on the CPU tier over the host copies, once the
-      // draws before it have written them (change 0094, Rule 11.8).
       let drawn = 0;
       k.gl!.loops.forEach((loop, j) => {
         const face = k.gpu!.loops[j]!;
@@ -1688,14 +1283,11 @@ export async function runChecked(
       const out = tailResult(cpu, k, values, []);
       return result(async () => out);
     }
-    // Each texture as the CPU tier's memory: its own, or an ImageData's copy (change 0077).
-    // `tierFit` has checked that the CPU tier reads each one.
     const memory = new Map<string, CpuTexture>();
     k.params.forEach((p, i) => {
       if (p.k === 'texture') memory.set(p.name, cpuTextureOf(hosts[i])!);
     });
     await run?.flush();
-    // The words of the held lengths too: the CPU tier reads the length and writes the new one.
     await syncAll([...states, ...words], run);
     run?.tiers.add(tier);
     const out = onCpu(cpu, k, heldBy(states, hosts), values, memory, held);
@@ -1706,7 +1298,6 @@ export async function runChecked(
 
 const projectedFaces = new WeakMap<KernelFace, KernelFace>();
 
-/** Cache the private face. The logical pack still reads all fields in its original order. */
 function projectedInputs(k: KernelFace, hosts: readonly unknown[]): KernelFace {
   const projected = k.gpu?.projected;
   if (projected === undefined) return k;
@@ -1724,10 +1315,6 @@ function projectedInputs(k: KernelFace, hosts: readonly unknown[]): KernelFace {
   return face;
 }
 
-/** The result of a call whose loops have run: the function's tail over the array lengths and the
- *  scalars, and over what each reduction folded, in loop order. Undefined for a function that
- *  returns nothing. A fuse plan's fused group computes the result of each of its calls here
- *  too (change 0058). */
 export function tailResult(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -1740,11 +1327,8 @@ export function tailResult(
   return fromShader(k.result, cpu.F[tail]!(...lengthsOf(k, values), ...folded));
 }
 
-/** Check a texture argument (change 0077): an image source for a `texture_2d<f32>`, and a
- *  device's storage texture of the parameter's format for a storage texture. Its image. */
 function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unknown): Image {
   const at = `${k.name}(): parameter "${p.name}" (${p.s})`;
-  // A texture of the CPU tier's memory, which a device on that tier made (change 0077).
   if (isCpuTexture(v)) {
     if (p.storage !== undefined && v.format !== p.storage.format)
       throw new TypeError(`${at}: got a ${v.format} texture; it stores ${p.storage.format}.`);
@@ -1760,30 +1344,23 @@ function checkTexture(k: KernelFace, p: KernelParam & { k: 'texture' }, v: unkno
     );
   if (t.format !== p.storage.format)
     throw new TypeError(`${at}: got a ${String(t.format)} texture; it stores ${p.storage.format}.`);
-  // STORAGE_BINDING, 0x08: a texture made without it cannot be bound for a store.
   const usage = t.texture?.usage;
   if (typeof usage === 'number' && (usage & 0x08) === 0)
     throw new TypeError(`${at}: the texture was made without storage: true.`);
   return img;
 }
 
-/** A texture argument as the CPU tier's memory: a `CpuTexture` as it is, an `ImageData` copied;
- *  undefined for one the CPU tier cannot read (a WebGPU texture, a canvas, a bitmap). */
 function cpuTextureOf(v: unknown): CpuTexture | undefined {
   if (isCpuTexture(v)) return v;
   return cpuReads(v) ? CpuTexture.fromImageData(v as ImageData) : undefined;
 }
 
-/** Whether the CPU tier reads a texture argument: a `CpuTexture`, or an `ImageData`, which
- *  `cpuTextureOf` copies. Nothing is copied here. */
 function cpuReads(v: unknown): boolean {
   if (isCpuTexture(v)) return true;
   const g = globalThis as { ImageData?: abstract new (...a: never[]) => unknown };
   return g.ImageData !== undefined && v instanceof g.ImageData;
 }
 
-/** Whether `k` is a key of the type `key`: an integer in its range, or a number an f32 holds
- *  (`NaN` among them). */
 function fitsKey(key: 'u32' | 'i32' | 'f32', k: unknown): boolean {
   if (typeof k !== 'number') return false;
   if (key === 'f32') return Number.isNaN(k) || Math.fround(k) === k;
@@ -1791,9 +1368,6 @@ function fitsKey(key: 'u32' | 'i32' | 'f32', k: unknown): boolean {
   return key === 'u32' ? k >= 0 && k <= 0xffffffff : k >= -0x80000000 && k <= 0x7fffffff;
 }
 
-/** Check a Map or Set argument (change 0080): a `Map` or a `Set` as the parameter says, each key
- *  of its key type and each value of its value type. A copy in the CPU tier's values, in the
- *  host's order, which the call runs on and writes back from. */
 function checkCollection(
   k: KernelFace,
   p: KernelParam & { k: 'collection' },
@@ -1825,7 +1399,6 @@ function checkCollection(
   return out;
 }
 
-/** A value as a refusal names it. */
 function describe(v: unknown): string {
   if (v === null) return 'null';
   if (typeof v === 'number') return Object.is(v, -0) ? '-0' : String(v);
@@ -1834,9 +1407,6 @@ function describe(v: unknown): string {
   return `a ${(v as object).constructor?.name ?? 'object'}`;
 }
 
-/** Write what the CPU tier left in a Map or Set (change 0080) into the host's: a key it already
- *  holds keeps its place and takes the value set last, and a new key goes after, in the order
- *  the function added them. */
 function collectionBack(
   p: KernelParam & { k: 'collection' },
   ran: Map<number, CpuValue> | Set<number>,
@@ -1850,12 +1420,6 @@ function collectionBack(
     (host as Map<unknown, unknown>).set(p.keys?.[key] ?? key, fromShader(p.value, value));
 }
 
-/**
- * Apply the records a loop pushed for Map or Set `c` (change 0080) to the caller's collection and
- * to the call's copy of it, which the tail reads: the first `count` records of `dv`, in order,
- * each an `add` or a `set` as ECMAScript makes it. A key the collection holds keeps its place, a
- * Map's value is the one set last, and keys compare by SameValueZero.
- */
 function applyRecords(
   k: KernelFace,
   c: NonNullable<NonNullable<KernelFace['gpu']>['collections']>[number],
@@ -1892,8 +1456,6 @@ function applyRecords(
   }
 }
 
-/** The order word of a key (change 0080): one `u32` for each key, equal for two keys exactly when
- *  SameValueZero calls them equal, as the lowering's search computes it. */
 const orderView = new DataView(new ArrayBuffer(4));
 export function orderWord(key: 'u32' | 'i32' | 'f32', k: number): number {
   if (key === 'u32') return k >>> 0;
@@ -1904,9 +1466,6 @@ export function orderWord(key: 'u32' | 'i32' | 'f32', k: number): number {
   return orderView.getUint32(0, true);
 }
 
-/** What a loop that reads a Map or Set searches (change 0080): the count, then each key's order
- *  word, sorted, and a Map's values in the same order. An empty Map's values hold one value
- *  nobody reads, since a binding is not empty. */
 function lookupTable(
   k: KernelFace,
   p: KernelParam & { k: 'collection' },
@@ -1930,7 +1489,6 @@ function lookupTable(
   keys[0] = rows.length;
   rows.forEach((r, i) => (keys[i + 1] = r.word));
   if (values === undefined) return { keys: keys.buffer };
-  // Each value packed at its stride; an empty Map's binding holds one value nobody reads.
   const bytes = new ArrayBuffer(Math.max(1, rows.length) * values.st);
   const dv = new DataView(bytes);
   rows.forEach((r, i) =>
@@ -1939,16 +1497,12 @@ function lookupTable(
   return { keys: keys.buffer, values: bytes };
 }
 
-/** An empty value `readInto` fills for layout `l`: an object for a struct, a list of the right
- *  length for an array with a size, and nothing for the rest, which it makes itself. */
 function blank(l: Layout): unknown {
   if (l.k === 'o') return Object.fromEntries(l.f.map(([name, , fl]) => [name, blank(fl)]));
   if (l.k === 'a' && l.n !== null) return Array.from({ length: l.n }, () => blank(l.e));
   return undefined;
 }
 
-/** Check an array argument against its layout; its element count. A handle that holds no
- *  elements yet, a scratch array of a fuse scope, is checked by its own state (`s`). */
 function checkArray(
   k: KernelFace,
   p: KernelParam & { k: 'array' },
@@ -1957,12 +1511,9 @@ function checkArray(
 ): number {
   if (s?.measure !== undefined) return s.measure(k.name, p);
   try {
-    // A plain `array<matCxR>` is an array of matrices; only a `Buffer` gives its components one
-    // after another (Amendment A12, B2-1).
     if (s === undefined && matrixFlat(p.layout.e, v) !== undefined)
       throw new Misfit('', 'got a Float32Array, not an array');
     const size = byteSize(p.layout, v, '');
-    // A flat typed array is checked by `byteSize` alone: its bulk copy cannot fail, so no dry pack.
     if (bulkOf(p.layout, v) === undefined)
       pack(new DataView(new ArrayBuffer(Math.max(4, size))), 0, p.layout, v, '');
     return runtimeCount(p.layout, v, '');
@@ -1973,9 +1524,6 @@ function checkArray(
   }
 }
 
-// ─── WebGPU ──────────────────────────────────────────────────────────────────────────────────
-
-/** Iterations from `start` toward `bound` by `step`, as the loop's comparison counts them. */
 function tripsOf(loop: KernelLoop, start: number, bound: number): number {
   const s = Math.abs(loop.step);
   const span =
@@ -1989,16 +1537,11 @@ function tripsOf(loop: KernelLoop, start: number, bound: number): number {
   return span <= 0 ? 0 : Math.ceil(span / s);
 }
 
-/** Each loop's start and trip count, having checked every array the loop writes at `a*i + c`
- *  against its length. */
 function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]): KernelRange[] {
   const g = k.gpu!;
-  // The range functions read an array only by its length.
   const lengths = lengthsOf(k, values);
   const init = cpu.F['$initPrivates'];
   return g.loops.map((loop, j) => {
-    // A range the device holds is computed by its range entry, or on WebGL2 from the host copies
-    // once the loops before it have run (change 0094).
     if (loop.device !== undefined) return { start: 0, n: 0, device: true };
     init?.();
     const range = cpu.F[loop.range]!(...lengths) as unknown as readonly number[];
@@ -2010,8 +1553,6 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
     for (const c of loop.checks) {
       const i = k.params.findIndex((p) => p.name === c.param);
       const length = values[i] as number;
-      // A read under comparisons of the counter with a bound happens in the iterations where they
-      // hold (#997): the counters from `from` to `to`. The interval holds every such iteration.
       let [from, to] = [lo, hi];
       for (const g of c.guards ?? []) {
         init?.();
@@ -2030,7 +1571,6 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
           `${k.name}(): parameter "${c.param}" holds ${length} elements, and loop ${j + 1} ${c.read ? 'reads' : 'writes'} it at indices ${bottom} to ${top}.`,
         );
     }
-    // Each array it writes at `i*k + b` or at `i*W + x` holds every index it writes (#775).
     const over = (param: string, bottom: number, top: number): void => {
       const length = values[k.params.findIndex((p) => p.name === param)] as number;
       if (top >= length || bottom < 0)
@@ -2055,7 +1595,6 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
       const w = Number(cpu.F[r.width]!(...lengths));
       if (w > 0) over(r.param, lo * w, hi * w + w - 1);
     }
-    // Each texture it stores into holds the texels (i % W, i / W) of every iteration.
     for (const t of loop.texels ?? []) {
       const i = k.params.findIndex((p) => p.name === t.param);
       const img = values[i] as Image;
@@ -2071,12 +1610,6 @@ function rangesOf(cpu: GeneratedCpu, k: KernelFace, values: readonly unknown[]):
   });
 }
 
-/**
- * The range of loop `j`, which the device holds, for WebGL2 (change 0094): its range function on
- * the CPU tier over the host copies of the arrays, the elements it names read, and the iterations
- * whose `i` lies inside the one array the loop writes at `i`. The others would write past the
- * array's end, which every tier drops (decision D2), and WebGL2 does not draw them.
- */
 function glRange(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -2107,8 +1640,6 @@ function glRange(
   return hi < lo ? { start, n: 0 } : { start: start + lo * step, n: hi - lo + 1 };
 }
 
-/** The storage buffers the most-binding entry of a loop whose range the device holds binds, its
- *  range entry or its own, and the loop; undefined when no range is the device's (change 0094). */
 function deviceBindings(
   k: KernelFace,
   flavor: Fp64Flavor,
@@ -2127,9 +1658,7 @@ function deviceBindings(
   return most;
 }
 
-/** The parameters as the range functions and the tail take them: each array by its length. */
 function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
-  // A texture is no value the CPU tier reads: the functions it runs there name none (change 0077).
   return k.params.map((p, i) =>
     p.k === 'array'
       ? ({ length: values[i] as number } as unknown as CpuValue)
@@ -2139,20 +1668,12 @@ function lengthsOf(k: KernelFace, values: readonly unknown[]): CpuValue[] {
   );
 }
 
-/** The workgroups of a dispatch of `groups`, past 65535 spilling into y, and how many that is. */
 export function grid(groups: number): { wg: [number, number, number]; slots: number } {
   const x = Math.max(1, Math.min(groups, 65535));
   const y = Math.ceil(groups / x);
   return { wg: [x, y, 1], slots: x * y };
 }
 
-/**
- * Dispatch each loop in order, and give back what the loops that reduce folded to. Outside a
- * scope each loop reaches the queue in a submission of its own, as it always did, and a loop
- * that reduces is one submission with the dispatches that fold its partials (`reduceOnGpu`). In
- * a plan (`run`), the dispatches of every loop join the plan's batch, and the folded values are
- * there to read once the plan has submitted it.
- */
 async function onDevice(
   d: NonNullable<Awaited<ReturnType<typeof gpuDevice>>>,
   k: KernelFace,
@@ -2166,19 +1687,15 @@ async function onDevice(
   subgroup = false,
 ): Promise<Folded> {
   const g = k.gpu!;
-  // A call that passes a held length runs the WGSL in which every array a loop pushes onto has a
-  // length word (change 0094).
   const holds = held.some((h) => h !== undefined);
   const variant = variantOf(k, holds);
   const es = entriesOf(k, flavor, holds, subgroup);
   const batch = run?.batchOn(d) ?? new DispatchBatch(d);
   const folds: Folded[] = [];
-  // Each texture, as `checkCall` found it (change 0077).
   const images = new Map<string, Image>();
   k.params.forEach((p, i) => {
     if (p.k === 'texture') images.set(p.name, imageOf(args[i]) as Image);
   });
-  // A `Resident` is bound as the buffer it already has on the device.
   const onDevice = new Map<string, GpuBuffer>();
   k.params.forEach((p, i) => {
     const s = states[i];
@@ -2191,11 +1708,7 @@ async function onDevice(
       s.bufferFor(d, p.layout, () => packed(b, s.host), writes),
     );
   });
-  // The keys and values of each Map or Set the loops read (change 0080), uploaded before the first
-  // loop that reads it, once the records of the loops before it are in the collection, and freed
-  // once what the call folded has been read.
   const tables: GpuBuffer[] = [];
-  // The records of a loop, applied to the collections once read back; at most once.
   const pending: (() => Promise<void>)[] = [];
   const upload = async (j: number): Promise<void> => {
     const here = (g.lookups ?? []).filter((l) => l.loop === j);
@@ -2225,9 +1738,6 @@ async function onDevice(
       onDevice.set(l.values.name, values);
     }
   };
-  // The stores after the loops (change 0094): where the finish entry reads what each loop that
-  // reduces folded, and the partials it binds, which the call frees once it has run. `ats` also
-  // holds where each length word is, which every entry's uniform carries.
   const fin = g.countOnly === true ? undefined : g.finish;
   const ats: Record<string, number> = {};
   const partsOf = new Map<number, readonly GpuBuffer[]>();
@@ -2236,9 +1746,6 @@ async function onDevice(
     g.loops.forEach((l, j) => {
       if (l.reduce !== undefined) ats[`_at${String(j)}`] = NO_FOLD;
     });
-  // The length words (change 0094): the `Resident` of a held length, bound as the buffer it has
-  // on the device and left there with the new length, or a zeroed word the call makes for an
-  // array whose pushes start at 0, which it frees once it has run. The uniform says where each is.
   for (const w of variant.words) {
     const h = held[k.params.findIndex((p) => p.name === w.param)];
     if (h !== undefined) {
@@ -2255,9 +1762,6 @@ async function onDevice(
       ats[w.field] = 0;
     }
   }
-  // The trip buffer (change 0094, part 1): the range entry of each loop whose range the device
-  // holds writes its start, its trip count and its entry's workgroup count there, and the loop is
-  // dispatched indirectly from it, with nothing read back. It is freed once the call has run.
   let trips: GpuBuffer | undefined;
   if (g.trips !== undefined) {
     const words = Math.max(...g.loops.map((l) => (l.device?.at ?? 0) + TRIP_WORDS));
@@ -2271,8 +1775,6 @@ async function onDevice(
     const vars = loop.reduce?.vars ?? [];
     await upload(j);
     if (loop.device !== undefined) {
-      // A loop whose range the device holds maps (stage 3 of change 0094): its range entry, then
-      // its entry from the counts the range entry wrote, a trip count of 0 dispatching nothing.
       const uniform: Record<string, unknown> = { _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
       k.params.forEach((p, i) => {
         if (p.k === 'value') uniform[p.name] = values[i];
@@ -2295,8 +1797,6 @@ async function onDevice(
       }
       continue;
     }
-    // A loop that pushes onto an array with a length word runs its scan even with no iteration
-    // (change 0094): slot 0 then holds the length after the loop, which the result reads.
     const word = variant.words.some((w) => w.loops.includes(j));
     if (n === 0 && !word) {
       // Why: with no iteration a variable folds to its identity and a push loop pushed nothing; the
@@ -2304,7 +1804,6 @@ async function onDevice(
       const identities = vars.map((v) => identityValue(v.op, v.scalar, v.n));
       if (loop.push !== undefined) identities.push(0 as CpuValue);
       folds.push(async () => identities);
-      // The finish entry binds a slot it does not read: `_at<j>` says the loop ran nothing.
       if (fin !== undefined && vars.length > 0) {
         const unread = vars.map((v) =>
           zeroedBuffer(d, (v.binding.layout as Layout & { readonly k: 'a' }).st),
@@ -2356,8 +1855,6 @@ async function onDevice(
         vars,
         fields: OWN_FIELDS,
       };
-      // With stores after the loops, the partials stay for the finish entry, and a function
-      // that returns nothing reads nothing back (change 0094).
       const keep =
         fin === undefined
           ? undefined
@@ -2371,11 +1868,9 @@ async function onDevice(
             };
       folds.push(await reduceOnGpu(d, r, n, uniform, bound_, onDevice, batch, images, keep));
     }
-    // Outside a scope, the next loop sees what this one wrote.
     if (run === undefined) await batch.flush();
   }
   if (fin !== undefined) {
-    // The stores, one invocation after the loops, in the same submission in a plan (change 0094).
     const uniform: Record<string, unknown> = { _start: 0, _n: 0, _in: 0, _out: 0, ...ats };
     k.params.forEach((p, i) => {
       if (p.k === 'value') uniform[p.name] = values[i];
@@ -2388,7 +1883,6 @@ async function onDevice(
     for (const [j, buffers] of partsOf)
       g.loops[j]!.reduce!.vars.forEach((v, i) => bound.set(v.binding.name, buffers[i]!));
     try {
-      // From the WGSL text the loops ran: the second, for a call that passes a held length.
       await batch.add(
         finishOf(k, flavor, holds, subgroup),
         { values: bound_, images, samplers: new Map(), onDevice: bound },
@@ -2406,52 +1900,23 @@ async function onDevice(
       for (const f of folds) folded.push(...(await f()));
     } finally {
       for (const b of tables) b.destroy();
-      // The finish entry has run: its submission is the plan's, or the flush above.
       for (const b of kept) b.destroy();
     }
     return folded;
   };
 }
 
-/** A loop that reduces, as `reduceOnGpu` runs it. */
 export interface Reduction {
-  /** The loop's entry, and the entry that folds a level of partials. */
   readonly loop: ComputeEntry;
   readonly fold: ComputeEntry;
-  /** The name of the uniform's binding, which both entries bind. */
   readonly args: string;
-  /** The workgroup size of the loop's entry: {@link KERNEL_TREE}. */
   readonly wg: number;
-  /** What it reduces, as its face describes it. */
   readonly vars: NonNullable<KernelLoop['reduce']>['vars'];
-  /** The fields of the uniform that say how many partials a level folds, where they start and
-   *  where the level writes its own. */
   readonly fields: { readonly n: string; readonly in: string; readonly out: string };
 }
 
-/** The uniform fields of a kernel function's own entries. */
 const OWN_FIELDS = { n: '_n', in: '_in', out: '_out' } as const;
 
-/**
- * Add a loop that reduces over `n` iterations to `batch`, and one dispatch for each level that
- * folds its partials in the tree order (Rule 7.2). Resolves, once they are in the batch, to a
- * function that gives what each variable folded to after the batch has been flushed. `uniform`
- * is the loop's uniform, and `values` holds the rest of its bindings.
- *
- * The partials of every level are one device buffer for each variable, in regions one after
- * another, that the loop and every level bind. No level reads them back before the next, so all
- * the dispatches reach the queue in the one submission of the batch. That submission also copies
- * the folded slot of each variable (`DispatchBatch.read`). Each dispatch has a uniform of its
- * own: a copy of `uniform` with the fields that say how many partials the level folds, where they
- * start and where it writes its own, since a batch reads its values when it is flushed. The
- * buffers are freed once the folded slots have been read, or when the batch drops the read. A
- * fused group that ends in a loop that reduces runs through this too (change 0058), so it folds
- * by the levels that a call outside a scope folds by.
- *
- * With `keep` (change 0094), the caller takes the partials and frees them: `keep.partials` gets
- * them, and the slot the folded value is at, for the entry that stores after the loops, and with
- * `keep.read` false nothing is read back and the result folds nothing.
- */
 export async function reduceOnGpu(
   d: GpuDevice,
   r: Reduction,
@@ -2467,7 +1932,6 @@ export async function reduceOnGpu(
   },
 ): Promise<Folded> {
   const first = grid(Math.ceil(n / r.wg));
-  // The partials of every level, one region after another.
   const levels: { wg: [number, number, number]; slots: number; count: number }[] = [];
   let count = Math.ceil(n / r.wg);
   let slots = first.slots;
@@ -2477,15 +1941,11 @@ export async function reduceOnGpu(
     slots += next.slots;
     count = Math.ceil(count / KERNEL_TREE);
   }
-  // A new buffer holds zeros, as the partials of a loop always started.
   const layouts = r.vars.map((v) => v.binding.layout as Layout & { readonly k: 'a' });
   const partials = layouts.map((l) => zeroedBuffer(d, slots * l.st));
   const free = (): void => partials.forEach((b) => b.destroy());
   const bound = new Map(onDevice);
   r.vars.forEach((v, i) => bound.set(v.binding.name, partials[i]!));
-  // One uniform for each level, each written at an offset of its own in the device's uniform
-  // buffer and bound at a dynamic offset (`uniformsOf` in `core/host-entry.ts`). A reduction has
-  // three levels at most, for 2^32 iterations.
   const dispatch = (
     e: ComputeEntry,
     args: Record<string, unknown>,
@@ -2513,8 +1973,6 @@ export async function reduceOnGpu(
       at = out;
       out += level.slots;
     }
-    // `at` is where the last dispatch wrote its first partial: the loop's slot 0 when no level
-    // follows, and the first slot of the last level otherwise. That partial is the folded value.
     reads =
       keep?.read === false ? [] : layouts.map((l, i) => batch.read(partials[i]!, at * l.st, l.st));
     keep?.partials(at, partials);
@@ -2529,11 +1987,6 @@ export async function reduceOnGpu(
     );
 }
 
-// ─── the CPU tier ────────────────────────────────────────────────────────────────────────────
-
-/** The stores after the loops over the host's arrays (change 0094): what WebGL2 runs after its
- *  draws, through the CPU-tier function of the stores, each array it writes copied back in place.
- *  WebGL2 runs no loop that reduces, so the function folds nothing. */
 function finishOnHost(
   cpu: GeneratedCpu,
   k: KernelFace,
@@ -2567,8 +2020,6 @@ function onCpu(
         ? (memory.get(p.name) as unknown as CpuValue)
         : (values[i] as CpuValue),
   );
-  // A held length (change 0094): the pushes start at the length its word holds, which the call
-  // has brought up to date on the host.
   held.forEach((h, i) => {
     if (h !== undefined)
       startPushesAt(cpuArgs[i] as CpuValue[], (h.state.host as Uint32Array)[h.offset]!);
@@ -2580,7 +2031,6 @@ function onCpu(
     if (p.k === 'collection' && p.writes)
       collectionBack(p, cpuArgs[i] as unknown as Map<number, CpuValue> | Set<number>, args[i]);
   });
-  // The new length, the held one plus what the loops appended, stays in the word.
   held.forEach((h, i) => {
     if (h !== undefined)
       (h.state.host as Uint32Array)[h.offset] = pushedLength(cpuArgs[i] as CpuValue[]);

@@ -1,9 +1,3 @@
-// ═══ Shader DSL — Node<K> authoring wrapper + builtins ═══
-//
-// The TSL-style chaining wrapper over an Expr (Node<K>, phantom-typed for the
-// compile-time gate), the literal/ref constructors, and the free-function
-// builtins. Imports types.ts + nodes.ts.
-
 import {
   type ShaderType,
   type Scalar,
@@ -45,9 +39,6 @@ import type { Expr, BinOp, CmpOp } from './nodes.js';
 import { divergentIntegerId } from './divergent-int.js';
 import { dslError } from '../diagnostics/error.js';
 
-// Re-export ScalarKey so consumers importing the matchExpr signature can refer
-// to its generic bound without a separate types import (mirrors the existing
-// `KeyOf` / `ElemKey` re-export pattern in the barrel).
 export type { ScalarKey } from './types.js';
 
 /** Anything accepted where a node is read: any node, mutable or read-only, or a JS number,
@@ -57,19 +48,6 @@ export type { ScalarKey } from './types.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- any element kind, the widest node
 export type NodeLike = ReadonlyNode<any> | number;
 
-/** The scalar keys a binary op may pair with element kind `E` — the SAME kind only,
- *  except f64's blessed exact widen from f32. This is `binResultType`'s law made static:
- *  WGSL and GLSL ES 3.00 have NO implicit scalar conversions, so a mixed pair
- *  (f32∘i32, i32∘u32, vec<f32>∘i32-scalar) emits code neither target compiles — and for
- *  non-f64 pairs `binResultType`'s C-like promotion ranking never rejected it, so the
- *  first diagnostic used to be the emit-time `mixed-scalar` lint (or the GPU compiler,
- *  on a raw-IR path). For the WIDENED `K = string` (unparameterised helper params) both
- *  aliases below fall back to `ReadonlyNode<string>`, which every kind-matched branch is
- *  a SUBSET of — that ⊆ direction is what keeps `Node<'f64'>` (and every other specific
- *  key) assignable to `ReadonlyNode<string>` under method bivariance. (The previous
- *  design got the same assignability from the OPPOSITE direction — every branch a
- *  SUPERSET of a `ScalarKey` fallback — which is exactly what admitted the mixed-kind
- *  operands this replaces.) */
 type KindScalar<E extends string> = E extends 'f64' ? 'f64' | 'f32' : E;
 
 /** The operand a binary arithmetic method accepts for a receiver of key `K`. For a vector
@@ -94,18 +72,6 @@ export type CmpArg<K extends string> = ReadonlyNode<KindScalar<K>> | number;
  *  not a union, so the conditional does not distribute and passes it through unchanged. */
 export type NonComposite<K extends string> = K extends `vec${string}` | `mat${string}` ? never : K;
 
-// NB — the `.and`/`.or` RECEIVER is deliberately NOT `this:`-bounded. A
-// `this: ReadonlyNode<K extends 'bool' ? K : never>`-style bound was tried and
-// broke `Node<'vec4<f32>'> → ReadonlyNode<string>` / `Node<'u32'> →
-// ReadonlyNode<ScalarKey>` assignability ACROSS the d.ts boundary (the compiler
-// package went red while shader-dsl's own build stayed green) — the same
-// never-`this` shape the comparisons' NonComposite bound survives, tipped over
-// by one more such member. The receiver is guarded at AUTHOR-RUN time instead
-// (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
-// GPU compiler would.
-
-// Returns ReadonlyNode<string>, not <any> (X-GIS #763 X12): `<any>` was assignable to
-// EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
 /** Normalizes a {@link NodeLike} operand to a {@link ReadonlyNode}: a JS number becomes an f32
  *  literal, and an existing node passes through unchanged. Every free-function builtin (`sin`,
  *  `min`, `construct`, …) sends its operands through this, which is why `sin(1)` works without
@@ -128,17 +94,10 @@ export function lift(x: NodeLike): ReadonlyNode<string> {
   return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: litNum(x, 'lift') }) : x;
 }
 
-// The typed-lift rule, as a free function so the ONE implementation serves both the method
-// operands (`ReadonlyNode.liftArg`, where `t` is the receiver's type) and the free-function
-// binops of #8 B3 (where `t` is the type of whichever operand is not a literal). A bare number
-// takes `t`'s scalar kind; a node passes through.
 function liftAgainst(t: ShaderType, o: NodeLike): ReadonlyNode {
   if (typeof o === 'number' && t.kind === 'scalar' && (t.scalar === 'u32' || t.scalar === 'i32')) {
     return t.scalar === 'u32' ? u32(o) : i32(o);
   }
-  // An f64 context lifts a bare number to an f64 LITERAL carrying the full
-  // JS-double value — the fp64-lower pass splits it into (hi, lo) f32 halves
-  // at build time, so `x.add(0.1)` on an f64 x loses nothing.
   if (typeof o === 'number' && (isF64(t) || isVec64(t))) return f64(o);
   return lift(o);
 }
@@ -167,15 +126,9 @@ export const NODE_BRAND: unique symbol = Symbol.for('typeshade.node') as never;
 export const isNodeValue = (v: unknown): v is ReadonlyNode =>
   v !== null && typeof v === 'object' && (v as Record<symbol, unknown>)[NODE_BRAND] === true;
 
-/** Statement sink — the builder installs how `node.assign(v)` pushes its Stmt to the
- *  current scope. Injected (not imported) so the Node lvalue methods can route to the builder without a
- *  node ↔ builder import cycle. (Reads only `.expr`, so a ReadonlyNode value is fine.) */
 type StmtSink = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a sink takes any element kind
   assign(target: ReadonlyNode<any>, value: ReadonlyNode<any>): void;
-  // #8 S2 — the compound-assignment route, `x += v`. OPTIONAL, so a host that installed a sink
-  // before this existed still type-checks and still works: the compound methods fall back to
-  // `assign(target, target ∘ value)`, which is the statement they used to have to be written as.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as `assign`
   assignOp?(target: ReadonlyNode<any>, bop: BinOp, value: ReadonlyNode<any>): void;
 };
@@ -210,19 +163,9 @@ const stmtSink = (): StmtSink => {
   return _stmtSink;
 };
 
-/** Result type of a binary arithmetic op given operand types. vec op scalar
- *  (or vec op same-vec) → vec; scalar op scalar → f32>i32>u32 promotion. A
- *  vec op a different vec is a type error (returned as a poisoned mismatch
- *  that the WGSL/CPU backend never sees because typecheck fails first). */
 function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
-  // mat64 (emulated-double matrices): the ONLY binary op is `*` — M*v → vecN<f64>
-  // (matvec) and M*M → matNxN<f64> (matmul). Decided before the native mat arms
-  // since `isMat` also matches mat64. A left mat64 with any other op / operand is
-  // rejected here at author time (no df64 mat add/sub helpers exist).
   if (isMat64(a)) {
     if (ctx !== '*') throw dslError('SD0041', `${ctx}: '${ctx}' on ${typeKey(a)}`);
-    // The df64 matrix helpers are square, one body per dimension, so a mat64 product is
-    // square against square and square against a vec of the same width.
     if (isMat64(b)) {
       if (a.cols !== b.cols || a.rows !== b.rows)
         throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`);
@@ -234,32 +177,16 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
     }
     throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
   }
-  // The matrix products of wgsl.txt:9960-9995, which GLSL ES 3.00 spells identically:
-  //
-  //   m * s, s * m  componentwise scaling, result the matrix's own type
-  //   m * v         matCxR * vecC -> vecR        (the vector is a column)
-  //   v * m         vecR * matCxR -> vecC        (the vector is a row)
-  //   m * n         matKxR * matCxK -> matCxR    (the shared dimension cancels)
   if (isMat(a) && isMat(b)) {
-    // The PRODUCT rule is `*`'s alone. WGSL gives `+` and `-` on two matrices the
-    // component-wise meaning, which needs identical shapes, and gives a matrix no `/` or `%`
-    // at all. Applying the product's dimension rule to every operator made `m + n` between
-    // incompatible shapes build a third shape and refused two matrices that do add (#149
-    // review).
     if (ctx === '+' || ctx === '-') {
       if (!typeEq(a, b)) throw dslError('SD0002', `${ctx}: ${typeKey(a)} vs ${typeKey(b)}`);
       return a;
     }
     if (ctx !== '*') throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
-    // Both matrices must share an element kind: without this an f32 matrix times a mat64
-    // emitted `(a * b)` between a `mat4x4<f32>` and a `DF64Mat4`, which Tint refuses.
     if (a.elem !== b.elem) throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
     if (a.cols !== b.rows) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`);
     return { kind: 'mat', cols: b.cols, rows: a.rows, elem: a.elem };
   }
-  // A matrix product's vector side must be f32 too: `vec3<i32> * mat3x3<f32>` emitted
-  // `(v * m)` and Tint refuses it. The TS front end checks this in `matVecMul`; the EDSL
-  // did not, so the two surfaces disagreed.
   if (isMat(a) && isVec(b)) {
     if (ctx !== '*') throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
     if (a.elem !== b.elem) throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
@@ -272,8 +199,6 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
     if (b.rows !== a.n) throw dslError('SD0001', `${ctx}: ${typeKey(a)} * ${typeKey(b)}`);
     return { kind: 'vec', n: b.cols, elem: a.elem };
   }
-  // A matrix scaled by a scalar of its element kind, either side (wgsl.txt:9960-9995
-  // "Component-wise scaling"). Only `*`: WGSL gives a matrix no scalar +, - or /.
   if (isMat(a) && isScalar(b) && b.scalar === a.elem && ctx === '*') return a;
   if (isScalar(a) && isMat(b) && a.scalar === b.elem && ctx === '*') return b;
   if (isVec(a) && isVec(b)) {
@@ -282,9 +207,6 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
   }
   if (isVec(a) && isScalar(b)) return a;
   if (isScalar(a) && isVec(b)) return b;
-  // vec64 (emulated-double vectors): vec64∘same-vec64 → vec64; vec64∘(f64|f32)
-  // scalar broadcasts. Everything else (ints, mixed widths, f32 vecs) rejects.
-  // `%` has no emulation; `/` lowers to the vectorized NR division.
   if (isVec64(a) || isVec64(b)) {
     if (ctx === '%') throw dslError('SD0041', `binary op '%' on ${typeKey(a)} / ${typeKey(b)}`);
     if (isVec64(a) && isVec64(b)) {
@@ -295,10 +217,6 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
     if (isF64(other) || (isScalar(other) && other.scalar === 'f32')) return v;
     throw dslError('SD0004', `${ctx}: ${typeKey(a)} / ${typeKey(b)}`);
   }
-  // f64 (emulated double): f64∘f64 → f64; f64∘f32 → f64 (implicit EXACT widen —
-  // the fp64-lower pass wraps the f32 side as vec2<f32>(x, 0.0)). Anything else
-  // (int/bool/vec/mat) is rejected — no implicit narrowing, no int promotion.
-  // `%` has no df64 emulation; fail at author time, not at lowering.
   if (isF64(a) || isF64(b)) {
     const other = isF64(a) ? b : a;
     if (isF64(other) || (isScalar(other) && other.scalar === 'f32')) {
@@ -318,10 +236,8 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
 }
 
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
-// Colour-alias components map onto the same lanes (WGSL allows either set).
 const SWIZZLE_ALIAS: Record<string, string> = { r: 'x', g: 'y', b: 'z', a: 'w' };
 
-// ── Swizzle result-key inference (X-GIS #740 R9) ──
 type StrLen<S extends string, A extends readonly unknown[] = []> = S extends `${string}${infer R}`
   ? StrLen<R, [...A, 1]>
   : A['length'];
@@ -375,25 +291,10 @@ export class ReadonlyNode<K extends string = string> {
       b: b.expr,
     });
   }
-  // Scalar-node × vec-node BROADCASTS (X-GIS #740 R9): `t.add(phases)` where t is f32
-  // and phases vec3<f32> types as vec3<f32> — the runtime (binResultType) always
-  // supported it; only the signature forced authors to unroll per component.
-  // The `vec${number}<${K}>` constraint self-limits these overloads to a SCALAR
-  // LHS (for K = 'vec3<f32>' no vec key can contain it), so vec LHS keeps its
-  // exact-K arithmetic unchanged.
-  // The `this:` bound (X-GIS #763 X8) removes these overloads from a VECTOR LHS's
-  // candidate set entirely — a vec2+vec3 mismatch now rejects with the readable
-  // ArithArg diagnostic instead of leaking a self-nested `vec${n}<vec3<f32>>`
-  // template-literal key from a dead broadcast candidate. NonComposite keeps
-  // widened `ReadonlyNode<string>` (unparameterised helper params) working.
   add<K2 extends `vec${number}<${K}>`>(
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>;
-  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
-  // overload only the f64-LHS order type-checked, and the phantom key must be
-  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
-  // every other receiver's candidate set.
   add(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>;
   add(o: ArithArg<K>): Node<K>;
   add(o: NodeLike): Node {
@@ -403,10 +304,6 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>;
-  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
-  // overload only the f64-LHS order type-checked, and the phantom key must be
-  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
-  // every other receiver's candidate set.
   sub(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>;
   sub(o: ArithArg<K>): Node<K>;
   sub(o: NodeLike): Node {
@@ -416,10 +313,6 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>;
-  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
-  // overload only the f64-LHS order type-checked, and the phantom key must be
-  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
-  // every other receiver's candidate set.
   mul(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>;
   mul(o: ArithArg<K>): Node<K>;
   mul(o: NodeLike): Node {
@@ -429,17 +322,11 @@ export class ReadonlyNode<K extends string = string> {
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
   ): Node<K2>;
-  // f32 LHS ∘ f64 RHS widens to f64 (binResultType is symmetric; without this
-  // overload only the f64-LHS order type-checked, and the phantom key must be
-  // truthful — the runtime result IS f64). The `this:` bound keeps it out of
-  // every other receiver's candidate set.
   div(this: ReadonlyNode<'f32'>, o: ReadonlyNode<'f64'>): Node<'f64'>;
   div(o: ArithArg<K>): Node<K>;
   div(o: NodeLike): Node {
     return this.bin('/', o);
   }
-  // mod joins the broadcast family (X-GIS #763 X5) — the runtime (binResultType)
-  // always supported scalar%vec; only the signature forced an unroll.
   mod<K2 extends `vec${number}<${K}>`>(
     this: ReadonlyNode<NonComposite<K>>,
     o: ReadonlyNode<K2>,
@@ -453,16 +340,9 @@ export class ReadonlyNode<K extends string = string> {
   }
 
   private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
-    // Runtime backstop (X-GIS #763 X8): these comparisons return Node<'bool'> — a
-    // VECTOR comparison in WGSL yields vecN<bool>, so a vec LHS here would emit
-    // invalid-typed WGSL with no earlier check (mixed-scalar lint reads binops
-    // only). The `this:` bounds below reject it at tsc; hand-built calls land here.
-    // An f64 LHS is a legal scalar comparison (lowered lexicographically).
     if (this.type.kind !== 'scalar' && !isF64(this.type))
       throw dslError('SD0002', `compare '${cop}' needs scalar operands, got ${typeKey(this.type)}`);
     const b = this.liftArg(o);
-    // f64 operand-compatibility gate (the arithmetic methods get this from
-    // binResultType inside bin(); comparisons build their Expr directly).
     if (isF64(this.type) || isF64(b.type)) binResultType(this.type, b.type, cop);
     return new Node<'bool'>({
       op: 'compare',
@@ -491,10 +371,6 @@ export class ReadonlyNode<K extends string = string> {
     return this.cmp('!=', o);
   }
 
-  // `&&`/`||` are bool-only on BOTH targets. The receiver check is a runtime
-  // guard (author-run, like the bitwise SD0005) rather than a `this:` bound —
-  // see the note beside NonComposite for why the type-level form is off the
-  // table. The operand side is typed `ReadonlyNode<'bool'>` as before.
   private logical(lop: '&&' | '||', o: ReadonlyNode<'bool'>): Node<'bool'> {
     if (this.type.kind !== 'scalar' || this.type.scalar !== 'bool') {
       throw dslError('SD0004', `logical '${lop}' needs bool operands, got ${typeKey(this.type)}`);
@@ -544,11 +420,6 @@ export class ReadonlyNode<K extends string = string> {
     const bn: ReadonlyNode = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o;
     return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr });
   }
-  // `& | ^` need BOTH sides the same int kind on both targets, so the node operand
-  // is kind-matched to the receiver (`K & ('i32'|'u32')` is `never` for a float LHS
-  // — the SD0005 author-run throw already owns that case, numbers aside). Shifts are
-  // the deliberate exception, mirroring the mixed-scalar lint's SHIFT_OPS carve-out:
-  // WGSL types EVERY shift amount as u32 regardless of the LHS's kind.
   bitAnd(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('&', o) as Node<K>;
   }
@@ -568,8 +439,6 @@ export class ReadonlyNode<K extends string = string> {
   /** Vector component access: `.x`, `.y`, `.z` or `.w`, returning the element scalar. */
   comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
     const t = this.type;
-    // A vec64 component is an f64 scalar (fp64-lower reassembles the lane's
-    // hi/lo pair from the struct planes).
     if (isVec64(t)) {
       if (VEC_FIELD_INDEX[field] >= t.n) throw dslError('SD0007', `.${field} on ${typeKey(t)}`);
       return new Node<ElemKey<K>>({ op: 'member', type: f64T, base: this.expr, field });
@@ -610,8 +479,6 @@ export class ReadonlyNode<K extends string = string> {
     let family: 'xyzw' | 'rgba' | undefined;
     for (const c of comps) {
       const fam: 'xyzw' | 'rgba' = SWIZZLE_ALIAS[c] !== undefined ? 'rgba' : 'xyzw';
-      // WGSL forbids mixing the xyzw and rgba component sets in one swizzle
-      // ('xg' is invalid) — reject at author time (X-GIS #763 X15).
       if (family !== undefined && fam !== family)
         throw dslError('SD0008', `.${comps} — mixes xyzw and rgba component sets (WGSL forbids)`);
       family = fam;
@@ -646,9 +513,6 @@ export class ReadonlyNode<K extends string = string> {
     return this.swizzle('rgb');
   }
 
-  // Common multi-component swizzle getters — `w.zxy` instead of vec3(w.z, w.x, w.y).
-  // For any other component order (u32/i32 vectors included) use the inferred
-  // `.swizzle('...')` — the result key derives from the components string (X-GIS #740 R9).
   get xy(): Node<SwizzleKey<K, 'xy'>> {
     return this.swizzle('xy');
   }
@@ -670,19 +534,6 @@ export class ReadonlyNode<K extends string = string> {
   get bgra(): Node<SwizzleKey<K, 'bgra'>> {
     return this.swizzle('bgra');
   }
-
-  // ── Scalar casts, as methods (#8 S1) ──
-  //
-  // The cast belongs where `.sub` and `.mul` are, because that is where it is used:
-  // `vi.bitAnd(1).f32().mul(4).sub(1)` reads in one direction, where
-  // `toF32(vi.bitAnd(u32(1))).mul(4).sub(1)` has to be read from the middle outwards. Each
-  // builds the node its `to*` free function builds, so this is a second spelling and not a
-  // second conversion. The free `f32(node)` / `i32(node)` / `u32(node)` form is the other
-  // spelling, and matches what WGSL and the `"use typeshade"` surface both write.
-  //
-  // The `this:` bound is `.lt`/`.gt`'s NonComposite, which rejects a vec or mat receiver and
-  // passes a widened `ReadonlyNode<string>` through; the SD0116 throw catches the widened case
-  // that only the type checker could have seen.
 
   /** Convert this scalar to `f32`, the method form of {@link toF32}. Emits `f32(x)` on WGSL and
    *  `float(x)` on GLSL, and narrows an f64 exactly (the sum of its hi and lo halves).
@@ -753,9 +604,6 @@ export class ReadonlyNode<K extends string = string> {
   ): Node<ArrayElemKey<K>>;
   at(idx: ReadonlyNode<ScalarKey> | number, elem?: ShaderType): Node {
     const idxNode = typeof idx === 'number' ? u32(idx) : idx;
-    // No token: take the element from the receiver's own ShaderType, which an array node
-    // always carries. The `this:` bound above keeps a non-array receiver from reaching here
-    // through typed code; the throw covers a widened or untyped one.
     const type = elem ?? (this.type.kind === 'array' ? this.type.elem : undefined);
     if (type === undefined) {
       throw dslError(
@@ -768,10 +616,6 @@ export class ReadonlyNode<K extends string = string> {
 
   /** `this ? a : b`, valid only on a bool node (enforced through the `this:` bound). Both
    *  branches must share a key. Emits WGSL `select(b, a, this)`. */
-  // Number-number branches PIN R to 'f32' (the runtime lift). Without this
-  // overload the unconstrained R is open to CONTEXTUAL inference: an inline
-  // `x.sub(cond.select(0.0, 1.0))` lets the scalar×vec broadcast overload of
-  // `sub` infer R = `vec${'${number}'}<f32>` and mistype the whole chain.
   select(this: ReadonlyNode<'bool'>, a: number, b: number): Node<'f32'>;
   select<R extends string>(
     this: ReadonlyNode<'bool'>,
@@ -798,17 +642,6 @@ export class ReadonlyNode<K extends string = string> {
   }
 }
 
-/** A node that also carries the WRITE capability. `Var()` and the auto-var value bindings
- *  (`const x = <expr>` later `.assign`-ed) are `Node`; `Let()` / a function param / a module
- *  const are the read-only `ReadonlyNode` SUPERTYPE — so `someLet.assign(…)` is a compile error
- *  (the no-assign-to-let footgun, caught by `tsc` instead of only by the lint rule). Every
- *  value-producing method/builtin returns `Node`, so the auto-var sugar keeps working for any
- *  produced value; only named immutable bindings are narrowed to `ReadonlyNode`.
- *
- *  This is a TYPE-LEVEL distinction only — the runtime is one class, so emitted WGSL/GLSL is
- *  byte-identical. (Mirrors RxJS `Observable` (read) vs `Subject` (read+write).) */
-// One prototype slot — every ReadonlyNode/Node instance (any package copy)
-// answers the cross-instance brand probe (X-GIS #763 D1).
 Object.defineProperty(ReadonlyNode.prototype, NODE_BRAND, { value: true });
 
 /** The write-capable node. Every value-producing method and builtin, and `Var()`, return this
@@ -829,17 +662,6 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
     stmtSink().assign(this, this.liftArg(value));
   }
 
-  // ── Compound assignment (#8 S2) ──
-  //
-  // `acc.assign(acc.add(x))` and the `"use typeshade"` surface's `acc += x` mean the same
-  // thing and, until now, made two different IRs and two different texts: an `assign` holding
-  // a binop against an `assignOp`. That is a hole under the claim that `fn()` is the IR
-  // equivalence oracle for the source compiler, since the two surfaces could not meet on the
-  // one statement every shader writes. These four methods build the `assignOp` the source
-  // compiler builds, so a helper ported between surfaces emits the same text.
-  //
-  // The existing `assign(add(...))` spelling is untouched and keeps its own emit: this is a
-  // second statement, not a rewrite of the first.
   private compound(bop: BinOp, value: ArithArg<K>): void {
     const sink = stmtSink();
     const v = this.liftArg(value);
@@ -847,8 +669,6 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
       sink.assignOp(this, bop, v);
       return;
     }
-    // A sink installed before assignOp existed: fall back to the long form, which is the
-    // statement this method would otherwise be written as.
     sink.assign(
       this,
       new Node({
@@ -893,8 +713,6 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
   }
 }
 
-// ── Scalar casts ──
-
 /** The scalar keys a cast reads: every native scalar, plus the emulated double. WGSL converts
  *  between all of them — `f32(true)` is `1.0` — and none of them is a vector, which is the
  *  point: `f32(someVec3)` used to type-check on both authoring surfaces and emit `f32(v)`,
@@ -904,13 +722,7 @@ export class Node<K extends string = string> extends ReadonlyNode<K> {
  */
 export type ScalarCastSource = 'f32' | 'i32' | 'u32' | 'f64' | 'bool';
 
-// The one cast body, shared by the `.f32()` family of methods and by the node forms of the
-// f32/i32/u32/f64 constructors. It builds exactly what toF32/toI32/toU32/toF64 build — one
-// `call` node named for the WGSL spelling — so no spelling of the cast has its own emit.
 const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node => {
-  // The guard the literal constructors used to own: anything that is neither a number nor a
-  // node would otherwise bake into the module (as `[object Object]`, or as a crash reading
-  // `.type` here), with the GPU compiler as the first reader.
   if (!isNodeValue(x)) {
     throw new TypeError(
       `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof x}`,
@@ -922,21 +734,12 @@ const scalarCast = (x: ReadonlyNode<string>, fn: string, t: ShaderType): Node =>
   return call(fn, t, x);
 };
 
-// ── Literal / ref constructors ──
-
-// A scalar-literal ctor takes a JS NUMBER/BOOLEAN. A Node argument is a CAST and takes the
-// overload above; anything else (a string, undefined, an object that is not a node) would
-// silently bake into the lit and emit `[object Object]`, so it is turned away here.
 const litNum = (v: number, fn: string): number => {
   if (typeof v !== 'number') {
     throw new TypeError(
       `typeshade: ${fn}() takes a numeric literal or a scalar Node to convert, got ${typeof v}`,
     );
   }
-  // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
-  // (a host-side 1/0, an uninitialised NaN) would bake the JS spelling verbatim
-  // into the module and die at the GPU compiler with no line back to the
-  // authoring site — fail loud at construction instead.
   if (!Number.isFinite(v)) {
     throw new TypeError(
       `typeshade: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
@@ -1111,17 +914,6 @@ export function bindingRef<T extends ShaderType>(name: string, type: T): Node<Ke
   return new Node<KeyOf<T>>({ op: 'varref', type, name });
 }
 
-// ── Arithmetic as free functions (#8 B3) ──
-//
-// `a.sub(b)` reads left to right, which is the right default and stays the one to reach for.
-// It cannot spell an expression whose LEFT operand is a literal: `1 - smoothstep(a, b, f)` has
-// to become `f32(1).sub(smoothstep(a, b, f))`, wrapping the constant in a node whose only job
-// is to own the method. 43 sites in the corpus do exactly that. The free form says the same
-// thing in the order it is read, and builds the SAME binop node — these are not a second
-// arithmetic, they are the method's own `bin` reached from outside.
-
-// The shared body. The operand that is NOT a literal types the literal, which is the rule
-// `liftArg` applies on the method form (there the receiver is always the typed one).
 const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
   if (typeof a === 'number' && typeof b === 'number') {
     throw new TypeError(
@@ -1158,10 +950,6 @@ const freeBin = (bop: BinOp, name: string, a: NodeLike, b: NodeLike): Node => {
  *
  *  @see {@link ReadonlyNode.add} for the method form.
  */
-// The scalar-node × vec-node BROADCAST, the free twin of the method's own first overload:
-// `add(s, v)` for an f32 `s` and a vecN<f32> `v` types as vecN<f32>. A vector `a` never
-// matches it (no vec key contains another), so a vec∘vec pair falls through to the exact-key
-// overload below and keeps its readable ArithArg diagnostic.
 export function add<E extends string, N extends number>(
   a: ReadonlyNode<E>,
   b: ReadonlyNode<`vec${N}<${E}>`>,
@@ -1189,10 +977,6 @@ export function add(a: NodeLike, b: NodeLike): Node {
  *
  *  @see {@link ReadonlyNode.sub} for the method form.
  */
-// The scalar-node × vec-node BROADCAST, the free twin of the method's own first overload:
-// `sub(s, v)` for an f32 `s` and a vecN<f32> `v` types as vecN<f32>. A vector `a` never
-// matches it (no vec key contains another), so a vec∘vec pair falls through to the exact-key
-// overload below and keeps its readable ArithArg diagnostic.
 export function sub<E extends string, N extends number>(
   a: ReadonlyNode<E>,
   b: ReadonlyNode<`vec${N}<${E}>`>,
@@ -1219,10 +1003,6 @@ export function sub(a: NodeLike, b: NodeLike): Node {
  *
  *  @see {@link ReadonlyNode.mul} for the method form.
  */
-// The scalar-node × vec-node BROADCAST, the free twin of the method's own first overload:
-// `mul(s, v)` for an f32 `s` and a vecN<f32> `v` types as vecN<f32>. A vector `a` never
-// matches it (no vec key contains another), so a vec∘vec pair falls through to the exact-key
-// overload below and keeps its readable ArithArg diagnostic.
 export function mul<E extends string, N extends number>(
   a: ReadonlyNode<E>,
   b: ReadonlyNode<`vec${N}<${E}>`>,
@@ -1250,10 +1030,6 @@ export function mul(a: NodeLike, b: NodeLike): Node {
  *
  *  @see {@link ReadonlyNode.div} for the method form.
  */
-// The scalar-node × vec-node BROADCAST, the free twin of the method's own first overload:
-// `div(s, v)` for an f32 `s` and a vecN<f32> `v` types as vecN<f32>. A vector `a` never
-// matches it (no vec key contains another), so a vec∘vec pair falls through to the exact-key
-// overload below and keeps its readable ArithArg diagnostic.
 export function div<E extends string, N extends number>(
   a: ReadonlyNode<E>,
   b: ReadonlyNode<`vec${N}<${E}>`>,
@@ -1263,16 +1039,6 @@ export function div<K extends string>(a: number, b: ReadonlyNode<K>): Node<K>;
 export function div(a: NodeLike, b: NodeLike): Node {
   return freeBin('/', 'div', a, b);
 }
-
-// ── Builtins (free functions) ──
-
-// ── Builtin key DOMAINS ──
-//
-// Every builtin's key parameter is bounded to the keys its WGSL/GLSL spec
-// domain (and, for f64, the df64 whitelist) actually admits — `K extends
-// string` used to admit bool/texture/struct keys, so `sinh(someBool)`
-// type-checked and died at naga (X-GIS #763 X6/X7's key-class discipline, applied
-// to the free-function builtins).
 
 /** The f32-family keys, `'f32'` and the f32 vectors: the argument domain of the float-only
  *  component-wise builtins (`sin`, `exp`, `saturate`, the hyperbolics, …). WGSL and GLSL ES
@@ -1304,9 +1070,6 @@ const elemScalarType = (t: ShaderType): ShaderType =>
 const call = (fn: string, type: ShaderType, ...args: NodeLike[]): Node =>
   new Node({ op: 'call', type, fn, args: args.map((a) => lift(a).expr) });
 
-// genType1: component-wise unary builtin — preserves the operand key. `A` is the
-// fn's key DOMAIN (see the aliases above): float-only by default, widened per fn
-// where the spec (ints) or the df64 whitelist (f64) admits more.
 const genType1 =
   <A extends string = FloatKey>(fn: string) =>
   <K extends A>(x: ReadonlyNode<K>): Node<K> =>
@@ -1611,9 +1374,6 @@ export const saturate = genType1('saturate');
  *  ```
  */
 export function atan2<K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K>;
-// #8 B3 — a literal `y`. Bounded to a SCALAR `x`: `call` lifts a bare number to f32, and
-// `atan2(1.0, someVec)` is invalid on both targets, so the number-first form has no honest
-// vector reading.
 export function atan2(y: number, x: ReadonlyNode<'f32'>): Node<'f32'>;
 export function atan2(y: ReadonlyNode<string> | number, x: NodeLike): Node<string> {
   return call('atan2', lift(y).type, y, x);
@@ -1657,9 +1417,6 @@ export const max = <K extends FloatKey | Float64Key | IntKey>(
  *  to have the same type, so a vector `a` needs a vector `b`; a scalar `b` against a vector
  *  `a` passes the type check here and is rejected by the WGSL compiler. */
 export function pow<K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K>;
-// #8 B3 — a literal base, `pow(10, z.neg())`. Bounded to a SCALAR exponent for the reason
-// atan2's number-first overload is: WGSL wants both arguments the same type, and a bare number
-// lifts to f32.
 export function pow(a: number, b: ReadonlyNode<'f32'>): Node<'f32'>;
 export function pow(a: ReadonlyNode<string> | number, b: NodeLike): Node<string> {
   return call('pow', binResultType(lift(a).type, lift(b).type, 'pow'), a, b);
@@ -1745,9 +1502,6 @@ export function mix<K extends FloatKey | Float64Key>(
   b: NoInfer<ArithArg<K>>,
   t: ReadonlyNode<'f32'> | number,
 ): Node<K>;
-// #8 B3 — `mix(0.35, 1, s)`. Both endpoints are then literals lifting to f32, which is the
-// only reading WGSL has for them: `mix` wants `a` and `b` the same type, so a bare-number `a`
-// cannot pair with a vector `b`.
 export function mix(
   a: number,
   b: ReadonlyNode<'f32'> | number,
@@ -1781,8 +1535,6 @@ export function smoothstep(
  *  WGSL requires `edge` and `x` to have the same type. */
 export const step = <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> =>
   call('step', x.type, edge, x) as Node<K>;
-// K-constrained like `cross` (X-GIS #763 X7) — dot(v2, v3) used to COMPILE and die at
-// naga; the shared K pins both operands to one float-vector key.
 /** `length(v)`: Euclidean vector magnitude, `|v|`. The return precision follows the operand: an
  *  f32 vector (vec2, vec3 or vec4) returns f32, and an emulated-double `vec${N}<f64>` returns
  *  f64, so an f64 operand keeps its precision without a cast.
@@ -1838,7 +1590,6 @@ export function dot<K extends `vec${number}<f32>`>(
   b: NoInfer<ReadonlyNode<K>>,
 ): Node<'f32'>;
 export function dot(a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<string> {
-  // The result is the element the two operands share, which is also what decides the id.
   const result = isVec64(a.type)
     ? f64T
     : a.type.kind === 'vec' && a.type.elem === 'i32'
@@ -1869,10 +1620,6 @@ export const cross = (
   a: ReadonlyNode<'vec3<f32>'>,
   b: ReadonlyNode<'vec3<f32>'>,
 ): Node<'vec3<f32>'> => call('cross', vec3fT, a, b) as Node<'vec3<f32>'>;
-// NOTE: the GLSL/WGSL builtin `reflect(i, n)` is intentionally NOT added — the
-// name is already taken by the std140 reflection engine (core/reflect.ts), and no
-// shader currently needs vector reflection. Add it under a non-colliding name only
-// when a real call site appears.
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
 export const pack4x8unorm = (v: ReadonlyNode<'vec4<f32>'>): Node<'u32'> =>
   call('pack4x8unorm', u32T, v) as Node<'u32'>;
@@ -1969,12 +1716,6 @@ export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
  */
 export const optBarrier = (v: ReadonlyNode<'f32'> | number): Node<'f32'> =>
   bitcastF32(bitcastU32(typeof v === 'number' ? f32(v) : v));
-/** An array-layer argument (X-GIS #1651). A `number` becomes an i32 LITERAL, not the f32
- *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
- *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is
- *  rejected here (SD0015): `i32(1.5)` would emit `1.5` as an i32 literal — a naga
- *  compile error on WGSL but a silent round-to-nearest on GLSL (1.5 reads layer 2)
- *  — so the guard keeps the two backends from diverging. */
 const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
   if (typeof l === 'number') {
     if (!Number.isInteger(l)) throw dslError('SD0015', `layer ${l}`);
@@ -1982,18 +1723,6 @@ const layerArg = (l: ReadonlyNode<'i32' | 'u32'> | number): NodeLike => {
   }
   return l;
 };
-/** A textureLoad MIP-LEVEL (or MSAA sample-index) argument — layerArg's twin, and for
- *  the same reason (X-GIS #1703). WGSL's `textureLoad` takes an INTEGER level, but `lift()`
- *  defaults a bare number to f32, so the `textureLoad(t, c, 0)` this function's own doc
- *  recommends emitted `textureLoad(t, c, 0.0)` — which naga REJECTS. It went unnoticed
- *  because every in-repo caller writes `u32(0)` by hand and because GLSL's spelling
- *  wraps the argument in `int(…)`, which quietly absorbed the float. An integer texture
- *  has no sampling form at all, so textureLoad is its ONLY read and every author of one
- *  would have hit this on their first line.
- *
- *  NOT the same as textureSampleLevel's level, which really is an f32 in WGSL and
- *  keeps the default lift. A fractional number is rejected for layerArg's reason: the
- *  targets would not agree on how to round it. */
 const levelArg = (l: NodeLike): NodeLike => {
   if (typeof l === 'number') {
     if (!Number.isInteger(l)) throw dslError('SD0015', `mip level ${l}`);
@@ -2131,9 +1860,6 @@ export type TextureLoadArrayKey =
  *  key keeps the result type and the texture in step; a `vec4<f32>` result from an integer
  *  texture, which both GPU compilers reject, cannot be written with {@link textureLoad}. */
 export type TexelKey<K extends string> = K extends `${string}<${infer E}>` ? `vec4<${E}>` : never;
-// The IR type behind TexelKey — read off the TEXTURE NODE, never a second table, for
-// the same reason. Falls through to vec4fT for a non-texture node, which the typed
-// overloads make unreachable and which is byte-identical to the pre-#1703 hardcode.
 const texelType = (t: ShaderType): ShaderType =>
   t.kind !== 'texture' ? vec4fT : t.elem === 'u32' ? vec4uT : t.elem === 'i32' ? vec4iT : vec4fT;
 /** Load one texel from a 2D texture at integer coordinates, returning `vec4<f32>`,
@@ -2304,10 +2030,6 @@ export function select<R extends string>(
  */
 export function matchExpr<S extends ScalarKey, R extends string>(
   scrutinee: ReadonlyNode<S>,
-  // Thunk-or-node arms (X-GIS #763 X17): when/matchEnum arms are thunks while
-  // matchExpr's were eager nodes — migrating between the dispatch forms
-  // silently moved value construction (and any inner Let) in or out of the
-  // arm. Accepting both normalises the family; eager nodes stay supported.
   cases: ReadonlyArray<
     readonly [caseValue: number, value: ReadonlyNode<R> | (() => ReadonlyNode<R>)]
   >,
@@ -2330,8 +2052,6 @@ export function matchExpr<S extends ScalarKey, R extends string>(
     default: resolvedDefault.expr,
   });
 }
-
-// ── Exhaustive integer dispatch (enumU32 + matchEnum) ──
 
 /** A typed u32 enum: a name-to-value map whose members are `Node<'u32'>` literals, plus the raw
  *  value map. Pair it with {@link matchEnum} for exhaustive integer dispatch: the arms object
@@ -2372,7 +2092,6 @@ export function matchEnum<M extends Record<string, number>, R extends string>(
   return matchExpr(scrutinee, cases, arms[last]());
 }
 
-// Casts
 /** Convert to f32. On an f64 argument this is the explicit, precision-losing narrow, computed
  *  as the sum of the hi and lo halves; f64 never narrows implicitly. Emits `f32(x)` on WGSL and
  *  `float(x)` on GLSL. */
@@ -2429,7 +2148,6 @@ export const toI32 = (x: ReadonlyNode<string> | number): Node<'i32'> =>
 export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> =>
   call('u32', u32T, x) as Node<'u32'>;
 
-// Vector / struct constructors — `TypeName(arg0, arg1, …)`.
 /** Low-level `TypeName(args)` constructor call, the primitive that {@link vec2}, {@link vec3},
  *  {@link vec2f64} and a struct's `.construct({...})` all build on. A bare-number argument lifts
  *  to the constructed type's element scalar. Call it directly only for a `ShaderType` those
@@ -2445,9 +2163,6 @@ export const toU32 = (x: ReadonlyNode<string> | number): Node<'u32'> =>
  *  ```
  */
 export const construct = <T extends ShaderType>(type: T, args: NodeLike[]): Node<KeyOf<T>> => {
-  // A bare-number component lifts to the constructed type's ELEMENT scalar — so `vec4(pos, 0, 1)` emits
-  // f32 components and `vec2u(0, 1)` emits u32 ones, dropping the f32()/u32() wrapper. Non-vec (struct)
-  // args are typed field Nodes already, so the f32 fallback never lifts a stray number.
   const elem =
     type.kind === 'vec'
       ? type.elem
@@ -2550,11 +2265,6 @@ export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> =>
  */
 export const vec2i = (...a: NodeLike[]): Node<'vec2<i32>'> =>
   construct(vec2iT, a) as Node<'vec2<i32>'>;
-// #8 S4 — the rest of the integer vector family. `vec2u` and `vec2i` were here and the wider
-// ones were not, so `vec3u(1, 2, 3)` — which the `"use typeshade"` surface writes and WGSL
-// writes — went through `construct(vec3uT, [1, 2, 3])`, whose array argument is easy to get
-// wrong (the first attempt is `construct(vec3uT, 1, 2, 3)` and an `args.map` error). Each is
-// the same `construct` call the long form makes.
 /** A `vec3<u32>` constructor, WGSL-style: `vec3u(x, y, z)`. Bare number components lift to u32,
  *  where {@link vec3} lifts them to f32. It is the type of the compute `global_invocation_id`
  *  builtin, so this is how a workgroup coordinate is built by hand.
@@ -2612,9 +2322,6 @@ export const vec3i = (...a: NodeLike[]): Node<'vec3<i32>'> =>
  */
 export const vec4i = (...a: NodeLike[]): Node<'vec4<i32>'> =>
   construct(vec4iT, a) as Node<'vec4<i32>'>;
-// Emulated-double vector constructors. Components are f64 nodes (or bare
-// numbers, split losslessly at build time); an f32 component widens exactly
-// during lowering. A single argument splats, WGSL-style.
 type Vec64Arg = ReadonlyNode<'f64' | 'f32'> | number;
 /** An emulated-double `vec2<f64>` constructor. A bare number component splits without loss
  *  into its (hi, lo) f32 pair when the module is built (a JS number already is an f64), and an
@@ -2662,9 +2369,6 @@ export const vec3f64 = (...a: Vec64Arg[]): Node<'vec3<f64>'> =>
 export const vec4f64 = (...a: Vec64Arg[]): Node<'vec4<f64>'> =>
   construct(vec4f64T, a) as Node<'vec4<f64>'>;
 
-// Emulated-double matrix constructors — column-major, one vecN<f64> per column
-// (the same convention as WGSL `matNxN(col0, …)`). They lower to a DF64MatN
-// column struct; matmul / mat·vec / transpose compose the SCALAR df64 EFTs.
 type Mat64Col<N extends 2 | 3 | 4> = ReadonlyNode<`vec${N}<f64>`>;
 /** An emulated-double `mat2x2<f64>` constructor, column-major: one `vec2<f64>` argument per
  *  column, the same convention as WGSL's `mat2x2(col0, col1)`. Use {@link transformMat64} and
@@ -2769,11 +2473,6 @@ export const arrayLit = <E extends ShaderType, const I extends readonly Readonly
     type: arrayT(elem, items.length),
     args: items.map((n) => n.expr),
   });
-
-// ── Composite arithmetic sugar (readability killer #2) ──
-// JS has no infix operators, so plain math reads as `.mul().add()` chains. These
-// helpers NAME the common painful patterns. Each is a pure Node-method composition,
-// so it emits BYTE-IDENTICALLY to the manual chain — readability only, zero IR change.
 
 /** Multiply-add, `a*b + c`, written as the plain `a.mul(b).add(c)` chain. To emit WGSL's
  *  multiply-add builtin use {@link fma}; neither form guarantees a single rounding. */
