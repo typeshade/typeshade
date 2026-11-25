@@ -163,10 +163,11 @@ describe('the use of a scratch array before its plan runs', () => {
     expect(state.phase).toBe('open');
     const outside =
       'This array is a scratch array. Only the kernel calls in the body of the fuse() scope that made it may take it.';
-    await expect(state.sync()).rejects.toThrow(new TypeError(outside));
+    const syncing = state.sync();
     expect(() =>
       state.bufferFor({} as never, {} as never, () => new ArrayBuffer(0), false),
     ).toThrow(new TypeError(outside));
+    await expect(syncing).rejects.toThrow(new TypeError(outside));
     await done;
     expect(state.phase).toBe('done');
   });
