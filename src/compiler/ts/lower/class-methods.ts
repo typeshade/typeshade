@@ -1,26 +1,3 @@
-// === Classes with methods, a constructor and static functions (#86, §26) ===
-//
-// A class stays a struct: its fields are the struct's fields, and the object literal still
-// builds one. What this file adds is that its methods, its constructor and its static functions
-// are functions of the module, which is all a method is once `this` has a name. `Ray.at(t)`
-// becomes `fn Ray_at(self_: Ray, t: f32)` with `this.origin` read as `self_.origin`, and the
-// call `r.at(2.)` becomes `Ray_at(r, 2.)`; a static `Ray.up()` is `Ray_up()`; the constructor
-// is `Ray_new(...)`, which starts from the zero struct, assigns the field initializers, runs the
-// body and returns `self`. WGSL and GLSL ES 3.00 both take a struct parameter by value, so both
-// targets spell every one of these as written, and the IR is unchanged: the oracle, the codegen
-// and the debug stepper see functions.
-//
-// A method that assigns to `this` (step 2 of #86) takes its object BY REFERENCE: `inout` on
-// GLSL ES 3.00, a pointer on WGSL, `fn Ray_advance(self_: ptr<function, Ray>, t: f32)`, and
-// the call `r.advance(2.)` passes the receiver itself, `Ray_advance(&r, 2.0)`. The receiver has
-// to be a place a function may write (a `let` local, a module variable, a storage element); a
-// `const`, a parameter or a temporary is refused with the fix. Such a method may return a
-// value like any other (§26, Rule 8.10), since the reference leaves the return free: a
-// generator's `next()` advances its state and returns the draw, `fn Rng_next(self_:
-// ptr<function, Rng>) -> f32`. It returned nothing while it took the struct and returned THAT,
-// which is what the caller stored back. A call of one inside a larger expression is put in
-// source order by `sequence.ts` (Rule 7.9).
-//
 // Why: the emitted object is `self_`, not `self`: Tint refuses `self`, a WGSL reserved word.
 
 import { hasNoWrittenResult } from '../abstract-const.js';
@@ -87,122 +64,59 @@ import {
 } from './class-access.js';
 import { lowerCopyCall, mutatingReceiver } from './class-methods/mutating.js';
 
-/** What `this` is while a member's body is lowered: the struct type; whether it is the
- *  read-only first parameter of a method (`param`), the local a constructor builds from the
- *  zero struct (`ctor`), or the parameter a method that changes its object writes through
- *  (`inout`); the field initializers a constructor assigns first; and how messages name the
- *  member. */
 export interface Receiver {
   readonly type: ShaderType;
   readonly mode: 'param' | 'ctor' | 'inout';
   readonly fieldInits: readonly FieldInit[];
   readonly shown: string;
-  /** What `super(...)` in this constructor's body calls (roadmap 0.3 item T5, #92): the base's
-   *  constructor function and the fields it fills. Relative to the class that DECLARED the
-   *  body, which for an inherited constructor is not the class being built. Absent when the
-   *  chain above has no constructor, where `super()` has nothing to run. */
   readonly superCtor?: SuperCtor;
-  /** `super.m(...)` in this body, to the function that carries the base's body, lowered against
-   *  this class (roadmap 0.3 item T5, #92). Keyed by the member written, since which base
-   *  declares it depends on the class that wrote the body and not on the one being built. */
   readonly superMethods?: ReadonlyMap<string, string>;
-  /** A constructor's parameter properties, which it assigns from their parameters before the
-   *  field initializers run (Rule 8.14), the order TypeScript's own constructor keeps. */
   readonly paramProps?: readonly { readonly name: string; readonly type: ShaderType }[];
-  /** What a constructor whose `super(...)` runs a base's constructor does right after that call
-   *  returns: its parameter properties, then its class's own field initializers, which
-   *  TypeScript runs there and not before the base's constructor (Rule 8.14). */
   readonly afterSuper?: {
     readonly paramProps: readonly { readonly name: string; readonly type: ShaderType }[];
     readonly fieldInits: readonly FieldInit[];
   };
-  /** The initializers of the classes below the one that declared this constructor, down to the
-   *  class being built, which run when its body returns, as their implicit constructors would. */
   readonly afterBody?: readonly FieldInit[];
-  /** A constructor's own class's initializers when no base constructor runs first: after its
-   *  parameter properties, and after the initializers of `fieldInits`, which are the classes
-   *  above it (Rule 8.14). */
   readonly ownInits?: readonly FieldInit[];
 }
 
-/** A member that becomes a function of the module: a method, or one half of an accessor. */
 export type MemberFunction = ts.MethodDeclaration | ts.AccessorDeclaration;
 
-/** Which half of an accessor `node` is, or `undefined` for a method. */
 export const accessorHalf = (node: ts.Node): 'get' | 'set' | undefined =>
   ts.isGetAccessorDeclaration(node) ? 'get' : ts.isSetAccessorDeclaration(node) ? 'set' : undefined;
 
-/** One function a class contributes to the module. `node` is absent for the constructor a
- *  class without one gets when the file says `new P(...)` or a field has an initializer. */
 export interface ClassFunction {
   readonly stub: FuncDecl;
   readonly kind: 'method' | 'static' | 'ctor';
   readonly struct: CollectedStruct;
-  /** How a message names it: `Ray.at`, `Ray.up`, `new Ray`. */
   readonly shown: string;
   readonly node: MemberFunction | ts.ConstructorDeclaration | undefined;
   readonly receiver: Receiver | undefined;
-  /** A method that changes its object: it takes the struct by reference, so its receiver has
-   *  to be a place a function may write. It may return a value (§26). */
   readonly mutates: boolean;
-  /** The member as written, `at` or `#step`, or the property an accessor half serves: what an
-   *  access has to name to reach it, since a private member answers to its `#` name only
-   *  (Rule 8.12). Absent on a constructor. */
   readonly member?: string;
-  /** Which half of an accessor this is (Rule 8.11); absent on a method. */
   readonly accessor?: 'get' | 'set';
-  /** For a static member, the class it is emitted for, which is the class a call of it names:
-   *  what `this` names inside it (Rule 8.13). A static a class inherits is lowered again for each
-   *  class that extends it, with `this` as that class, which is how TypeScript binds it. */
   readonly staticOwner?: string;
-  /** For a static member, what `super.k()`, `super.x` and `super.K` name in its body: in a
-   *  static member `super` is the class above the one that wrote it (Rule 8.13). */
   readonly staticSuper?: ReadonlyMap<string, string>;
-  /** A body lowered for a class that inherits it, not for the class that wrote it. What it says
-   *  the declaring class's body has said already (Rule 12.4), and a static one that fails only
-   *  for this class is said where something calls it (Rule 8.13). */
   readonly inherited?: true;
-  /** A method whose every `return` is `return this`, typed as its class: it hands back its own
-   *  object, so a chain `v.setX(1.).setY(2.)` continues on `v` (Rule 8.10). */
   readonly returnsThis?: true;
-  /** A method or a getter that writes no return type, which its body says (Rule 8.19). */
   readonly infers?: true;
-  /** A setter whose value writes no type beside a getter that writes none: the value takes
-   *  what the getter's body returns, known once that body is lowered (Rule 8.19). */
   readonly valueFromGetter?: true;
-  /** A method, a static method or a constructor that takes a function: the indices of those
-   *  parameters among the written ones. It is compiled once for each set of functions its calls
-   *  hand it (Rule 8.18), so its own stub, whose parameters are the others, is never emitted. */
   readonly takesFunctions?: ReadonlySet<number>;
 }
 
-/** The emitted name of a method or a static function: `Ray_at`. */
 export const methodFnName = (struct: string, member: string): string => `${struct}_${member}`;
-/** The emitted name of a constructor: `Ray_new`. */
 export const ctorFnName = (struct: string): string => `${struct}_new`;
-/** The emitted name of the BASE's body of a method a class overrides, which is what
- *  `super.at(t)` in `Ray`'s `at` calls: `Ray_super_Base_at` (roadmap 0.3 item T5, #92). The
- *  base is named, not just the class, so a body re-lowered two steps down still counts its own
- *  `super` from where it was written. One underscore between the parts, like every other
- *  flattened name, because GLSL ES reserves an identifier that holds two in a row. */
 export const superFnName = (struct: string, base: string, member: string): string =>
   `${struct}_super_${base}_${member}`;
 
 const registry = new WeakMap<FuncDecl, ClassFunction>();
 
-/** The functions a private name collided into (Rule 8.12): the name is reported once, where it is
- *  declared, and a call that would have reached the member that lost says nothing more (Rule
- *  12.4). */
 const collided = new WeakSet<FuncDecl>();
 
-/** Whether `decl` is a function two members of one class chain would both have been. */
 export const isCollidedFunction = (decl: FuncDecl): boolean => collided.has(decl);
 
-/** The class function a callee is, or `undefined` for a top-level function. */
 export const classFunctionOf = (decl: FuncDecl): ClassFunction | undefined => registry.get(decl);
 
-/** Record `copy`, the copy of `cf` a call made for the functions it hands over (Rule 8.18), as a
- *  class function of its own: `cf`'s, taking its object by reference where `writes` says so. */
 export function registerClassCopy(copy: FuncDecl, cf: ClassFunction, writes: boolean): void {
   const receiver: Receiver | undefined =
     cf.receiver === undefined || cf.receiver.mode === 'ctor'
@@ -213,15 +127,12 @@ export function registerClassCopy(copy: FuncDecl, cf: ClassFunction, writes: boo
   registry.set(copy, made);
 }
 
-/** The `self_` a constructor builds and a method reads. */
 export const selfRef = (type: ShaderType, scope?: LoweringScope): Expr => ({
   op: 'varref',
   type,
   name: scope?.resolve('this') ? irNameOf(scope.resolve('this')!) : 'self_',
 });
 
-/** `"P" has no static function "mkae".`, with the static of `P` or of a class above it that the
- *  name is spelled like (Rule 12.1). */
 function noStaticFunction(
   name: string,
   member: string,
@@ -233,21 +144,11 @@ function noStaticFunction(
   ]);
 }
 
-/** Whether `member` of the class `name`, or of a class above it, was refused where it is
- *  written, having said why (`collectClassFunctions`): a call of it adds nothing (Rule 12.4). */
 const refusedMember = (name: string, member: string, scope: LoweringScope): boolean =>
   [name, ...scope.ancestorsOf(name)].some((c) =>
     scope.declarationRefused(methodFnName(c, emittedMemberName(member))),
   );
 
-/**
- * What is said of a static that builds its value with `new this()` under the `this` parameter of
- * 0020 when it is called through an `abstract` class, up to its last full stop: the abstract class
- * has no instance to build, and a class that extends it has. `through` is that class, when there
- * is one to name. The compiler says it at the call (`abstractBuilderSentence`, TS8035), and the host
- * view as the reason of the static it declares `never` (`classMembers` in `host-face.ts`), so the
- * compiler and the editor's hover over the member read the same words (Rule 12.7).
- */
 export const abstractBuilderText = (
   shown: string,
   member: string,
@@ -257,14 +158,6 @@ export const abstractBuilderText = (
   `there is no instance of it to build. Call it through a class that extends it` +
   (through === undefined ? '' : `, "${through}.${member}()"`);
 
-/**
- * The refusal of a call of a static through an `abstract` class when the static builds its value
- * with `new this()` under the `this` parameter of 0020: `this` is the class the call names, and an
- * abstract class has no instance to build, as TypeScript says of the call (TS2684). The static is
- * lowered for each class that extends the abstract one and for none else (`collectClassFunctions`),
- * so the call is the place to say it, and the sentence offers the first class that extends it
- * (Rule 12.1). Undefined for any other call.
- */
 function abstractBuilderSentence(
   owner: string,
   member: string,
@@ -272,7 +165,6 @@ function abstractBuilderSentence(
 ): string | undefined {
   if (!scope.isAbstractStruct(owner)) return undefined;
   const classes = scope.classOrigins();
-  // The nearest class that writes a static of this name is the one the call reaches.
   for (const c of [owner, ...scope.ancestorsOf(owner)]) {
     const struct = classes.find((s) => s.decl.name === c);
     const written =
@@ -308,10 +200,6 @@ export function pushDiag(
   diagnostics.push(makeDiagnostic(sourceFile, node, message, code));
 }
 
-/** Every class the file writes `new X(...)` on, by the struct it is emitted as (`P`, `N_P` for
- *  `new N.P()` and for a bare `new P()` inside `namespace N`), and the classes a `new this()` in
- *  a static member builds: the class that declares the member, and each class that inherits it,
- *  for which the member is lowered again with `this` as that class (Rule 8.13). */
 function namesConstructed(
   sourceFile: ts.SourceFile,
   structs: readonly CollectedStruct[],
@@ -322,8 +210,6 @@ function namesConstructed(
   const walk = (n: ts.Node): void => {
     const target = ts.isNewExpression(n) ? newTargetOf(n, sourceFile) : undefined;
     if (ts.isNewExpression(n) && target?.kind === 'class') {
-      // `new Pair<f32>()` constructs the INSTANCE struct (T9, #92), which is the name a
-      // synthesised constructor has to be registered under.
       out.add(newInstanceName(n, target.flat, sourceFile) ?? target.flat);
     }
     if (ts.isNewExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword) {
@@ -344,16 +230,12 @@ function namesConstructed(
   return out;
 }
 
-/** Whether a constructor body calls `super(...)`. */
 function callsSuper(node: ts.Node): boolean {
   if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.SuperKeyword) return true;
   if (ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return false;
   return ts.forEachChild(node, callsSuper) ?? false;
 }
 
-/** Whether every `return` of a body returns what `new this(...)` built: the expression itself,
- *  or a name the body declared from one. A body that returns anything else, on any path, keeps
- *  the type it declares. */
 function returnsBuiltThis(node: MemberFunction): boolean {
   const isNewThis = (e: ts.Expression): boolean => {
     const x = unparen(e);
@@ -399,8 +281,6 @@ function rootedInThis(e: ts.Expression, parts: ReadonlyMap<string, unknown> = NO
 }
 const NO_PARTS: ReadonlyMap<string, unknown> = new Map();
 
-/** The key a member function has in the set {@link mutatingMembersOf} builds: the method as
- *  written, `step` or `#step`, and an accessor half as `get x` or `set x`. */
 const memberKeyOf = (node: MemberFunction): string | undefined => {
   const written = writtenMemberName(node.name);
   if (written === undefined) return undefined;
@@ -408,19 +288,12 @@ const memberKeyOf = (node: MemberFunction): string | undefined => {
   return half === undefined ? written : `${half} ${written}`;
 };
 
-/** Whether a member's body writes its object: an assignment or `++`/`--` rooted in `this`, a
- *  call of one of `mutating` (the class's members already known to write) on `this`, or a read
- *  of `this.x` whose getter is one of them (Rule 8.11). A call on a chain rooted in `this`,
- *  through methods that return `this` (`chainable`), is a call on `this` (Rule 8.10). */
 function writesThis(
   body: ts.Block,
   self: string,
   table: MutationTable,
   byName: ReadonlyMap<string, CollectedStruct>,
 ): boolean {
-  /** The type of a place reached from `this`: a field, an element, or what a method that
-   *  returns `this` hands back, which is its receiver. Undefined for anything not rooted in
-   *  `this`, which a write through cannot change. */
   const parts = ownParts(body, body.getSourceFile());
   const placeType = (e: ts.Expression): ShaderType | undefined => {
     const x = unparen(e);
@@ -449,8 +322,6 @@ function writesThis(
     }
     return undefined;
   };
-  /** Whether `key` names a member of the class a place rooted in `this` holds that changes its
-   *  object: `this.m()`, and `this.inner.m()` or `this.items[i].m()` on a field's class. */
   const changes = (receiver: ts.Expression, key: string): boolean => {
     const t = placeType(receiver);
     return t?.kind === 'struct' && table.keys(t.name).has(key);
@@ -488,7 +359,6 @@ function writesThis(
       found = true;
       return;
     }
-    // function that writes it (Rule 8.25), as `this.n = …` does.
     if (
       ts.isCallExpression(n) &&
       n.arguments.some(
@@ -504,20 +374,11 @@ function writesThis(
   return found;
 }
 
-/** Which members of each class change their object, by the key a call names them with
- *  (`step`, `get x`, `set x`), and which hand back `this`: what a body in one class needs to
- *  know about a field's class to tell whether `this.inner.bump()` writes its own object. */
 interface MutationTable {
   keys(struct: string): ReadonlySet<string>;
   chainable(struct: string): ReadonlySet<string>;
 }
 
-/** The bodies each class emits that change their object, by the function each is emitted as,
- *  to a fixpoint over every class of the file at once: one that writes a field directly, one
- *  that calls such a method or reads such a getter on `this` or on a field or an element of it,
- *  whatever class that field is, and one that reaches such a base body through `super`, which
- *  runs on the same object (Rule 8.10). A call on `this` resolves to the class's own member, so
- *  only a body the class emits under its own name answers to one. */
 function mutatingBodiesOfAll(
   classes: readonly { readonly name: string; readonly bodies: readonly ClassBody[] }[],
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -533,7 +394,6 @@ function mutatingBodiesOfAll(
     candidatesOf.set(name, candidates);
     fns.set(name, new Set());
     keys.set(name, new Set());
-    // The class's own methods that hand back `this`, which a chain runs through.
     chainable.set(
       name,
       new Set(
@@ -573,43 +433,23 @@ function mutatingBodiesOfAll(
   }
 }
 
-/** One method body a class emits, and what `super` means inside it (roadmap 0.3 item T5, #92).
- *
- *  A class inherits a method by lowering the BASE's node again with `this` typed as itself:
- *  dispatch is static, a derived struct carries the base's fields under the same names, and a
- *  a base view is allowed only when proved read-only and dispatch-equivalent, so the body means on the derived class
- *  exactly what it means on the base — including a call to a method the derived class
- *  overrides, which resolves to the override, as it does in TypeScript.
- *
- *  `super.m(...)` is the same idea one step up. The body it names is emitted against this class
- *  too, under `T_super_B_m`, where `B` is the class that DECLARED the body doing the calling.
- *  That last part is what keeps a three-deep chain finite: `super.at` inside `B`'s body means
- *  `A`'s `at`, whichever class the body is being lowered for. */
 interface ClassBody {
   readonly node: MemberFunction;
-  /** The class that wrote this body, which is what `super` inside it counts from. */
   readonly declaredIn: string;
   readonly fnName: string;
-  /** The member as written, `at` or `#step`, or the property an accessor half serves. */
   readonly member: string;
-  /** Which half of an accessor this body is; absent on a method. */
   readonly accessor?: 'get' | 'set';
   readonly isStatic: boolean;
-  /** A base's body reached through `super.m(...)`, lowered against this class. */
   readonly isSuper: boolean;
-  /** `super.m(...)` in this body, to the function that carries the base's body. */
   readonly superMethods: ReadonlyMap<string, string>;
 }
 
-/** Two members of one chain that would be one function of the module, and where to say so. */
 interface MemberCollision {
   readonly at: ts.Node;
   readonly message: string;
-  /** The function name the two would share. */
   readonly fnName: string;
 }
 
-/** The chain above `name`, nearest first, without `name` itself. */
 function ancestorsOf(
   name: string,
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -629,8 +469,6 @@ function ancestorsOf(
   return out;
 }
 
-/** A method with a body, by name, on `struct` itself. A body-less one is an overload signature
- *  (T6) or an `abstract` member: neither has a body to lower. */
 function ownMethod(
   struct: CollectedStruct | undefined,
   member: string,
@@ -643,24 +481,16 @@ function ownMethod(
   return undefined;
 }
 
-/** A member a body names through `super`: a method it calls, `super.m(...)`, or one half of
- *  an accessor, `super.x` read (`get`) or assigned (`set`). A compound assignment and `++` or
- *  `--` name both halves. */
 export interface SuperRef {
   readonly kind: 'method' | 'get' | 'set';
   readonly member: string;
 }
 
-/** What a body's `superMethods` holds for an accessor half the class above declares only the
- *  other half of: nothing to call, and the reason is not that nothing is there. */
 export const MISSING_HALF = '';
 
-/** The key a {@link SuperRef} takes in a body's `superMethods`: the method's name, or `get x`
- *  and `set x` for the halves of an accessor. */
 export const superKey = (ref: SuperRef): string =>
   ref.kind === 'method' ? ref.member : `${ref.kind} ${ref.member}`;
 
-/** Every member named through `super` under `node`. */
 function eachSuperRef(node: ts.Node, f: (ref: SuperRef) => void): void {
   const isSuper = (e: ts.Expression): boolean => e.kind === ts.SyntaxKind.SuperKeyword;
   const walk = (n: ts.Node): void => {
@@ -693,7 +523,6 @@ function eachSuperRef(node: ts.Node, f: (ref: SuperRef) => void): void {
   walk(node);
 }
 
-/** The accessor half `half` a class declares itself under the name `member`, static or not. */
 function ownAccessor(
   struct: CollectedStruct | undefined,
   member: string,
@@ -709,21 +538,13 @@ function ownAccessor(
   );
 }
 
-/** Whether a class declares the static field `member` itself. */
 const ownStaticField = (struct: CollectedStruct, member: string): boolean =>
   struct.classNode?.members.some(
     (m) => ts.isPropertyDeclaration(m) && isStaticMember(m) && writtenMemberName(m.name) === member,
   ) ?? false;
 
-/** The key under which a static body's `superMethods` holds the class whose static field
- *  `super.K` reads: in a static member `super` is the class above, and a static field is one of
- *  its members (Rule 8.13). */
 export const superFieldKey = (member: string): string => `field ${member}`;
 
-/** The body `ref`, written in a body `declaredIn` declared, names: the nearest class above
- *  `declaredIn` that declares it, and the function that body is emitted as for `target`. For an
- *  accessor, the nearest class that declares either half owns both, as it does for a read on the
- *  object (Rule 8.11); a half it does not declare names nothing. */
 function superTargetOf(
   target: string,
   declaredIn: string,
@@ -748,8 +569,6 @@ function superTargetOf(
     const either =
       ownAccessor(a, ref.member, 'get', isStatic) ?? ownAccessor(a, ref.member, 'set', isStatic);
     if (either === undefined) {
-      // A static field is a member of the class above, as a static accessor is; an instance
-      // field is the object's own, and `super` does not reach it.
       if (isStatic && ownStaticField(a, ref.member)) return { field: a.decl.name };
       continue;
     }
@@ -764,22 +583,11 @@ function superTargetOf(
   return undefined;
 }
 
-/** A class's own methods and accessors with a body, in declaration order. */
 const memberFunctionsOf = (struct: CollectedStruct): readonly MemberFunction[] =>
   [...(struct.members?.methods ?? []), ...(struct.members?.accessors ?? [])]
     .filter((m) => m.body !== undefined)
     .sort((a, b) => a.pos - b.pos);
 
-/** The bodies `struct` emits, and its inherited field initializers.
- *
- *  The primary set is one body per member the class has, its own before any it inherits. An
- *  accessor is one member however many halves it has: the nearest class that declares either
- *  half owns both, so a class that overrides a getter alone has no setter, as in TypeScript
- *  (Rule 8.11). A private member is its class's own and is never overridden: a second class in
- *  the chain declaring the same `#m`, or any member that would take the same function name, is
- *  reported (Rule 8.12). From there a worklist follows each `super.m(...)`: the body it names is
- *  the nearest one above the class that WROTE the call, emitted against this class under its
- *  own name, and its own `super` calls are followed the same way until nothing new appears. */
 function effectiveMembers(
   struct: CollectedStruct,
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -812,8 +620,6 @@ function effectiveMembers(
     emitted.add(fnName);
     pending.push({ node, declaredIn, fnName, member, isSuper });
   };
-  // The member each function name was claimed for, and by which class: `#step` and `step`, or
-  // two classes' `#step`, reach one name and are two members.
   const claimed = new Map<string, { key: string; owner: string; shown: string; written: string }>();
   const taken = new Map<string, string>();
   for (const owner of chain) {
@@ -825,7 +631,6 @@ function effectiveMembers(
       const key = `${isStatic ? 'static ' : ''}${half !== undefined ? 'accessor ' : ''}${written}`;
       const holder = taken.get(key);
       if (holder !== undefined && holder !== owner.decl.name) {
-        // A public member a nearer class declares again is an override, the ordinary case.
         if (!isPrivateName(written)) continue;
       } else taken.set(key, owner.decl.name);
       const fnName =
@@ -835,8 +640,6 @@ function effectiveMembers(
       const shown = `${owner.decl.name}.${written}`;
       const prior = claimed.get(fnName);
       if (prior !== undefined) {
-        // Only a private name is new here: a public member that reaches a taken name (a static
-        // and an instance one down a chain) keeps the first, as it always has.
         const two = prior.key !== key || prior.owner !== owner.decl.name;
         if (two && (isPrivateName(written) || isPrivateName(prior.written))) {
           collisions.push({
@@ -853,10 +656,6 @@ function effectiveMembers(
       see(m, owner.decl.name, fnName, written, false);
     }
   }
-  // A static field of this class is the module value `C_x` (Rule 8.13), and a function of the
-  // same name would declare `C_x` a second time: `static #n` beside `n()`, or a static field
-  // beside an instance method of its name, which TypeScript keeps on two sides of the class
-  // (Rule 8.12). A generic class's instance carries no static of its own.
   if (struct.binding === undefined) {
     for (const f of struct.classNode?.members ?? []) {
       if (!ts.isPropertyDeclaration(f) || !isStaticMember(f)) continue;
@@ -878,8 +677,6 @@ function effectiveMembers(
       });
     }
   }
-  /** Each member `body` names through `super`, to the function its base body is emitted as,
-   *  queueing that body. */
   const follow = (body: ts.Node, declaredIn: string, isStatic = false): Map<string, string> => {
     const superMethods = new Map<string, string>();
     eachSuperRef(body, (ref) => {
@@ -898,8 +695,6 @@ function effectiveMembers(
     });
     return superMethods;
   };
-  // The constructor this class runs names base bodies through `super` too: `super.reset()`
-  // after `super(...)`. They are emitted here, beside the ones methods name.
   const ctor = effectiveCtor(struct, byName);
   if (ctor?.node.body !== undefined) follow(ctor.node.body, ctor.owner.decl.name);
   while (pending.length > 0) {
@@ -917,12 +712,7 @@ function effectiveMembers(
       superMethods,
     });
   }
-  // A field initializer runs base first, so a derived class that initializes an inherited
-  // field wins, the way its assignment would.
   const fieldInits: FieldInit[] = [];
-  // Every one of them runs, a class's own after its base's, so one a derived class writes for
-  // an inherited field lands last, as TypeScript's does. The first one alone used to be kept,
-  // which gave the field the base's value (Rule 8.14).
   const initsOf = (s: CollectedStruct | undefined, seen: Set<string>): void => {
     if (!s || seen.has(s.decl.name)) return;
     seen.add(s.decl.name);
@@ -933,7 +723,6 @@ function effectiveMembers(
   return { bodies, fieldInits, collisions };
 }
 
-/** The map a constructor body needs for its own `super.m(...)` calls. */
 function ctorSuperMethods(
   struct: CollectedStruct,
   declaredIn: string,
@@ -951,8 +740,6 @@ function ctorSuperMethods(
   return out;
 }
 
-/** The constructor a class uses: its own, or the nearest base's, which TypeScript inherits
- *  when the derived class declares none (T5, #92). */
 function effectiveCtor(
   struct: CollectedStruct,
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -973,9 +760,6 @@ function effectiveCtor(
   return walk(struct);
 }
 
-/** The constructor `super(...)` reaches from the body `owner` declared: the nearest class above
- *  it that has one. A class whose chain declares none gives `undefined`, and a bare `super()`
- *  there has nothing to run, which is what TypeScript's implicit one does too. */
 function superCtorOf(
   owner: CollectedStruct,
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -990,11 +774,6 @@ function superCtorOf(
   return undefined;
 }
 
-/** What a class inherits its base's type parameters as, when it extends a generic class's
- *  instance: `class Small extends Box_f32` inherits bodies written in terms of `Box`'s `T`, and
- *  `T -> f32` is what those bodies have to be read under (T9, #92). A class with type parameters
- *  of its own never reaches this — it carries its own binding — and the chain is walked base
- *  first, so a class two levels below a generic one still finds it. */
 function inheritedBinding(
   struct: CollectedStruct,
   byName: ReadonlyMap<string, CollectedStruct>,
@@ -1011,9 +790,6 @@ function inheritedBinding(
   return undefined;
 }
 
-/** A method's parameters and return type. A return written `this` is the class's own struct:
- *  the method hands back its object, a copy of it here, since a struct is a value. One written
- *  nowhere is the body's to say (Rule 8.19): `infers`, and `void` until the body is lowered. */
 function methodSignature(
   method: MemberFunction,
   shown: string,
@@ -1022,15 +798,10 @@ function methodSignature(
   sourceFile: ts.SourceFile,
   diagnostics: TsCompilerDiagnostic[],
   structs: readonly CollectedStruct[],
-  /** The parameters that take a function, which a copy of the method takes in their place. */
   skip: ReadonlySet<number> = new Set(),
 ):
   | { params: FuncDecl['params'][number][]; ret: ShaderType; infers?: true; callerClass?: true }
   | undefined {
-  // `static unit<C extends Disc>(this: { new (): C; SIZE: f32 }): C` (0020): the `this`
-  // parameter is TypeScript's typing of the class the call names, which a static's copy for
-  // each class already is (Rule 8.13). It is not a parameter anything passes, and the `C` it
-  // returns is that class.
   const caller = isStatic ? callerClassForm(method) : undefined;
   const written = method.parameters.filter(
     (p, i) => !skip.has(i) && !(caller !== undefined && p === caller.thisParam),
@@ -1041,9 +812,6 @@ function methodSignature(
   });
   if (!params) return undefined;
   if (caller !== undefined) {
-    // A generic class carries its statics once, under its own name, which is no struct: there
-    // the `C` it returns is what `new this()` builds, the instance its constraint names,
-    // `Base<f32>` for `C extends Base<f32>`.
     const constraint = (method as ts.MethodDeclaration).typeParameters?.find(
       (p) => p.name.text === caller.typeParam,
     )?.constraint;
@@ -1059,8 +827,6 @@ function methodSignature(
     return { params, ret: selfT, callerClass: true };
   }
   if (method.type?.kind === ts.SyntaxKind.ThisType) return { params, ret: selfT };
-  // A result type the editor's projection wrote is not the author's (change 0134): the method
-  // infers it, as `compile()` reads the same text (Rule 12.7).
   const infers = hasNoWrittenResult(method, sourceFile);
   const ret = parseReturnType(
     infers ? undefined : method.type,
@@ -1073,10 +839,6 @@ function methodSignature(
   return infers ? { params, ret, infers: true } : { params, ret };
 }
 
-/** The refusal of a static declared to return the class that declares it, which builds its value
- *  with `new this()` and which the class `caller` inherits (0020), with the form to write. The
- *  classes are named as the author writes them, and their types spelled so (Rule 12.7): `Slot`
- *  and `Slot<f32>` for the struct `Slot_f32`. */
 function callerClassRefusal(
   method: MemberFunction,
   declaredIn: string,
@@ -1127,7 +889,6 @@ function callerClassRefusal(
   );
 }
 
-/** The other half of the accessor `node` declares, in the same class body, or `undefined`. */
 function otherHalf(node: ts.AccessorDeclaration): ts.AccessorDeclaration | undefined {
   const written = writtenMemberName(node.name);
   const want = ts.isGetAccessorDeclaration(node) ? 'set' : 'get';
@@ -1141,9 +902,6 @@ function otherHalf(node: ts.AccessorDeclaration): ts.AccessorDeclaration | undef
   );
 }
 
-/** One half of an accessor's signature (Rule 8.11). A getter takes nothing and returns the
- *  property's type; a setter takes the new value and returns nothing. TypeScript reads either
- *  half's annotation as the property's type when the other has none, and so does this. */
 function accessorSignature(
   node: ts.AccessorDeclaration,
   half: 'get' | 'set',
@@ -1164,11 +922,9 @@ function accessorSignature(
     return mapTsTypeToShaderType(t, sourceFile, undefined);
   };
   if (half === 'get') {
-    // A result type the editor's projection wrote is not the author's (change 0134).
     if (node.type === undefined || hasNoWrittenResult(node, sourceFile)) {
       const inferred = pairType();
       if (inferred !== undefined) return { params: [], ret: inferred };
-      // Neither half writes the property's type: the getter's body says it (Rule 8.19).
       return { params: [], ret: voidT, infers: true };
     }
     if (node.type.kind === ts.SyntaxKind.ThisType) return { params: [], ret: selfT };
@@ -1176,7 +932,7 @@ function accessorSignature(
     return ret === undefined ? undefined : { params: [], ret };
   }
   const value = node.parameters[0];
-  if (value === undefined || !ts.isIdentifier(value.name)) return undefined; // TypeScript's own
+  if (value === undefined || !ts.isIdentifier(value.name)) return undefined;
   if (value.type !== undefined) {
     const params = parseParams(node.parameters, sourceFile, diagnostics, structs, undefined, {
       owner: shown,
@@ -1194,18 +950,11 @@ function accessorSignature(
     );
     return undefined;
   }
-  // Neither half writes the property's type: the value takes what the getter's body returns
-  // (Rule 8.19), as TypeScript types it, and `void` stands in until that body is lowered. The
-  // setter's turn, or an assignment that needs the type first, asks for it; a setter with no
-  // getter, or beside one that returns nothing, is refused there, once, so an assignment to it
-  // adds nothing (Rule 12.4).
   return inferred === undefined
     ? { params: [{ name: value.name.text, type: voidT }], ret: voidT, fromGetter: true }
     : { params: [{ name: value.name.text, type: inferred }], ret: voidT };
 }
 
-/** A class as its author writes it: `N.P` for the struct `N_P`, and `Pair<f32>` for the
- *  instance `Pair_f32`, which is how a `new` of it names it (Rule 12.1). */
 function writtenClass(struct: CollectedStruct): string {
   if (struct.classNode === undefined) return struct.decl.name;
   const base = qualifiedParts(struct.classNode).join('.');
@@ -1214,13 +963,6 @@ function writtenClass(struct: CollectedStruct): string {
   return `${base}<${args ?? [...struct.binding.values()].map(authorTypeText).join(', ')}>`;
 }
 
-/** The functions every class in `structs` contributes, with their signatures parsed and
- *  their bodies still empty: a method (`self` first), a static function, and a constructor for
- *  a class that declares one, has a field initializer, or is constructed with `new`. One that
- *  was refused where it is written, having said why (an async method or a generator, a
- *  signature that names a type refused at its declaration, a constructor whose parameters were
- *  refused), goes into `refused` under the name it would have been emitted as, so a call of it,
- *  or a `new` of the class, adds nothing (Rule 12.4). */
 export function collectClassFunctions(
   structs: readonly CollectedStruct[],
   sourceFile: ts.SourceFile,
@@ -1230,8 +972,6 @@ export function collectClassFunctions(
   const out: ClassFunction[] = [];
   const byName = new Map(structs.map((s) => [s.decl.name, s]));
   const constructed = namesConstructed(sourceFile, structs, byName);
-  // An abstract class can be constructed as the base part of a concrete object. Keep its
-  // inherited constructor when a written super() reaches it, without adding unused copies.
   const superTargets = new Set<string>();
   for (const struct of structs) {
     const body = struct.members?.ctor?.body;
@@ -1240,24 +980,11 @@ export function collectClassFunctions(
     if (target !== undefined) superTargets.add(target.fn);
   }
   const reported = new Set<string>();
-  // The bodies each class emits, found for every class before any is lowered: whether a method
-  // changes its object can depend on another class's, `this.inner.bump()` on `Inner.bump`.
   const effectiveOf = new Map(structs.map((s) => [s.decl.name, effectiveMembers(s, byName)]));
   const bodiesOf = (struct: CollectedStruct): readonly ClassBody[] => {
     const effective = effectiveOf.get(struct.decl.name)!;
-    // A generic class's INSTANCE contributes no static: a static cannot mention the class's
-    // type parameters, so it is one function however many instances there are, carried once
-    // by the collection under the class's own name (T9, #92). Keeping it here would emit one
-    // dead copy per instance, under a name no call site can reach.
     const own =
       struct.binding !== undefined ? effective.bodies.filter((b) => !b.isStatic) : effective.bodies;
-    // An abstract class is a base and never a value, so it contributes no instance method of
-    // its own; its bodies are lowered into each concrete class below. Its
-    // statics are functions like any other and are kept, but for one that builds its value with
-    // `new this()` under the `this` parameter of 0020: `this` is the class the call names, and
-    // an abstract class has no instance to build, so that body is lowered for each concrete
-    // class that extends it, and a call through the abstract class is refused where it is
-    // written (`abstractBuilderSentence`).
     return struct.abstract ? own.filter((b) => b.isStatic && !buildsCallerClass(b.node)) : own;
   };
   const mutatingOf = mutatingBodiesOfAll(
@@ -1265,11 +992,6 @@ export function collectClassFunctions(
     byName,
   );
   for (const struct of structs) {
-    // A generic class's instance carries what its type parameters are bound to (roadmap 0.3
-    // item T9, #92): its methods are written in terms of `T`, so their signatures are parsed
-    // and their bodies lowered with that in force. Absent on every other struct, where this
-    // binds nothing and the walk is what it was. Imperative rather than a callback, because
-    // the body below `continue`s.
     const unbind = pushTypeArguments(struct.binding ?? inheritedBinding(struct, byName));
     try {
       const name = struct.decl.name;
@@ -1278,15 +1000,10 @@ export function collectClassFunctions(
       const effective = effectiveOf.get(name)!;
       const bodies = bodiesOf(struct);
       const mutating = mutatingOf.get(name)!;
-      // The function names a member of the chain lost to another, or a field holding a
-      // function that was refused, each already reported where it was declared (structs.ts);
-      // a call that misses because of it adds nothing.
       const lost = new Set(
         [struct, ...ancestorsOf(name, byName)].flatMap((s) => [...(s.withheldFunctions ?? [])]),
       );
       for (const suffix of lost) refused?.add(methodFnName(name, suffix));
-      // A collision down the chain is reported once, at the member, however many classes below
-      // it inherit the pair.
       for (const c of effective.collisions) {
         const key = `${c.at.pos}:${c.message}`;
         if (reported.has(key)) continue;
@@ -1300,12 +1017,6 @@ export function collectClassFunctions(
         const isSuperBody = body.isSuper;
         const shown = isSuperBody ? `super.${member}` : `${name}.${member}`;
         const isStatic = body.isStatic;
-        // Read off the declaration the method's name is written in: a field that holds a function
-        // is lowered as a method made from it (`structs.ts`'s `methodOfField`), which keeps the
-        // field's name and not its decorator (Rule 8.16). Refused once, at the class that writes
-        // it and by the name it is written with, however many classes inherit the method or
-        // instances a generic class makes of it; the method is lowered all the same, so a call
-        // of it says nothing more (Rule 12.4).
         const written = method.name.parent;
         const decorated = ts.canHaveDecorators(written) ? (ts.getDecorators(written) ?? []) : [];
         const at = decorated[0];
@@ -1320,7 +1031,6 @@ export function collectClassFunctions(
               `declaration with a stage attribute, "@vertex export function vs(…) { … }".`,
           );
         }
-        // An async method or a generator was refused where it is written (semantic.ts), once.
         if (
           (ts.isMethodDeclaration(method) && method.asteriskToken) ||
           method.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword)
@@ -1328,11 +1038,6 @@ export function collectClassFunctions(
           refused?.add(body.fnName);
           continue;
         }
-        // An `abstract` member written with a body was refused where the class that declares it
-        // wrote it (structs.ts), once; lowered like any body here, it adds nothing to that.
-        // A parameter of function type makes the method a template, copied for each set of
-        // functions its calls hand it (Rule 8.18); an accessor's value is refused where it is
-        // parsed.
         const fnAt = half === undefined ? functionParams(method) : new Set<number>();
         const parsed = diagnostics.length;
         const signature =
@@ -1357,24 +1062,11 @@ export function collectClassFunctions(
                 structs,
               );
         if (!signature) {
-          // A type the signature names was refused where it is declared, and said why there.
           if (diagnostics.length === parsed) refused?.add(body.fnName);
           continue;
         }
         const { params } = signature;
-        // A method whose every `return` is `return this` hands back the object it runs on. Its
-        // return type names the class that wrote it, and lowered for a class that inherits it
-        // that object is the derived one: `setY(y: f32): V { …; return this }` in `W extends V`
-        // returns a `W`, as it does at run time in TypeScript. Read as `V`, the inherited body
-        // was a type mismatch against its own `return this` (Rule 8.10).
-        //
-        // A static is the same when it builds its object with `new this(...)`: lowered for a
-        // class that inherits it, `this` is that class (Rule 8.13), so `Derived.make()` builds and
-        // returns a `Derived`, as TypeScript does at run time where its type says `Base`.
         const declaresOwnClass = typeKey(signature.ret) === typeKey(structT(body.declaredIn));
-        // Lowered for a class that inherits it, such a static returns that class, and the editor,
-        // which reads the return type as written, says the declaring one (Rule 12.7). 0020 asks
-        // for the form TypeScript types the same way, and refuses this one where they part.
         if (
           isStatic &&
           half === undefined &&
@@ -1394,8 +1086,6 @@ export function collectClassFunctions(
             );
           }
         }
-        // One that writes no return type and whose every `return` is `return this` returns its
-        // object, as one written `this` does; any other says its type in its body (Rule 8.19).
         const thisReturning =
           signature.infers === true && half === undefined && !isStatic && returnsThis(method.body);
         const infers = signature.infers === true && !thisReturning;
@@ -1406,15 +1096,6 @@ export function collectClassFunctions(
               (isStatic && body.declaredIn !== name && returnsBuiltThis(method))))
             ? selfT
             : signature.ret;
-        // A method that changes its object takes it BY REFERENCE: `mode: 'inout'` on the
-        // receiver, which GLSL ES 3.00 spells `inout Particle self_` and WGSL as a pointer. What
-        // it returns is its own business (§26): the reference, not the return, carries the
-        // object back. A body reached through `super` is the same: it runs on the object of the
-        // body that called it, which hands its own reference on, so `super.bump()` inside an
-        // override that writes is a call like any other (Rule 8.10). It was read-only until
-        // this, and a write inside it was refused. An accessor half is a method in this (Rule
-        // 8.11): a setter that assigns a field takes its object by reference, and so does a
-        // getter that caches into one.
         const writes = !isStatic && mutating.has(body.fnName);
         const stub: FuncDecl = {
           name: body.fnName,
@@ -1429,8 +1110,6 @@ export function collectClassFunctions(
         };
         (stub as { span?: SourceSpan }).span = spanOf(sourceFile, method);
         (stub as { nameSpan?: SourceSpan }).nameSpan = spanOf(sourceFile, method.name);
-        // A method's stub carries `self_` ahead of the written parameters, so the defaults sit
-        // one index along (roadmap 0.3 item T7, #92); a static method's do not.
         if (fnAt.size === 0) recordParamDefaults(stub, method.parameters, isStatic ? 0 : 1);
         const cf: ClassFunction = {
           stub,
@@ -1473,11 +1152,7 @@ export function collectClassFunctions(
         }
         out.push(cf);
       }
-      // A derived class inherits its base's field initializers and, when it declares none of its
-      // own, its constructor (T5, #92).
       const fieldInits = effective.fieldInits;
-      // An abstract class is never `new`ed, but a derived constructor's `super(...)` calls its
-      // constructor, including one it inherits through an abstract intermediate class.
       const found =
         struct.abstract && !superTargets.has(ctorFnName(name))
           ? struct.members?.ctor
@@ -1488,8 +1163,6 @@ export function collectClassFunctions(
       if (struct.abstract && ctor === undefined) continue;
       if (ctor === undefined && fieldInits.length === 0 && !constructed.has(name)) continue;
       const shown = `new ${writtenClass(struct)}`;
-      // A constructor that takes a function is copied for each set of functions `new` hands it
-      // (Rule 8.18), as a method is.
       const ctorFnAt = ctor ? functionParams(ctor) : new Set<number>();
       const params = ctor
         ? parseParams(
@@ -1502,16 +1175,11 @@ export function collectClassFunctions(
           )
         : [];
       if (!params) {
-        // Refused where it is written, whether parseParams said why or a parameter's type was
-        // refused where it is declared.
         refused?.add(ctorFnName(name));
         continue;
       }
       const stub: FuncDecl = { name: ctorFnName(name), params, ret: selfT, body: [] };
       if (ctor && ctorFnAt.size === 0) recordParamDefaults(stub, ctor.parameters);
-      // The parameter properties of the constructor this class runs, which may be a base's: the
-      // fields they declare are this struct's too, and they are assigned before anything else
-      // (Rule 8.14). One whose field was refused at the declaration assigns nothing.
       const propNames = new Set(
         (ctor?.parameters ?? [])
           .filter((p) => ts.isParameterPropertyDeclaration(p, ctor!) && ts.isIdentifier(p.name))
@@ -1528,16 +1196,7 @@ export function collectClassFunctions(
         .map((p) => ({ name: p.name, type: p.type }));
       const at = ctor ?? members?.node;
       if (at !== undefined) (stub as { span?: SourceSpan }).span = spanOf(sourceFile, at);
-      // Relative to the class that DECLARED this body: an inherited constructor's `super` still
-      // names ITS base, not the base of the class being built.
       const superCtor = found ? superCtorOf(found.owner, byName) : undefined;
-      // Which class wrote an initializer decides when it runs, as in TypeScript (Rule 8.14).
-      // The classes above the one that declared this constructor run theirs first: in the base
-      // constructor `super(...)` calls, when there is one, and before the body when there is
-      // not. That class runs its parameter properties and its own after its `super(...)`
-      // returns. The classes below it, down to this one, run theirs when its body returns, as
-      // their implicit constructors would. An initializer whose class is not in the chain (a
-      // mixin's) runs first, as every one did before.
       const chain: readonly (ts.ClassLikeDeclaration | undefined)[] = [
         struct,
         ...ancestorsOf(name, byName),
@@ -1590,9 +1249,6 @@ export function collectClassFunctions(
   return out;
 }
 
-/** The zero value of `type` as an expression, or `undefined` for a type this cannot spell (a
- *  matrix, a type outside the table). WGSL zero-initializes a `var` with no initializer, but
- *  GLSL ES 3.00 leaves it undefined, so a constructor's `self` starts from this on both. */
 export function zeroExprOf(type: ShaderType, scope: LoweringScope): Expr | undefined {
   switch (type.kind) {
     case 'scalar': {
@@ -1630,11 +1286,6 @@ export function zeroExprOf(type: ShaderType, scope: LoweringScope): Expr | undef
   }
 }
 
-/** The statements a member that builds its object starts with. A constructor: `var self_: T`
- *  at the zero struct, spelled out where {@link zeroExprOf} can so GLSL starts from zero too,
- *  then each field initializer assigned in declaration order. A method that changes its
- *  object: `var self_ = self_in`, the copy the body works on and returns. Defines `this` as
- *  that local either way. */
 export function ctorPrologue(
   receiver: Receiver,
   scope: LoweringScope,
@@ -1645,10 +1296,6 @@ export function ctorPrologue(
   return [...parts.prologue, ...parts.afterSuper, ...parts.afterBody];
 }
 
-/** A constructor's statements that are not its body's: what starts it (`self_` at the zero
- *  struct, and what runs before the body), what runs right after its `super(...)`, and what
- *  runs when its body returns (Rule 8.14). All are lowered here, before the body and its
- *  parameters are in scope, since an initializer is written in the class and sees neither. */
 export function ctorParts(
   receiver: Receiver,
   scope: LoweringScope,
@@ -1671,7 +1318,6 @@ export function ctorParts(
   };
 }
 
-/** `self_.x = x` for each parameter property. */
 function paramPropAssigns(
   props: readonly { readonly name: string; readonly type: ShaderType }[],
   type: ShaderType,
@@ -1684,7 +1330,6 @@ function paramPropAssigns(
   }));
 }
 
-/** `self_.f = init` for each field initializer, in order, each checked against its field. */
 function initAssigns(
   inits: readonly FieldInit[],
   type: ShaderType,
@@ -1694,8 +1339,6 @@ function initAssigns(
 ): Stmt[] {
   const out: Stmt[] = [];
   for (const f of inits) {
-    // A field the struct does not carry was refused where it is declared (a field that makes
-    // its struct hold itself, #1204), and its initializer says nothing more (Rule 12.4).
     if (type.kind === 'struct' && scope.isWithheld(type.name, f.name)) continue;
     const lowered = lowerExpression(f.init, sourceFile, scope, diagnostics, f.type);
     if (!lowered) continue;
@@ -1721,7 +1364,6 @@ function initAssigns(
   return out;
 }
 
-/** `self_` at the zero struct, then what runs before the body. */
 function ctorStart(
   receiver: Receiver,
   scope: LoweringScope,
@@ -1733,9 +1375,6 @@ function ctorStart(
     false,
     receiver.mode === 'inout',
   );
-  // A method that changes its object writes THROUGH the parameter, so there is nothing to
-  // start: `self_` is the parameter's own name, and `this.pos = …` assigns to it. What used to
-  // be here was `var self_ = self_in`, the copy the body worked on and returned.
   if (receiver.mode === 'inout') return [];
   const zero = zeroExprOf(receiver.type, scope);
   const out: Stmt[] = [
@@ -1743,11 +1382,6 @@ function ctorStart(
       ? { s: 'var', name: irNameOf(self), type: receiver.type, init: zero }
       : { s: 'var', name: irNameOf(self), type: receiver.type },
   ];
-  // The initializers of the classes above the one that declared this constructor come first,
-  // as their implicit constructors run them. Then `constructor(public x: f32)`: the field takes
-  // its parameter, then this class's initializers run, so one written `y = this.x * 2.` reads the
-  // value passed in (Rule 8.14). A parameter is named as the signature wrote it; the scope
-  // defines the parameters after this prologue.
   out.push(
     ...initAssigns(receiver.fieldInits, receiver.type, scope, sourceFile, diagnostics),
     ...paramPropAssigns(receiver.paramProps ?? [], receiver.type, scope),
@@ -1756,7 +1390,6 @@ function ctorStart(
   return out;
 }
 
-/** `this`: the method's object or the struct a constructor builds, or a refusal. */
 export function lowerThis(
   node: ts.Node,
   sourceFile: ts.SourceFile,
@@ -1765,8 +1398,6 @@ export function lowerThis(
 ): Expr | undefined {
   const b = scope.resolve('this');
   if (!b) {
-    // In a static member `this` is the class, which is a namespace of statics and never a
-    // value (Rule 8.13): `this.K` and `this.f()` reach them, and nothing else does.
     const cls = scope.staticClass();
     pushDiag(
       diagnostics,
@@ -1784,35 +1415,22 @@ export function lowerThis(
     : { op: 'varref', type: b.type, name: irNameOf(b) };
 }
 
-/** A class with no constructor function this module can call: a `new` of it is dropped from the
- *  body, and says so. */
 const noConstructorMessage = (shown: string): string =>
   `"${shown}" has no constructor here; build it as an object literal, { field: value }.`;
 
-/** `new Ray(a, b)`: the class's constructor function. Its target is resolved from where the
- *  `new` is written (`new-target.ts`). A target that is no class the file declares was told
- *  what it is once for the file, where the `new` is written (semantic.ts), and lowers to
- *  nothing here, however many instances lower the body around it (Rule 8.13, Rule 12.4). */
 export function lowerNew(
   node: ts.NewExpression,
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
 ): Expr | undefined {
-  // `new P(...)`, and `new N.P(...)` for a class inside a namespace, which the module emits as
-  // `N_P` (#107). A bare name inside that namespace's own bodies reaches it too, as TypeScript
-  // resolves it. `new this()` in a static member builds the class that declares the member
-  // (Rule 8.13). `flat` is the struct, `shown` the class as the author wrote it.
   let flat: string;
   let shown: string;
-  /** The class written in full from the top of the file, for the sentences that offer a line. */
   let dotted: string;
   if (unparen(node.expression).kind === ts.SyntaxKind.ThisKeyword) {
     const cls = scope.resolve('this') === undefined ? scope.staticClass() : undefined;
     if (newRefusal(node, sourceFile) !== undefined) return undefined;
     if (cls === undefined) {
-      // Outside a static member as the scope sees it, where the syntax found one: said here, so
-      // the `new` is not dropped without a word.
       pushDiag(diagnostics, sourceFile, node, thisObjectNewMessage(node));
       return undefined;
     }
@@ -1821,22 +1439,13 @@ export function lowerNew(
     dotted = cls;
   } else {
     const target = newTargetOf(node, sourceFile);
-    // Anything but a class was said once for the file, where the `new` is written, by
-    // semantic.ts.
     if (target.kind !== 'class') return undefined;
     flat = target.flat;
     shown = unparen(node.expression).getText(sourceFile);
     dotted = target.dotted;
   }
-  // `new Pair<f32>()` builds the instance struct the file collected for that set of type
-  // arguments (roadmap 0.3 item T9, #92), and a bare `new Pair()` the one instance the file
-  // writes, when it writes exactly one. Otherwise the expression names no layout, and saying so
-  // here is the whole of it: the ordinary "unknown struct" below would name the class, which
-  // exists, and never mention the type argument that is missing.
   const instance = newInstanceName(node, flat, sourceFile);
   if (instance === undefined) {
-    // A type argument that writes a name nothing declares, `Foo` or `vec3<Foo>`, names no
-    // layout, and was said where it is written.
     if (node.typeArguments?.some((t) => writesUndeclaredType(t, sourceFile))) return undefined;
     const why = ambiguousNew(dotted, sourceFile);
     if (why !== undefined) {
@@ -1846,16 +1455,10 @@ export function lowerNew(
   }
   const name = instance ?? scope.qualifiedStruct(flat);
   const struct = name === undefined ? undefined : scope.structByName(name);
-  // One the file declares and did not collect said why there.
   if (name === undefined || struct === undefined) return undefined;
   const decl = scope.resolveCallee(ctorFnName(name));
   const cf = decl === undefined ? undefined : classFunctionOf(decl);
   if (decl === undefined || cf?.kind !== 'ctor') {
-    // An abstract class has no constructor function of its own (T5, #92), and was refused above.
-    // A constructor refused where it is written, at its signature, and a function of the file
-    // that holds the name a constructor is emitted under, refused as the collision it is, said
-    // why there (Rule 12.4). Any other `new` with no constructor function to call is dropped
-    // from the body, and says so.
     if (
       !scope.isAbstractStruct(name) &&
       decl === undefined &&
@@ -1865,10 +1468,6 @@ export function lowerNew(
     }
     return undefined;
   }
-  // A class with no constructor of its own answers `new P()` with the zero struct and its
-  // field initializers, which is TypeScript's implicit constructor; it takes no arguments, and
-  // TypeScript says so too. The arity message alone left an author guessing which of the two
-  // ways to write it they wanted.
   if (cf.node === undefined && (node.arguments?.length ?? 0) > 0) {
     pushDiag(
       diagnostics,
@@ -1881,7 +1480,6 @@ export function lowerNew(
     );
     return undefined;
   }
-  // A constructor that takes a function: the copy for the functions this `new` hands it.
   const call =
     cf.takesFunctions !== undefined
       ? lowerCopyCall(node, cf, undefined, undefined, false, sourceFile, scope, diagnostics)
@@ -1889,13 +1487,6 @@ export function lowerNew(
   return call?.op === 'call' ? withSpan(call, sourceFile, node) : call;
 }
 
-/** A call through a member access, `r.at(2.)`, `this.at(t)` or `Ray.up()`: the class function
- *  it names, with the receiver as the first argument for a method. Returns the marker when the
- *  receiver is not a struct value or a class name, so the caller's other member calls (the
- *  swizzles, the array folds) keep their turn. */
-/** The owner a call's receiver names, flattened: `A` for `A.f()`, `A_B` for `A.B.f()`, and
- *  the namespace-qualified form when the body being lowered is inside one. Undefined when the
- *  receiver is not a chain of identifiers, which is a call on a value. */
 function flattenedOwner(expr: ts.Expression, scope: LoweringScope): string | undefined {
   const parts: string[] = [];
   let node: ts.Expression = expr;
@@ -1912,21 +1503,12 @@ function flattenedOwner(expr: ts.Expression, scope: LoweringScope): string | und
     return undefined;
   }
   const joined = parts.join('_');
-  // Inside a namespace body, a member namespace may be written by its short name: `B.two()`
-  // inside `namespace A` is `A_B_two`.
   const qualified = scope.qualifiedNamespace(joined);
   if (qualified !== undefined) return qualified;
   if (parts.length === 1) return joined;
-  // A longer path that names no namespace is a field read on a value, which the receiver path
-  // below handles.
   return undefined;
 }
 
-/** `super.at(t)` inside a method that overrides `at` (roadmap 0.3 item T5, #92): a call of the
- *  base's body, which the collector lowered against this class under `Ray_super_at`, with the
- *  object first. Refused where there is no object, where nothing above declares the method, and
- *  where the base's version writes to its object, which would need the copy-back a plain
- *  method call gets and `super` has no receiver to write to. */
 function lowerSuperMethodCall(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -1943,8 +1525,6 @@ function lowerSuperMethodCall(
     pushDiag(diagnostics, sourceFile, callee, NO_SUPER);
     return undefined;
   }
-  // Which base body this names was decided by the collector, from the class that WROTE the
-  // body rather than the one it is being lowered for; the scope carries that answer.
   const fn = scope.superMethods()?.get(member);
   const decl = fn === undefined ? undefined : scope.resolveCallee(fn);
   if (!decl) {
@@ -1956,8 +1536,6 @@ function lowerSuperMethodCall(
     );
     return undefined;
   }
-  // A base's `private` method is not the derived class's to call, through `super` or not
-  // (Rule 8.15).
   const cf = classFunctionOf(decl);
   if (
     cf !== undefined &&
@@ -1970,8 +1548,6 @@ function lowerSuperMethodCall(
       ? { op: 'param', type: self.type, name: irNameOf(self) }
       : { op: 'varref', type: self.type, name: irNameOf(self) },
   ];
-  // A base body that takes a function: its copy for the functions this call hands it, on this
-  // body's own object (Rule 8.18).
   if (cf?.takesFunctions !== undefined) {
     return lowerCopyCall(
       node,
@@ -1991,12 +1567,9 @@ function lowerSuperMethodCall(
   });
 }
 
-/** What `super` is refused with outside a class body's own members. */
 export const NO_SUPER =
   '"super" names the class above the one whose body it is written in; a top-level function has none.';
 
-/** `super.k(...)` in a static member: the static body the class above declares, lowered for
- *  this class so that `this` in it is this class, as TypeScript binds it (Rule 8.13). */
 function lowerStaticSuperCall(
   node: ts.CallExpression,
   callee: ts.PropertyAccessExpression,
@@ -2033,20 +1606,13 @@ export function lowerClassCall(
   sourceFile: ts.SourceFile,
   scope: LoweringScope,
   diagnostics: TsCompilerDiagnostic[],
-  /** Where the receiver goes when it is not an object: lowered once, for the caller to use. */
   seen: { recv?: Expr } = {},
 ): Expr | undefined | 'not-a-class-call' {
   const obj = callee.expression;
-  // The member as written: `at`, or `#step` for a private one (Rule 8.12).
   const member = callee.name.text;
-  // `super.at(t)` runs the BASE's body on this object (T5, #92). The base's body was lowered
-  // against this class under `Ray_super_at`, so the call is an ordinary one with `this` first.
   if (obj.kind === ts.SyntaxKind.SuperKeyword) {
     return lowerSuperMethodCall(node, callee, member, sourceFile, scope, diagnostics);
   }
-  // `A.B.two()` names the namespace `A_B` (T4, #92): a chain of identifiers joins the way the
-  // members do. A single identifier is the class or namespace itself, as before. `this` inside a
-  // static member is the class that declares it (Rule 8.13).
   const staticThis =
     unparen(obj).kind === ts.SyntaxKind.ThisKeyword && scope.resolve('this') === undefined
       ? scope.staticClass()
@@ -2062,20 +1628,14 @@ export function lowerClassCall(
     const decl = scope.resolveCallee(methodFnName(name, emittedMemberName(member)));
     const cf = decl === undefined ? undefined : classFunctionOf(decl);
     if (cf === undefined) {
-      // A namespace's member is a plain function of the module (T4, #92), so it has no
-      // ClassFunction record; the callee lookup above is the whole of its resolution.
       if (scope.isNamespace(name)) {
         if (decl !== undefined)
           return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown });
-        // A generic member, or one that takes a function: made for this call (T9, #92; Rule
-        // 8.18).
         const qualified = methodFnName(name, emittedMemberName(member));
         if (scope.isGenericFunction(qualified)) {
           return lowerGenericCall(node, qualified, shown, sourceFile, scope, diagnostics);
         }
-        // One the namespace declares and whose declaration was refused, having said why.
         if (scope.declarationRefused(qualified)) return undefined;
-        // On the member, as TypeScript's TS2339 is, with the function it is spelled like.
         pushDiag(
           diagnostics,
           sourceFile,
@@ -2086,13 +1646,8 @@ export function lowerClassCall(
         );
         return undefined;
       }
-      // A static that lost its emitted name to another member was reported where the two are
-      // declared (structs.ts), and one whose signature was refused where it is written; a call
-      // of either adds nothing (Rule 12.4).
       if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
       if (refusedMember(name, member, scope)) return undefined;
-      // A static an abstract class writes that builds its value with `new this()` has no function
-      // of that class, and the call that names the class is where it is refused.
       const builder = abstractBuilderSentence(name, member, scope);
       if (builder !== undefined) {
         pushDiag(diagnostics, sourceFile, node, builder);
@@ -2120,14 +1675,11 @@ export function lowerClassCall(
       !checkPrivateAccess(member, declaringClassOf(cf), name, callee.name, sourceFile, diagnostics)
     )
       return undefined;
-    // `this.#h()` in a static body a class inherits: `#h` is the declaring class's own.
     if (!checkInheritedPrivateStatic(cf, name, callee, sourceFile, diagnostics)) return undefined;
     if (!checkFunctionAccess(cf, undefined, callee.name, sourceFile, scope, diagnostics)) {
       return undefined;
     }
     if (cf.kind !== 'static') {
-      // The static of this name lost it to this method, which was reported where the two are
-      // declared; the call is of the static the author wrote (Rule 12.4).
       if (scope.isWithheld(name, emittedMemberName(member))) return undefined;
       pushDiag(
         diagnostics,
@@ -2149,18 +1701,12 @@ export function lowerClassCall(
     return 'not-a-class-call';
   }
   const name = recv.type.name;
-  // A class in a namespace or an instance of a generic one is named as written, `N.P`.
   const written = authorTypeText(recv.type);
   const shown = `${written}.${member}`;
   const found = memberFunctionOf(name, member, 'method', scope);
-  // A member the class was refused at its declaration for (structs.ts): an abstract one it leaves
-  // unimplemented, or one that lost its emitted name to another, a static of the same name
-  // among them. A call of it adds nothing, whatever the name reaches now (Rule 12.4).
   const withheld = scope.isWithheld(name, emittedMemberName(member));
   if (found === undefined) {
     if (withheld) return undefined;
-    // A class whose chain has a base the file does not declare as a struct was refused where it
-    // extends it (structs.ts), and what that base would have given it is not known here.
     if (scope.ancestorsOf(name).some((a) => scope.structByName(a) === undefined)) {
       return undefined;
     }
@@ -2170,8 +1716,6 @@ export function lowerClassCall(
     const accessor =
       memberFunctionOf(name, member, 'get', scope) ?? memberFunctionOf(name, member, 'set', scope);
     const field = visibleField(name, member, callee.name, scope) !== undefined;
-    // A static of a generic class belongs to the class, not to one instance of it: `Slot_m`,
-    // not `Slot_f32_m`.
     const cls = classOfStruct(name);
     const onClass =
       cls.base === name ? undefined : memberFunctionOf(cls.base, member, 'method', scope);
@@ -2206,8 +1750,7 @@ export function lowerClassCall(
             `v.${member}.`
         : field
           ? `"${member}" is a field of ${written}, not a method.`
-          : // On the member, as TypeScript's TS2339 is, with the method it is spelled like.
-            unknownNameSentence(`"${written}" has no method "${member}".`, member, [
+          : unknownNameSentence(`"${written}" has no method "${member}".`, member, [
               declaredMethods,
             ]),
     );
@@ -2222,16 +1765,10 @@ export function lowerClassCall(
     pushDiag(diagnostics, sourceFile, callee, staticOnValue(name, member));
     return undefined;
   }
-  // A method that takes a function: the copy for the functions this call hands it (Rule 8.18).
   if (cf.takesFunctions !== undefined) {
     return lowerCopyCall(node, cf, obj, recv, false, sourceFile, scope, diagnostics);
   }
   if (cf.mutates) {
-    // A method that changes its object and returns a value is a value like any call (§26):
-    // `const x = rng.next()`, `vec2(rng.next(), rng.next())`. Its receiver is still the place
-    // it writes, and `sequence.ts` puts the call in source order among what is around it. One
-    // that returns nothing has no value to give; one that writes no return type says which in
-    // its body, lowered first (Rule 8.19).
     if (!scope.calleeReady(decl, node, sourceFile, diagnostics)) return undefined;
     if (typeKey(cf.stub.ret) === 'void') {
       pushDiag(
@@ -2249,10 +1786,6 @@ export function lowerClassCall(
   return lowerUserCall(node, decl, sourceFile, scope, diagnostics, { shown, leading: [recv] });
 }
 
-/** A static called on a value of its class, the struct `name`. The call it names is on the
- *  class with no type arguments, `Slot.m(...)`, since `Slot<f32>.m(...)` is TS1477. A static of a
- *  class in a namespace is called nowhere today (`N.P.m()` reads `N` as an unknown value), so
- *  that sentence gives the reason and names no call. */
 function staticOnValue(name: string, member: string): string {
   const cls = classOfStruct(name);
   const shown = `"${cls.written}.${member}"`;
@@ -2261,7 +1794,5 @@ function staticOnValue(name: string, member: string): string {
     : `${shown} is static; call it on the class: ${cls.written}.${member}(...).`;
 }
 
-/** The class a class function's body was written in: the one whose body may name it when its
- *  name is private (Rule 8.12). */
 export const declaringClassOf = (cf: ClassFunction): ts.ClassLikeDeclaration | undefined =>
   cf.node !== undefined && ts.isClassLike(cf.node.parent) ? cf.node.parent : undefined;
