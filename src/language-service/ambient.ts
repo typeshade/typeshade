@@ -82,11 +82,8 @@ for (const name of SUPPORTED_TYPE_NAMES) {
   VEC_TYPE_ELEM.set(name, elem);
 }
 
-/** The subset of `VEC_TYPE_ELEM` keys that are also valid *constructor* call names — the
- * compiler's `VEC_CTOR` table in `lower/expression-call.ts` (private; not re-derived here
- * because it carries no vocabulary `type-map.ts` does not already have) accepts `vec2`/`vec3`/
- * `vec4` and their `f`/`i`/`u`/`f64` suffixes but never the bare `d` suffix — `vec2d(...)` is
- * not a function, only a type name. */
+/** Why: the compiler's `VEC_CTOR` table in `lower/expression-call.ts` is private, and it accepts
+ * `vec2`/`vec3`/`vec4` with the `f`/`i`/`u`/`f64` suffixes but never the bare `d` suffix. */
 const VEC_CTOR_NAMES = [...VEC_TYPE_ELEM.keys()].filter((name) => !/d$/.test(name));
 
 /** WGSL builtin ids `@builtin(...)` accepts — `core/sot.ts`'s own runtime array (the compiler
@@ -578,11 +575,8 @@ const scalarCasts = SCALAR_CAST_NAMES.map((name) => {
   // `bool()`. `bool` converts from a number and returns a boolean, so its argument is not
   // `number` in the general case; the generated line below is the numeric one it already had.
   const zero = name === 'f64' ? '' : `declare function ${name}(): ${name}\n`;
-  // A cast takes a `bool` too (wgsl.txt:20207): `u32(b)` is 1 or 0, and the compiler has
-  // always lowered it. The editor read `f32(true)` as "Argument of type 'boolean' is not
-  // assignable to parameter of type 'number'", which is the false POSITIVE this file exists to
-  // prevent. `f64` is the exception: it WIDENS an f32 and the compiler refuses anything else,
-  // so admitting a bool there would be the opposite mistake (#157).
+  // Why: WGSL takes a bool in a scalar cast (wgsl.txt:20207). `f64` is the exception, since the
+  // compiler widens an f32 only.
   const arg = name === 'f64' ? 'number' : 'number | bool';
   const line = `${zero}declare function ${name}(x: ${arg}): ${name}`;
   const doc = FUNCTION_DOCS[name];
