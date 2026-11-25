@@ -787,7 +787,11 @@ function readsCollection(sts: readonly Stmt[], name: string): boolean {
   return found;
 }
 
-function lowerCollections(f: FuncDecl, m: ModuleDecl, lower: KernelLowering) {
+function lowerCollections(
+  f: FuncDecl,
+  m: ModuleDecl,
+  lower: KernelLowering,
+): KernelPlan | { readonly noGpu: string } {
   const loops = f.body.filter((st): st is ForStmt => st.s === 'for');
   const taken = declaredNames(m);
   const structs: StructDecl[] = [];
