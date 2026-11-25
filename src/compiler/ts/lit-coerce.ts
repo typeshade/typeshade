@@ -91,8 +91,7 @@ export function fitsTarget(v: number, target: ShaderType): boolean {
 export function foldNumericLit(expr: Expr): Expr {
   const int = intElemOf(expr.type);
   if (expr.op === 'unop' && expr.a.op === 'lit' && typeof expr.a.value === 'number') {
-    // A negated `u32` has no value of its type to fold to: the node is left for the check
-    // that refuses it, as it was before.
+    // Why: a negated u32 has no u32 value to fold to, and the lowering has already refused it.
     if (int === 'u32') return expr;
     return {
       op: 'lit',
@@ -988,19 +987,10 @@ function bitsEdit(expr: Expr, value: number, target: ShaderType): string {
   return bitwise ? ` Write the u32 with the same bits, 0x${(value >>> 0).toString(16)}.` : '';
 }
 
-/** The width a shift amount has to fit under, on both targets: WGSL's `i32`/`u32` and GLSL ES
- *  3.00's `int`/`uint` are all 32 bits. */
+// Why: WGSL's i32 and u32 and GLSL ES 3.00's int and uint are all 32 bits wide.
 const SHIFT_BITS = 32;
 
-/** The ONE sentence both shift paths raise for an amount outside `0 .. 31` (#71).
- *
- *  Both had their own wording, which said the same thing in different words and let the two
- *  drift; a rule stated twice is a rule that will be changed once. The binary path lowers
- *  `x << 32` and the compound path `y <<= 32`, and what they refuse is the same number for the
- *  same reason: WGSL makes a constant amount that is not smaller than the bit width a
- *  shader-creation error, and GLSL ES 3.00 leaves the result undefined — so `x << 32` is
- *  `x << 0` on one target and anything at all on the other. A RUNTIME amount is not this: WGSL
- *  masks it to the low five bits, so neither path says anything about one. */
+// Why: WGSL refuses a constant shift amount of 32 or more at shader creation, and GLSL ES 3.00 leaves the result undefined.
 export function shiftAmountMessage(amount: number): string {
   return (
     `A shift amount must be between 0 and ${String(SHIFT_BITS - 1)}, got ${String(amount)}: ` +
