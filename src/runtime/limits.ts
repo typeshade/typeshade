@@ -56,6 +56,7 @@ export function bindingsOf(program: Pack, records: boolean): Map<string, PackBin
   bindings.set('_console', {
     name: '_console',
     emitted: '_console',
+    emittedGlsl: '_console',
     space: 'storage',
     group: 0,
     binding: slot,

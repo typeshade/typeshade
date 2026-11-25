@@ -59,7 +59,7 @@ $io3[0] = $a0, $io3[1] = $a1, $.inout.values = $io3;
 };
 return { F: $.F, C: {  }, $: $ };
 })(/*#__PURE__*/ __ts_rt.createCodegenRuntime({ consoleSink: __ts_rt.hostConsole }));
-export default {"schema":2,"compiler":"0.1.0","wgsl":"fn xorshift32(state: u32) -> u32 {\n  var x: u32 = state;\n  x = (x ^ (x << 13u));\n  x = (x ^ (x >> 17u));\n  x = (x ^ (x << 5u));\n  return x;\n}\n\nfn hash32(x: u32) -> u32 {\n  var h: u32 = (x ^ (x >> 16u));\n  h = (h * 2146121005u);\n  h = (h ^ (h >> 15u));\n  h = (h * 2221713035u);\n  h = (h ^ (h >> 16u));\n  return h;\n}\n\nfn uniform_(word: u32) -> f32 {\n  return (f32((word >> 8u)) * 5.960464477539063e-8);\n}\n","bindings":[],"entries":[],"structs":[],"overrides":[],"features":[]};
+export default {"schema":3,"compiler":"0.1.0","wgsl":"fn xorshift32(state: u32) -> u32 {\n  var x: u32 = state;\n  x = (x ^ (x << 13u));\n  x = (x ^ (x >> 17u));\n  x = (x ^ (x << 5u));\n  return x;\n}\n\nfn hash32(x: u32) -> u32 {\n  var h: u32 = (x ^ (x >> 16u));\n  h = (h * 2146121005u);\n  h = (h ^ (h >> 15u));\n  h = (h * 2221713035u);\n  h = (h ^ (h >> 16u));\n  return h;\n}\n\nfn uniform_(word: u32) -> f32 {\n  return (f32((word >> 8u)) * 5.960464477539063e-8);\n}\n","bindings":[],"entries":[],"structs":[],"overrides":[],"features":[]};
 const __ts_t0 = {"k":"num","t":"u32","s":"u32"};
 const __ts_t1 = {"k":"num","t":"u32","s":"u32"};
 const __ts_x0 = { "xorshift32"(__ts_p0) {

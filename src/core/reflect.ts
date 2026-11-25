@@ -252,13 +252,8 @@ export function wgslLayout(
 
 const NO_NAMES: ReadonlyMap<string, string> = new Map();
 
-function glslOnly(
-  name: string,
-  wgsl: ReadonlyMap<string, string>,
-  glsl: ReadonlyMap<string, string>,
-): { emittedGlsl?: string } {
-  const g = emittedName(glsl, name);
-  return g === emittedName(wgsl, name) ? {} : { emittedGlsl: g };
+function glslSpelled(name: string, glsl: ReadonlyMap<string, string>): { emittedGlsl: string } {
+  return { emittedGlsl: emittedName(glsl, name) };
 }
 
 function structLayout(
@@ -341,9 +336,9 @@ export interface BindEntry {
   readonly binding: number;
   /** The binding's authored name, the one the host binds by (Rule 11.10). */
   readonly name: string;
-  /** The GLSL spelling of the binding, present only when it differs from `emitted` (Proposal 0070,
-   *  D3). A GLSL host reads `emittedGlsl ?? emitted`. */
-  readonly emittedGlsl?: string;
+  /** The GLSL spelling of the binding, always present. It equals `emitted` where the two targets
+   *  spell the name alike. A GLSL host reads `emittedGlsl` (Proposal 0151). */
+  readonly emittedGlsl: string;
   /** The binding's name in the emitted text (Rule 11.10). Equal to `name` when the target
    *  spells it as written. */
   readonly emitted: string;
@@ -612,8 +607,8 @@ export interface EntryInfo {
 export interface OverrideInfo {
   /** The override's authored name, the one the host supplies it by (Rule 11.10). */
   readonly name: string;
-  /** The GLSL spelling of the override, present only when it differs from `emitted` (D3). */
-  readonly emittedGlsl?: string;
+  /** The GLSL spelling of the override, always present; equal to `emitted` where they agree. */
+  readonly emittedGlsl: string;
   /** The override's name in the emitted text (Rule 11.10). */
   readonly emitted: string;
   readonly type: string;
@@ -876,7 +871,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       binding: b.binding,
       name: b.name,
       emitted: emittedName(plan.wgsl.bindings, b.name),
-      ...glslOnly(b.name, plan.wgsl.bindings, plan.glsl.bindings),
+      ...glslSpelled(b.name, plan.glsl.bindings),
       space: b.space,
       ...(b.access ? { access: b.access } : {}),
       resourceKind: resourceKind(b.space, b.type),
@@ -970,7 +965,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   const overrides: OverrideInfo[] = (m.overrides ?? []).map((o) => ({
     name: o.name,
     emitted: emittedName(plan.wgsl.overrides, o.name),
-    ...glslOnly(o.name, plan.wgsl.overrides, plan.glsl.overrides),
+    ...glslSpelled(o.name, plan.glsl.overrides),
     type: typeKey(o.type),
     default: o.default,
   }));

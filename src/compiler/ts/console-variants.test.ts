@@ -18,7 +18,7 @@ describe('retained console variants (change 0085)', () => {
   it('retains reachable calls by default without enabling them or adding IR', () => {
     const module = both();
     const pack = packModule(module);
-    expect(pack.schema).toBe(2);
+    expect(pack.schema).toBe(3);
     expect(pack.console).toBeUndefined();
     expect(pack.ir).toBeUndefined();
     expect(pack.wgsl).not.toContain('_console');

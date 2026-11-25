@@ -19,7 +19,6 @@ import {
 import { STAGE, type RhiBindLayoutEntry, type RhiColorTarget } from '../../rhi/rhi.js';
 import { glReadBindings } from '../../rhi/webgl2.js';
 import type { GlDrawing } from './drawing.js';
-import { glslNameOf } from './glsl-name.js';
 import type { Slot, Built } from './pipeline-types.js';
 import { checkState } from './state-check.js';
 import { refuseBias } from './depth-bias.js';
@@ -181,7 +180,7 @@ export class GlRenderPrograms {
       entries.push({
         binding: index,
         visibility,
-        name: glslNameOf(b),
+        name: b.emittedGlsl,
         label: name,
         ...(paired !== undefined ? { samplerBinding: paired.index } : {}),
         texture: { sampleType: 'float', viewDimension: '2d', multisampled: false },
@@ -199,7 +198,7 @@ export class GlRenderPrograms {
       entries.push({
         binding: index,
         visibility,
-        name: glslNameOf(b),
+        name: b.emittedGlsl,
         label: name,
         buffer: { type: 'read-only-storage' },
       });

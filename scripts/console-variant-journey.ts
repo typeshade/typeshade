@@ -1,4 +1,5 @@
-// Run a newly packed manifest on this reader and the actual pre-change schema-2 reader.
+// Run a newly packed manifest on this reader. The actual pre-change schema-2 reader refuses it by
+// its schema, and runs the same manifest stamped as schema 2.
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -88,10 +89,10 @@ export async function consoleVariants(options: {
         ).consoleVariantResult,
     );
     if (result.error !== undefined) throw new Error(result.error);
-    if (result.checks?.length !== 20)
+    if (result.checks?.length !== 21)
       throw new Error('The console variant checks did not all run.');
     for (const check of result.checks) console.log(`ok   console variants: ${check}`);
-    console.log(`console variants: 20 checks passed; baseline reader ${BASELINE}`);
+    console.log(`console variants: 21 checks passed; baseline reader ${BASELINE}`);
     return 0;
   } finally {
     await browser.close();

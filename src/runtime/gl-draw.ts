@@ -9,5 +9,4 @@ export { GlPass } from './gl-draw/pass.js';
 export { textureOf, samplerOf } from './gl-draw/draw-handles.js';
 export { GlSamplerImpl } from './gl-draw/sampler.js';
 export { GlTextureImpl } from './gl-draw/texture.js';
-export { glslNameOf } from './gl-draw/glsl-name.js';
 export { GlDrawing } from './gl-draw/drawing.js';

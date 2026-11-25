@@ -26,7 +26,7 @@ export function pinOverrides(
 export function glslOverrideNames(m: Pick<Pack, 'overrides'>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const o of m.overrides ?? []) {
-    const g = o.emittedGlsl ?? o.emitted;
+    const g = o.emittedGlsl;
     if (g !== o.name) out[o.name] = g;
   }
   return out;

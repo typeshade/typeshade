@@ -499,7 +499,7 @@ function packBindings(m: ModuleDecl, bindGroups: readonly BindGroup[]): PackBind
       const base = {
         name,
         emitted,
-        ...(emittedGlsl !== undefined ? { emittedGlsl } : {}),
+        emittedGlsl,
         space,
         group: g,
         binding,
@@ -823,7 +823,7 @@ export function buildManifest(
     overrides: r.overrides.map((o) => ({
       name: o.name,
       emitted: o.emitted,
-      ...(o.emittedGlsl !== undefined ? { emittedGlsl: o.emittedGlsl } : {}),
+      emittedGlsl: o.emittedGlsl,
       type: o.type,
       default: o.default,
     })),
@@ -861,7 +861,7 @@ function toDrawBinding(b: PackBinding): DrawBinding {
   // Why: a host without a `glsl` looks the uniform up by its authored name (`glsl ?? name`), so
   // `glsl` is present whenever the GLSL name differs from that name, even when it equals the WGSL
   // one (Proposal 0070, C8, deviation 4).
-  const glsl = b.emittedGlsl ?? b.emitted;
+  const glsl = b.emittedGlsl;
   const at = {
     name: b.name,
     group: b.group,

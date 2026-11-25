@@ -1,6 +1,6 @@
 // The emitted-name record (Rule 11.10, proposal 0070 D2 and D3): every named record of
 // `reflect()` and of the manifest carries the authored name beside the name the emitted text
-// declares it under, and the manifest carries the schema that holds the record (schema 2).
+// declares it under, and the manifest carries the schema that holds the record (schema 3).
 // Commit one of 0070 adds the fields; the names are still the authored ones, so each pair is
 // equal. The later commits make a pair differ, and these tests show the record follows.
 //
@@ -41,11 +41,14 @@ const moduleOf = () => {
 
 describe('the emitted-name record (Rule 11.10)', () => {
   it('pins the schema the manifest carries and the runtime reads', () => {
-    expect(PACK_SCHEMA).toBe(2);
+    expect(PACK_SCHEMA).toBe(3);
     const m = packModule(moduleOf());
-    expect(m.schema).toBe(2);
+    expect(m.schema).toBe(3);
     expect(() => checkManifest(m)).not.toThrow();
     expect(() => checkManifest({ ...m, schema: 1 })).toThrow(/schema 1/);
+    expect(() => checkManifest({ ...m, schema: 2 })).toThrow(
+      /This manifest is schema 2 \(written by typeshade .*\); this runtime \(typeshade .*\) reads schema 3\./,
+    );
   });
 
   it('pairs each reflected name with its emitted name', () => {
@@ -88,8 +91,6 @@ describe('the emitted-name record (Rule 11.10)', () => {
   });
 });
 
-// The record reads the spelling plan (Proposal 0070, C4): `emitted` is the WGSL spelling, and
-// `emittedGlsl` is present only where the GLSL spelling differs.
 describe('the spelling record reads the plan (Proposal 0070, C4)', () => {
   const names = {
     const: 'class',
@@ -110,12 +111,12 @@ describe('the spelling record reads the plan (Proposal 0070, C4)', () => {
     expect(code).toMatch(new RegExp(`\\bfn ${entry.emitted}\\(`));
   });
 
-  it('carries emittedGlsl only where the GLSL spelling differs from the WGSL one', () => {
+  it('carries emittedGlsl on every binding, equal to emitted where the spellings agree', () => {
     const r = reflect(allKindsModule({ binding: 'texture', field: 'half' }, 'graphics'));
     const tex = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name === 'texture')!;
     expect(tex.emitted).toBe('texture');
     expect(tex.emittedGlsl).toBe('texture_');
     const dst = r.bindGroups.flatMap((g) => g.entries).find((b) => b.name !== 'texture')!;
-    expect(dst.emittedGlsl).toBeUndefined();
+    expect(dst.emittedGlsl).toBe(dst.emitted);
   });
 });

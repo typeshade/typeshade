@@ -7,10 +7,9 @@
 // reflection and the manifest read one answer. Nothing is rewritten here: the late pass
 // (`passes/spell-names.ts`) and the writers apply the plan.
 //
-// The WGSL spelling is `emitted`. The GLSL spelling is read from `emittedGlsl` when it differs
-// (Proposal 0070, D3 and its amendment). The plan keeps the two targets apart per kind: a binding,
-// an override, a struct, a constant, a variable, a helper, an entry, and a member (a struct field
-// or an entry parameter, keyed by the authored string so one varying has one spelling).
+// The plan keeps the two targets apart per kind: a binding, an override, a struct, a constant, a
+// variable, a helper, an entry, and a member (a struct field or an entry parameter, keyed by the
+// authored string so one varying has one spelling).
 //
 // Implements: Rule 3.2, Rule 3.3, Rule 3.4 (docs/language-design.md; traced in reqs/).
 

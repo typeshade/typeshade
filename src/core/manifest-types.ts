@@ -104,7 +104,7 @@ export interface PackGlCompute {
 }
 
 /** The manifest's schema. A reader refuses one it does not know (Rule 11.10). */
-export const PACK_SCHEMA = 2;
+export const PACK_SCHEMA = 3;
 
 // ─── the shape ───────────────────────────────────────────────────────────────────────────────
 
@@ -178,8 +178,8 @@ export interface PackBinding {
   readonly name: string;
   /** The name the emitted text declares it under (Rule 11.10). */
   readonly emitted: string;
-  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
-  readonly emittedGlsl?: string;
+  /** The GLSL spelling, always present; equal to `emitted` where the targets agree. */
+  readonly emittedGlsl: string;
   readonly space: string;
   readonly group: number;
   readonly binding: number;
@@ -243,8 +243,8 @@ export interface PackOverride {
   readonly name: string;
   /** The name the emitted text declares the override under (Rule 11.10). */
   readonly emitted: string;
-  /** The GLSL spelling, present only when it differs from `emitted` (Proposal 0070, D3). */
-  readonly emittedGlsl?: string;
+  /** The GLSL spelling, always present; equal to `emitted` where the targets agree. */
+  readonly emittedGlsl: string;
   readonly type: string;
   readonly default: number | boolean;
 }

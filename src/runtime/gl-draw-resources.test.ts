@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kernelQueue } from '../core/resident.js';
 import type { ResidentArrayState } from '../core/resident.js';
-import { GlDrawing, GlSamplerImpl, GlTextureImpl, glslNameOf } from './gl-draw.js';
+import { GlDrawing, GlSamplerImpl, GlTextureImpl } from './gl-draw.js';
 import { recordingRhi } from '../rhi/recording-rhi.js';
 
 const gated = (log: string[]): { release: () => void; done: Promise<void> } => {
@@ -142,12 +142,5 @@ describe('the drawing state of one runtime', () => {
       const indices = d.uploaded(state, 'indices', bytes(8), make);
       expect(indices).not.toBe(vertices);
     });
-  });
-});
-
-describe('the name the GLSL program declares a binding under', () => {
-  it('is the GLSL name when the binding has one, else the emitted name', () => {
-    expect(glslNameOf({ emitted: 'photo', emittedGlsl: 'photo_glsl' })).toBe('photo_glsl');
-    expect(glslNameOf({ emitted: 'photo' })).toBe('photo');
   });
 });
