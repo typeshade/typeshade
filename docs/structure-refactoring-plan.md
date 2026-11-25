@@ -305,12 +305,12 @@ Status of each row: not started. Under decision D2, each series moves its source
 | S1  | Not started | The 11 importing files of the 32 `KNOWN` edges. `core/host-draw.ts`, `core/host-entry-program.ts` and `core/host-runtime.ts` move up (D3).                    | `KNOWN` is empty; `core` imports no other directory.                            |
 | S2  | Not started | `core/ir`: `node.ts` and 3 more files above the limit, then the 1 test file.                                                                                  | No file of `core/ir` is in the baseline.                                        |
 | S3  | Not started | `core/backends`: `glsl.ts`, `wgsl.ts`, then their 4 test files.                                                                                               | No file of `core/backends` is in the baseline.                                  |
-| S4  | Not started | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                                               | No file of `core/passes` is in the baseline.                                    |
+| S4  | In progress | `core/passes`: 17 files, then 14 test files. The files include `kernel-lower.ts` (split in R5).                                                               | No file of `core/passes` is in the baseline.                                    |
 | S5  | Not started | `core` root files (22, then 12 test files) and `core/coverage` (6 files), `core/testing`, `core/debug`, `core/spec-conformance`, `core/libm`.                 | No file of `core` is in the baseline.                                           |
-| S6  | Not started | `rhi`: 5 files, then 1 test file.                                                                                                                             | No file of `rhi` is in the baseline.                                            |
+| S6  | In progress | `rhi`: 5 files, then 1 test file.                                                                                                                             | No file of `rhi` is in the baseline.                                            |
 | S7  | Not started | `runtime`: 7 files, then 10 test files.                                                                                                                       | No file of `runtime` is in the baseline.                                        |
 | S8  | Not started | `compiler/ts/lower`: 16 files, including `function.ts`, `statement.ts` and `expression-call.ts`.                                                              | No file of `compiler/ts/lower` is in the baseline.                              |
-| S9  | Not started | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                                               | No non-test file of `compiler/ts` is in the baseline.                           |
+| S9  | In progress | `compiler/ts` (rest): 25 files, including `abstract-const.ts` and `structs.ts`.                                                                               | No non-test file of `compiler/ts` is in the baseline.                           |
 | S10 | Not started | `language-service`: 7 files, then 11 test files. The files include `diagnostics.ts` and `service.ts`.                                                         | No file of `language-service` is in the baseline.                               |
 | S11 | Not started | Test files of `compiler/ts` (58 files, 53,343 lines), after S8 and S9.                                                                                        | No test file of `compiler/ts` is in the baseline.                               |
 | S12 | Not started | The 14 test files of `src` root, including `fuse.test.ts` (7,088 lines).                                                                                      | No file of `src` root is in the baseline.                                       |
@@ -1028,5 +1028,47 @@ D5 therefore rests on `CLAUDE.md`, Merging, and the owner's approval of 2026-11-
 | 6   | The import cycles around the three `host-*` files (D3).                 | No one measured them. The S0 item d check does not exist yet.        | Build S0 item d. Run it before the S1 move.                                         |
 | 7   | A revision of `CLAUDE.md`, Merging, for pure moves (D5).                | Done in pull request #1529 (`d14bebb4`): the section lists the move. | None. Closed.                                                                       |
 | 8   | The conflict of S9 with #1493, #1498 and the waiting patches.           | Section 7.1: these edit files that the series would move.            | Check the open pull requests before S9 starts. Start it when they merge.            |
+
+Items 9 to 16 record the files that the first slice wave stopped on.
+Each line count was measured on `origin/main` at `4c1df624` with `git show origin/main:<file> | wc -l`.
+A reason labelled "reported" is the report of the session. The repository does not prove it.
+The owner approved on 2026-11-25 ("추천안대로", relayed by the orchestrating session) that these reasons go into the open items.
+
+- Item 9: `src/compiler/ts/sequence.ts`, 679 lines. Step A not started.
+  Reported by session D on 2026-11-24: a comment about `select` contradicts the code, a possible violation of Rule 7.9.
+  Next action: establish which of the two is right. Read Rule 7.9 of `docs/language-design.md`, the code and its tests before any comment is removed.
+  If the code is wrong, that is a bug for the owner to see.
+- Item 10: `src/compiler/ts/program-refusals.ts`, 531 lines. Step A merged in #1575 for part of the file. Steps B and C not started.
+  Reported by session D on 2026-11-24: about 25 behaviours have no test.
+  Verified in the repository: `git ls-remote origin slice/program-refusals-A` shows `6d7eb28a`. No pull request was checked for that branch.
+  Next action: write the tests for the 25 behaviours, then run steps B and C.
+- Item 11: `src/compiler/ts/link.ts`, 1,132 lines. Step C merged in #1592 moved part of the file into `src/compiler/ts/link/`.
+  Reported by session D on 2026-11-24: pending a format pull request or a tool fix.
+  Verified on `4c1df624`: `bun scripts/move-purity.ts --clean-report --json` lists `link.ts` with 3 units and 0 active units.
+  `linkProgram` spans lines 63 to 1070, 1,008 lines, so one function holds most of the file.
+  `bun scripts/move-declarations.ts --from src/compiler/ts/link.ts --to src/compiler/ts/link/suggested-file.ts --move suggestedFile --dry-run` prints, verbatim: "Refused: suggestedFile is location-dependent (the relative path "./"); it does not move".
+  Next action: split `linkProgram` in an ordinary pull request that has its own tests. Then move the helpers.
+- Item 12: `src/compiler/ts/host-face.ts`, 1,228 lines. Step C merged in #1592 moved part of the file into `src/compiler/ts/host-face/`.
+  Reported by session D on 2026-11-24: pending a format pull request or a tool fix.
+  Verified on `4c1df624`: the clean report lists `host-face.ts` with 18 units and 0 active units.
+  `bun scripts/move-declarations.ts --from src/compiler/ts/host-face.ts --to src/compiler/ts/host-face/reported.ts --move reported --dry-run` prints "Move purity: pure" and "Findings: 0". It did not reproduce the reported reason for `reported`.
+  Next action: run the same dry run for each remaining declaration. Report each refusal verbatim here.
+- Item 13: `src/core/backends/wgsl.ts`, 632 lines. Stopped by session F.
+  Reported by session F on 2026-11-24: a test cannot hold the evaluation order of `modOperandsOnce` (issue #841).
+  Verified in the repository: `git ls-remote origin slice-a/wgsl` shows `84be93c7`, a branch of unmerged tests. No pull request was checked for it.
+  Next action: decide how the order of `modOperandsOnce` is held (issue #841) before the move.
+- Item 14: `src/core/builtins/coredef.ts`, 721 lines. Not started by session F.
+  Verified in the repository: the first line says "GENERATED by scripts/bake-coredef.ts from Tint's core.def. Do not edit: re-bake." The generator `scripts/bake-coredef.ts` exists.
+  Next action: change `scripts/bake-coredef.ts` so that it writes files of at most 400 lines. Then re-bake it with the generator. Do not move the generated file by hand.
+- Item 15: `src/core/passes/kernel-lower.ts`, 948 lines. Steps A, B and C merged in #1577, #1582 and #1587. The file stays above 400 lines.
+  Reported by the session on 2026-11-24: a call cycle between `lowerKernel` and `lowerCollections`.
+  Verified in the repository: `lowerKernel` (line 87) calls `lowerCollections` (line 111, defined at line 789). The reverse call was not checked.
+  Next action: an ordinary pull request that breaks the cycle with a narrow type. Then the moves (`docs/structure-slice-playbook.md`, step C, item 2).
+- Item 16: `src/rhi/webgl2.ts`, 845 lines. Steps A, B and C merged in #1567, #1571 and #1578. The file stays above 400 lines.
+  Reported by the session on 2026-11-24: the classes `GlRenderPass`, `GlEncoder` and `GlDevice` name each other, and the move tool takes that as a cycle.
+  Next action: as for item 15.
+
+Fact, measured on `4c1df624`: `scripts/file-size-baseline.json` lists 244 files, 104 non-test files and 140 test files.
+`scripts/comment-baseline.json` lists 949 files with 49,655 comment lines in all.
 
 Fact: nothing in this plan reverses an entry of `docs/owner-decisions.md`.
