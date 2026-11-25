@@ -157,7 +157,7 @@
   "src/core/passes/determinism.ts": 608,
   "src/core/passes/effects.ts": 451,
   "src/core/passes/fp64-lower.test.ts": 962,
-  "src/core/passes/fp64-lower.ts": 1713,
+  "src/core/passes/fp64-lower.ts": 1699,
   "src/core/passes/gl-compute.test.ts": 580,
   "src/core/passes/gl-compute.ts": 1279,
   "src/core/passes/grad-reverse.test.ts": 1207,

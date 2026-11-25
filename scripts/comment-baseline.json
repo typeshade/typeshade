@@ -606,7 +606,7 @@
   "src/core/passes/force-inline.test.ts": 95,
   "src/core/passes/force-inline.ts": 112,
   "src/core/passes/fp64-lower.test.ts": 130,
-  "src/core/passes/fp64-lower.ts": 502,
+  "src/core/passes/fp64-lower.ts": 475,
   "src/core/passes/gl-compute.test.ts": 38,
   "src/core/passes/gl-compute.ts": 132,
   "src/core/passes/grad-check.test.ts": 5,
