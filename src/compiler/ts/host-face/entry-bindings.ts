@@ -3,7 +3,7 @@ import type { BindingDecl, FuncDecl } from '../../../core/ir/nodes.js';
 import type { ShaderType } from '../../../core/ir/types.js';
 import { layoutOf } from '../../../core/manifest.js';
 import { closureOf } from '../../../core/manifest/reach.js';
-import { spellingsOf } from '../../../core/spelling-plan.js';
+import { emittedName, spellingsOf } from '../../../core/spelling-plan.js';
 import { authorTypeText } from '../context.js';
 import type { HostExport } from '../host-face-contracts.js';
 import { bindingsTypes, objectType, type Naming } from '../host-view.js';
@@ -29,13 +29,12 @@ export function entryBindings(
   const bindings: DrawBinding[] = [];
   for (const b of x.bindings) {
     if (!touched.has(b.name)) continue;
-    const glsl = spellingsOf(x.module).glsl.bindings.get(b.name);
     const at = {
       name: b.name,
       group: b.group,
       binding: b.binding,
       s: spell(b.type),
-      ...(glsl !== undefined ? { glsl } : {}),
+      glsl: emittedName(spellingsOf(x.module).glsl.bindings, b.name),
     };
     if (b.type.kind === 'texture' && b.type.dim === '2d' && b.type.elem === 'f32') {
       bindings.push({ ...at, space: 'texture' });

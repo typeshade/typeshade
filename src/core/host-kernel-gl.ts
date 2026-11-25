@@ -27,17 +27,13 @@ export interface KernelGlLoop {
   readonly reads: readonly {
     readonly param: string;
     readonly name: string;
-    /** The name the program declares the sampler under, when it differs from `name` (Proposal
-     *  0070, C8). */
-    readonly glsl?: string;
+    readonly glsl: string;
     readonly layout: Layout & { k: 'a' };
   }[];
   /** Each loose uniform: its name, its scalar and its component count. */
   readonly uniforms: readonly {
     readonly name: string;
-    /** The name the program declares the uniform under, when it differs from `name` (Proposal
-     *  0070, C8). */
-    readonly glsl?: string;
+    readonly glsl: string;
     readonly scalar: 'f32' | 'i32' | 'u32';
     readonly n: number;
     /** An array parameter's checked element count, supplied under its authored name. */
@@ -154,11 +150,11 @@ export function onWebgl2(
   loop.reads.forEach((r, unit) => {
     gl.activeTexture(gl.TEXTURE0 + unit);
     textures.push(dataTexture(gl, lanesOf(r.param, r.layout, arrays.get(r.param))));
-    const at = gl.getUniformLocation(program, r.glsl ?? r.name);
+    const at = gl.getUniformLocation(program, r.glsl);
     if (at !== null) gl.uniform1i(at, unit);
   });
   for (const u of loop.uniforms) {
-    const at = gl.getUniformLocation(program, u.glsl ?? u.name);
+    const at = gl.getUniformLocation(program, u.glsl);
     if (at === null) continue;
     const v = u.name === '_start' ? start : uniforms.get(u.lengthOf ?? u.name);
     const xs = (u.n === 1 ? [v] : (v as readonly number[])) as number[];

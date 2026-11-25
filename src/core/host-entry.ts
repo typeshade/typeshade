@@ -89,9 +89,8 @@ export interface EntryBinding {
   readonly rw?: true;
   readonly layout: Layout;
   readonly s: string;
-  /** The GLSL spelling of the binding, present only when it differs from its emitted name (Proposal
-   *  0070, D3). A GLSL host looks the uniform up by `glsl ?? name`. */
-  readonly glsl?: string;
+  /** The GLSL spelling of the binding, always present (Proposal 0151). */
+  readonly glsl: string;
 }
 
 /** A `texture_2d<f32>` or `sampler` binding an entry reaches, or a 2D storage texture a kernel
@@ -107,8 +106,8 @@ export interface HandleBinding {
     readonly access: 'write-only' | 'read-only' | 'read-write';
   };
   readonly s: string;
-  /** The GLSL spelling, present only when it differs from its emitted name (D3). */
-  readonly glsl?: string;
+  /** The GLSL spelling, always present (Proposal 0151). */
+  readonly glsl: string;
   /** The `_fp64` guard of a module that emulates `f64`: a 1x1 texture whose texel reads 1.0,
    *  which the runtime supplies and the host never passes. */
   readonly guard?: true;

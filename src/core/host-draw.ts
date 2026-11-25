@@ -441,7 +441,7 @@ export function packBindingOf(
   const at = {
     name,
     emitted: b.name,
-    emittedGlsl: b.glsl ?? b.name,
+    emittedGlsl: b.glsl,
     group: b.group,
     binding: b.binding,
     type: b.s,
