@@ -117,7 +117,7 @@
   "src/core/debug/watch.test.ts": 433,
   "src/core/dx-sweep.test.ts": 539,
   "src/core/emit.ts": 910,
-  "src/core/fp64/df64-lib.ts": 1028,
+  "src/core/fp64/df64-lib.ts": 995,
   "src/core/fuse-entry.test.ts": 1931,
   "src/core/fuse-entry.ts": 889,
   "src/core/fuse-group.test.ts": 1262,

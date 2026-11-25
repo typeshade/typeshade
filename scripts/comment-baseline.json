@@ -456,7 +456,7 @@
   "src/core/fp64/df64-int-property.test.ts": 49,
   "src/core/fp64/df64-int.ts": 106,
   "src/core/fp64/df64-known-answer.test.ts": 39,
-  "src/core/fp64/df64-lib.ts": 275,
+  "src/core/fp64/df64-lib.ts": 223,
   "src/core/fp64/df64-property.test.ts": 55,
   "src/core/fp64/df64-sincos.test.ts": 53,
   "src/core/fp64/flavor-select.test.ts": 2,
