@@ -100,12 +100,7 @@ export function writtenConstNames(sourceFile: ts.SourceFile): [string, string][]
   return out;
 }
 
-/** The first call or `new` in a module-scope initializer that reaches a function or a class the
- *  file declares: `g()`, `N.g()`, `C.f()`, `new P(2.)`. A module-scope value is folded before
- *  any function of the module exists, and WGSL refuses the call there too ("user-declared
- *  functions cannot be called at module-scope", measured on Tint). It is found on the syntax,
- *  before the initializer is lowered, so the one sentence is the declaration's own and not
- *  "Unknown function" about a function the file declares (Rule 12.1, Rule 12.4). */
+// Why: Tint refuses a call in a module-scope initializer ("user-declared functions cannot be called at module-scope").
 export function declaredCallIn(
   init: ts.Node,
   sourceFile: ts.SourceFile,
@@ -572,9 +567,7 @@ function foldsToZero(
  *  way to build one at module scope to test the refusal with: `vec3f64(...)` is not a
  *  constructor this surface has, so the exclusion is a statement of intent, not a live arm. */
 function isValueExprType(t: ShaderType): boolean {
-  // An array OF arrays is refused: the GLSL ES 3.00 writer spells the element type inline and
-  // the nested form it produces is not something ANGLE accepts, so allowing it here would ship
-  // a declaration that compiles on one backend and not the other.
+  // Why: ANGLE does not accept the nested array type that the GLSL ES 3.00 writer spells inline.
   if (t.kind === 'array') return t.elem.kind !== 'array';
   return t.kind === 'vec' || t.kind === 'struct' || t.kind === 'mat';
 }
@@ -885,8 +878,7 @@ function lowerOne(
           `divisor. It cannot call a declared function or read a resource, component, field or element.`,
       );
     }
-    // These are splitF64's two words. Keep the front end independent of the helper library,
-    // which builds GPU functions at import time. Underflow retains the existing split behavior.
+    // Why: these are splitF64's two words; the front end stays independent of the helper library, which builds GPU functions at import time.
     const hi = Math.fround(value);
     const lo = Math.fround(value - hi);
     if (!Number.isFinite(value) || !Number.isFinite(hi) || !Number.isFinite(lo)) {

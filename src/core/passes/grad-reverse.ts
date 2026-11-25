@@ -1,42 +1,3 @@
-// ═══ grad, reverse mode — the vector-Jacobian product of a function (change 0056) ═══
-//
-// `grad(m, 'f', ['k', 'p'], { mode: 'reverse' })` adds a function `f_vjp(params…, dy)` that
-// returns a struct with one field for each name of `wrt`: `dy · ∂f/∂k`, `dy · ∂f/∂p`. One
-// evaluation gives every field. It is an IR → IR pass, as forward mode is, so the WGSL writer,
-// the GLSL writer and both CPU modules take the result as they take any function.
-//
-// THE TAPE IS THE FUNCTION'S OWN MEMORY (change 0056, item 1, M1). The derivative runs the
-// forward body first, then sweeps it backward:
-//
-//   1. Every local is hoisted to a function-scope `var` under a name unique in the function, so
-//      the backward sweep can read what the forward sweep computed. A `let` is written once.
-//   2. Before an assignment overwrites a variable, the old value is copied into a fresh `var`
-//      (a tape slot). The backward sweep restores it after it has taken the adjoint of the
-//      assignment, so at each point of the backward sweep every variable holds the value it
-//      held at the same point of the forward sweep. The count of slots is known at compile
-//      time: one for each assignment of the body.
-//   3. A branch records the arm it took in an `i32`. The backward sweep takes the same arm.
-//   4. An early `return` stores its value and sets a flag, and the statements after it run
-//      under `if (!done)`. That makes the body a sequence the sweep can reverse.
-//
-// The adjoint of an expression is propagated by `acc`, the transpose of the tangent rules of
-// `grad.ts`. A component-wise builtin has a diagonal Jacobian, so its transpose is the same
-// rule with the adjoint in place of the tangent, summed over a broadcast scalar. The other
-// builtins (`dot`, `cross`, `length`, `distance`, `reflect`, `transpose`, `select`) and the
-// matrix products have their own transpose here. A piecewise-constant builtin has a zero
-// derivative in both modes (change 0056, item 7).
-//
-// A call to another function of the module goes through a helper `g_vjp(args…, dy)`, generated
-// once for each callee, which returns a struct of the adjoints of `g`'s float parameters.
-//
-// A LOOP runs under the checkpoint schedule of change 0056, items 1 and 2 (`loopSweep`). Its
-// trip count `N` comes from the header of a counted `for`, or from a count sweep. Its state is
-// saved every `K = ceil(N / C)` iterations into `C` slots of a function-memory array, and the
-// backward sweep takes the segments last first: it runs each again from its slot, saves the
-// states of its iterations into a second array of `C` slots, and sweeps each iteration backward
-// after running it once more with its tape. A segment longer than `C` (`N > C²`) reaches each
-// iteration from the segment's slot instead, so the time grows as `N² / C` there.
-
 import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import { type ShaderType, typeKey } from '../ir/types.js';
 import { isKnownIntrinsic } from '../intrinsics.js';
@@ -57,8 +18,6 @@ import {
   zero,
 } from './grad.js';
 
-/** What the reverse mode adds to the module: the derivative, its struct and the field each
- *  name of `wrt` landed in. */
 export interface ReverseResult {
   readonly module: ModuleDecl;
   readonly name: string;
@@ -83,7 +42,6 @@ const COMPONENTS: Readonly<Record<string, number>> = {
   a: 3,
 };
 const XYZW = 'xyzw';
-/** `cond ? ifTrue : ifFalse`, component-wise for a vector condition. */
 const sel = (cond: Expr, ifTrue: Expr, ifFalse: Expr): Expr => ({
   op: 'select',
   type: ifTrue.type,
@@ -99,7 +57,6 @@ const isUserCall = (
 ): FuncDecl | undefined =>
   e.declRef === undefined && isKnownIntrinsic(e.fn) ? undefined : funcs.get(e.fn);
 
-/** Differentiate `fn` of `m` with respect to every name of `wrt`, in reverse mode. */
 export function gradReverse(
   m: ModuleDecl,
   fn: string,
@@ -160,7 +117,6 @@ class ReverseContext {
   readonly funcs: Map<string, FuncDecl>;
   private readonly vjps = new Map<string, { name: string; struct: StructDecl }>();
   private readonly inProgress = new Set<string>();
-  /** The tape bytes of each generated function, its helpers' deepest chain included. */
   readonly bytes = new Map<string, number>();
   readonly structDecls: Map<string, StructDecl>;
 
@@ -195,7 +151,6 @@ class ReverseContext {
     return n;
   }
 
-  /** The derivative of `f` with respect to `wrt`, named `name`, with its result struct. */
   derive(f: FuncDecl, wrt: readonly string[], name: string): FuncDecl {
     const struct: StructDecl = {
       name: this.unique(`${name}_adjoints`),
@@ -214,8 +169,6 @@ class ReverseContext {
     };
   }
 
-  /** An author-written adjoint (change 0056, item 1.5): it takes `g`'s parameters and `dy`,
-   *  and returns a struct with a field of the same name and type for each float parameter. */
   private authored(g: FuncDecl, adj: FuncDecl): { name: string; struct: StructDecl } {
     const bad = (why: string) =>
       refuse(`"${adj.name}", the adjoint opts.custom gives "${g.name}", ${why}`);
@@ -243,7 +196,6 @@ class ReverseContext {
     return { name: adj.name, struct: st };
   }
 
-  /** The VJP helper of a callee: its name and its result struct, generated on first use. */
   vjpOf(g: FuncDecl): { name: string; struct: StructDecl } {
     const done = this.vjps.get(g.name);
     if (done !== undefined) return done;
@@ -285,18 +237,11 @@ class ReverseContext {
   }
 }
 
-// ── the normalized body ─────────────────────────────────────────────────────────────
-//
-// The forward body after hoisting: assignments, branches, switches and effect calls, each
-// with the record the backward sweep needs.
-
 type Node =
   | {
       readonly k: 'assign';
       readonly target: Expr;
       readonly expr: Expr;
-      /** The first write of a hoisted local: nothing before it reads the old value, so it
-       *  needs no tape slot. */
       readonly first: boolean;
     }
   | {
@@ -317,24 +262,17 @@ type Node =
       readonly k: 'call';
       readonly expr: Expr;
       readonly roots: readonly string[];
-      /** Inside a loop, whose iterations the backward sweep runs again. */
       readonly inLoop: boolean;
     }
   | { readonly k: 'stmt'; readonly stmt: Stmt; readonly inLoop: boolean }
   | {
       readonly k: 'loop';
-      /** The condition, with the break and return flags folded in. */
       readonly cond: Expr;
-      /** One iteration: the reset of the continue flag, the body and the update. */
       readonly body: readonly Node[];
-      /** The loop-carried state: every variable the iteration writes that lives past it. */
       readonly state: readonly string[];
-      /** The trip count from the header of a counted loop, read before the first iteration.
-       *  Absent for a loop whose count the count sweep measures. */
       readonly trips?: Expr;
     };
 
-/** The variables of one loop's checkpoint schedule. */
 interface LoopVars {
   readonly n: string;
   readonly k: string;
@@ -347,27 +285,18 @@ interface LoopVars {
 }
 
 class Reverse {
-  /** Every name the derivative uses, so a generated one never collides. */
   private readonly names: Set<string>;
-  /** The hoisted locals, in order, with their types. */
   private readonly locals = new Map<string, ShaderType>();
-  /** The renaming in force: source name → hoisted name, innermost scope last. */
   private readonly scopes: Map<string, string>[] = [];
-  /** Parameters the body writes: they are copied into locals first. */
   private readonly written = new Set<string>();
-  /** Names whose value depends on a name of `wrt` (activity analysis). */
   private readonly active = new Set<string>();
-  /** The adjoint `var` of each active name. */
   private readonly adj = new Map<string, string>();
   private readonly prologue: Stmt[] = [];
   private retName = '';
   private doneName = '';
   private doneRead = false;
-  /** The flags of the loops around the statement being normalized, innermost last. */
   private readonly loops: { brk: string; cont: string; brkUsed: boolean; contUsed: boolean }[] = [];
-  /** The variables the derivative adds for its tape: slots, records, flags, checkpoints. */
   private readonly tape = new Set<string>();
-  /** The VJP helpers this derivative calls. */
   readonly callees = new Set<string>();
   private readonly loopVars = new Map<Node, LoopVars>();
 
@@ -403,7 +332,6 @@ class Reverse {
     this.doneName = this.fresh('returned');
     this.locals.set(this.doneName, BOOL);
     this.tape.add(this.doneName);
-    // A parameter the body writes is copied into a local, which the tape can restore.
     const top = new Map<string, string>();
     const copies: Node[] = [];
     for (const p of f.params) {
@@ -427,8 +355,6 @@ class Reverse {
       this.tape.delete(this.doneName);
     }
 
-    // Activity: the names that depend on `wrt`, to a fixed point (a later branch can make a
-    // name active that an earlier one read).
     for (const w of this.wrt) this.active.add(w);
     for (let before = -1; before !== this.active.size;) {
       before = this.active.size;
@@ -466,7 +392,6 @@ class Reverse {
     };
   }
 
-  /** The words of function memory the tape takes (change 0056, M1). */
   tapeWords(): number {
     let w = 0;
     for (const n of this.tape) {
@@ -484,8 +409,6 @@ class Reverse {
     return p.type;
   }
 
-  // ── normalization ────────────────────────────────────────────────────────────────
-
   private lookup(n: string): string | undefined {
     for (let i = this.scopes.length - 1; i >= 0; i--) {
       const r = this.scopes[i]!.get(n);
@@ -494,8 +417,6 @@ class Reverse {
     return undefined;
   }
 
-  /** `e` with every local renamed to its hoisted name and every written parameter read from
-   *  its copy. */
   private rename(e: Expr): Expr {
     return mapExpr(e, (x) => {
       if (x.op === 'varref') {
@@ -511,7 +432,6 @@ class Reverse {
   }
 
   private declare(name: string, type: ShaderType): string {
-    // The first local of a name keeps it; a later one in another scope takes a fresh name.
     const local =
       !this.locals.has(name) && !this.f.params.some((p) => p.name === name)
         ? name
@@ -521,7 +441,6 @@ class Reverse {
     return local;
   }
 
-  /** `!(f1 || f2 …)` over the flags, spelled as comparisons both targets take. */
   private notAny(flags: Iterable<string>): Expr {
     let e: Expr | undefined;
     for (const fl of flags) {
@@ -532,8 +451,6 @@ class Reverse {
     return e!;
   }
 
-  /** A block: its nodes and the flags its statements may set, which make the rest of an
-   *  enclosing block skip. The statements after one that may set a flag run under a guard. */
   private block(body: readonly Stmt[]): { nodes: Node[]; exits: Set<string> } {
     const nodes: Node[] = [];
     const exits = new Set<string>();
@@ -570,7 +487,6 @@ class Reverse {
     };
   }
 
-  /** One statement: its nodes, the flags it may set, and whether it always leaves its block. */
   private stmt(s: Stmt): { nodes: Node[]; exits: Set<string>; ends?: boolean } {
     const none = new Set<string>();
     const inLoop = this.loops.length > 0;
@@ -588,8 +504,6 @@ class Reverse {
         const init = s.init !== undefined ? this.rename(s.init) : undefined;
         this.storable(s.type, s.name);
         const local = this.declare(s.name, s.type);
-        // A hoisted variable keeps its value from one iteration to the next, so a declaration
-        // without a value writes the zero value the source gives it each time it runs.
         return {
           nodes: [
             {
@@ -697,8 +611,6 @@ class Reverse {
     }
   }
 
-  /** A zero value of any type a variable holds: a literal for a float, an integer or a
-   *  boolean, else a variable never written, which both targets zero. */
   private zeroOf(t: ShaderType): Expr {
     if (isDiffType(t)) return zero(t);
     if (t.kind === 'scalar') return { op: 'lit', type: t, value: t.scalar === 'bool' ? false : 0 };
@@ -713,7 +625,6 @@ class Reverse {
   }
   private readonly zeros = new Map<string, string>();
 
-  /** A loop: the nodes of its header's first statement, then the loop node. */
   private loop(s: Extract<Stmt, { s: 'for' }>): {
     nodes: Node[];
     exits: Set<string>;
@@ -768,7 +679,6 @@ class Reverse {
         ? cond0
         : { op: 'logical', type: BOOL, lop: '&&', a: cond0, b: this.notAny(stops) };
 
-    // The loop-carried state: what an iteration writes that was declared before it.
     const written = new Set<string>();
     writtenRoots(iteration, written);
     const state = [...written].filter((n) => !inner.has(n) && n !== loop.cont);
@@ -786,8 +696,6 @@ class Reverse {
     return { nodes, exits: returns ? new Set([this.doneName]) : new Set() };
   }
 
-  /** The trip count of a counted `for` over an `i32` counter with a positive constant step and
-   *  a bound the loop does not write, read from its header before the first iteration. */
   private headerTrips(
     s: Extract<Stmt, { s: 'for' }>,
     cond: Expr,
@@ -800,7 +708,6 @@ class Reverse {
     if (cond.op !== 'compare' || (cond.cop !== '<' && cond.cop !== '<=')) return undefined;
     const i = cond.a;
     if (i.op !== 'varref' || i.type.kind !== 'scalar' || i.type.scalar !== 'i32') return undefined;
-    // The counter is written by the update alone, and the bound reads nothing the loop writes.
     const inBody = new Set<string>();
     writtenRoots(
       iteration.filter((_n, k) => k < iteration.length - 1),
@@ -825,7 +732,6 @@ class Reverse {
     };
   }
 
-  /** A local the derivative hoists must have a type a `var` can hold. */
   private storable(t: ShaderType, name: string): void {
     if (
       t.kind === 'texture' ||
@@ -840,8 +746,6 @@ class Reverse {
       );
   }
 
-  /** The roots a call passes by reference. Such a call is allowed only as a statement, since
-   *  the backward sweep recomputes expressions and must not repeat its effect. */
   private refuseByReference(e: Expr, statement: boolean): string[] {
     const roots: string[] = [];
     const visit = (x: Expr, top: boolean): void => {
@@ -864,10 +768,6 @@ class Reverse {
     return roots;
   }
 
-  // ── activity ─────────────────────────────────────────────────────────────────────
-
-  /** Whether `e` carries a derivative: it reads an active name through a differentiable
-   *  path. An integer, a boolean or a comparison carries none. */
   private act(e: Expr): boolean {
     switch (e.op) {
       case 'lit':
@@ -933,10 +833,6 @@ class Reverse {
     }
   }
 
-  // ── the two sweeps ───────────────────────────────────────────────────────────────
-
-  /** Emit the forward sweep of `nodes` into `fwd` and their backward sweep, last first, into
-   *  `bwd`. */
   private sweep(nodes: readonly Node[], fwd: Stmt[], bwd: Stmt[]): void {
     const back: Stmt[][] = [];
     for (const n of nodes) {
@@ -977,8 +873,6 @@ class Reverse {
             a = this.fresh('a');
             bwd.push({ s: 'let', name: a, expr: path });
           }
-          // The adjoint of the overwritten value starts at zero. In a loop a local written
-          // once per iteration needs this too, since its adjoint variable outlives the iteration.
           bwd.push(assign(path, zero(n.target.type)));
         }
         if (slot !== undefined) bwd.push(assign(vref(root, rootType), vref(slot, rootType)));
@@ -1008,7 +902,6 @@ class Reverse {
           return;
         }
         const br = this.branch();
-        // The record is cleared first: in a loop it still holds the previous iteration's arm.
         fwd.push(assign(vref(br, I32), ilit(0)));
         fwdArms.forEach((arm, i) => arm.body.unshift(assign(vref(br, I32), ilit(i + 1))));
         fElse?.unshift(assign(vref(br, I32), ilit(fwdArms.length + 1)));
@@ -1069,9 +962,6 @@ class Reverse {
     }
   }
 
-  /** A call statement in a loop runs again in the backward sweep: only a call to a function
-   *  of the module that writes nothing but its own variables and its reference arguments
-   *  can. */
   private refuseEffectInLoop(e: Expr): void {
     if (e.op !== 'call') return;
     const g = isUserCall(this.ctx.funcs, e);
@@ -1101,7 +991,6 @@ class Reverse {
     return n;
   }
 
-  /** The statements of `nodes` as the source runs them: no tape, no records. */
   private plain(nodes: readonly Node[]): Stmt[] {
     const out: Stmt[] = [];
     for (const n of nodes) {
@@ -1163,16 +1052,6 @@ class Reverse {
     return v;
   }
 
-  /** A loop under the checkpoint schedule (change 0056, items 1 and 2).
-   *
-   *  Forward: the trip count `N` comes from the header, or from a count sweep that runs the
-   *  loop once and restores its state. The loop then runs with its state saved every
-   *  `K = ceil(N / C)` iterations into `C` checkpoint slots.
-   *
-   *  Backward: the segments, last first. Each is run again from its checkpoint, its states
-   *  saved into a second array of `C` slots, and its iterations swept backward from those,
-   *  each run once more with its tape. When `K > C` a segment does not fit the second array,
-   *  and each iteration is reached again from the segment's checkpoint instead. */
   private loopSweep(n: Extract<Node, { k: 'loop' }>, fwd: Stmt[], bwd: Stmt[]): void {
     const C = this.slots;
     const v = this.varsOf(n);
@@ -1211,7 +1090,6 @@ class Reverse {
     const le = (a: Expr, b: Expr): Expr => ({ op: 'compare', type: BOOL, cop: '<=', a, b });
     const plainIter = () => this.plain(n.body);
 
-    // ── forward ──
     fwd.push(...save((s) => s.s0));
     if (n.trips !== undefined) fwd.push(assign(N, n.trips));
     else {
@@ -1237,7 +1115,6 @@ class Reverse {
       ]),
     );
 
-    // ── backward ──
     const f: Stmt[] = [];
     const b: Stmt[] = [];
     this.sweep(n.body, f, b);
@@ -1286,15 +1163,11 @@ class Reverse {
     bwd.push(...load((s) => s.s0));
   }
 
-  /** The backward sweep of a branch: the arm the forward sweep recorded, by its number. */
   private replay(br: string, arms: readonly Stmt[][]): Stmt {
     const live = arms.map((body, i) => ({ cond: eq(vref(br, I32), ilit(i + 1)), body }));
     return { s: 'if', arms: live.filter((a) => a.body.length > 0) };
   }
 
-  // ── adjoint propagation ──────────────────────────────────────────────────────────
-
-  /** Bind `x` to a fresh `let` unless it is already a name or a literal. */
   private bind(x: Expr, out: Stmt[]): Expr {
     if (x.op === 'varref' || x.op === 'param' || x.op === 'lit') return x;
     const n = this.fresh('a');
@@ -1302,7 +1175,6 @@ class Reverse {
     return vref(n, x.type);
   }
 
-  /** Add the adjoint `a` (of `e`'s type) of `e` into the adjoints of the names `e` reads. */
   private acc(e: Expr, a0: Expr, out: Stmt[]): void {
     if (!this.act(e)) return;
     const a = this.bind(a0, out);
@@ -1352,8 +1224,8 @@ class Reverse {
             `"${this.f.name}" reads an element of a ${shown(B)} that depends on the parameter; grad carries a derivative through f32, float-vector and float-matrix values only`,
           );
         if (B.kind === 'mat') {
-          // The column `a` lands in a matrix that is zero elsewhere, built whole: the CPU oracle
-          // does not write through a matrix column.
+          // Why: the CPU oracle does not write through a matrix column, so the column `a` lands
+          // in a matrix that is zero elsewhere, built whole.
           const col: ShaderType = { kind: 'vec', n: B.rows, elem: 'f32' };
           const cols: Expr[] = Array.from({ length: B.cols }, (_, j): Expr =>
             e.idx.op === 'lit'
@@ -1418,14 +1290,12 @@ class Reverse {
     }
   }
 
-  /** The adjoint of an lvalue path: the same path rooted at its root's adjoint. */
   private adjPath(path: Expr): Expr {
     const root = rootOf(path)!;
     const t = this.typeOf(root);
     return vref(this.adj.get(root)!, t);
   }
 
-  /** Sum `x`, of type `T`, down to `U`: the transpose of a broadcast. */
   private unb(x: Expr, U: ShaderType): Expr {
     const T = x.type;
     if (typeKey(T) === typeKey(U)) return x;
@@ -1473,7 +1343,6 @@ class Reverse {
           this.acc(e.b, bin('*', call('transpose', [e.a], transposed(A)), a, B), out);
           return;
         }
-        // Component-wise, with a scalar broadcast on either side.
         this.acc(e.a, this.unb(bin('*', a, e.b, T), A), out);
         this.acc(e.b, this.unb(bin('*', e.a, a, T), B), out);
         return;
@@ -1602,13 +1471,11 @@ class Reverse {
         return;
       }
       case 'normalize': {
-        // The Jacobian of normalize is symmetric, so its transpose is the forward rule.
         const [v] = args as [Expr];
         this.acc(v, RULES.normalize!([v], [a], T)!, out);
         return;
       }
       case 'reflect': {
-        // reflect(i, n) = i - 2 dot(n, i) n
         const [i, n] = args as [Expr, Expr];
         const na = call('dot', [n, a], F32);
         this.acc(i, bin('-', a, bin('*', n, bin('*', lit(2), na, F32), T), T), out);
@@ -1637,8 +1504,6 @@ class Reverse {
       throw refuse(
         `"${this.f.name}" passes a value that depends on the parameter to ${e.fn}(), which has no derivative rule`,
       );
-    // A component-wise builtin: its Jacobian is diagonal, so the transpose is the tangent rule
-    // with the adjoint as the one non-zero tangent, summed over a broadcast scalar.
     args.forEach((x, i) => {
       if (!this.act(x)) return;
       const d = args.map((_, j) => (j === i ? a : null));
@@ -1648,12 +1513,10 @@ class Reverse {
   }
 }
 
-/** Whether a value of `t` can carry a derivative, directly or inside a struct or array. */
 function carries(t: ShaderType): boolean {
   return isDiffType(t) || t.kind === 'struct' || t.kind === 'array';
 }
 
-/** The outer product `u vᵀ` as the matrix type `M`: column `j` is `u * v[j]`. */
 function outer(u: Expr, v: Expr, M: ShaderType): Expr {
   if (M.kind !== 'mat') throw refuse('an outer product needs a matrix type');
   const col: ShaderType = { kind: 'vec', n: M.rows, elem: 'f32' };
@@ -1671,13 +1534,12 @@ function transposed(M: ShaderType): ShaderType {
   return { ...M, cols: M.rows, rows: M.cols };
 }
 
-/** `e` when it is a name, or a component or element path from one, else `undefined`. */
 function lvalue(e: Expr): Expr | undefined {
   if (e.op === 'varref' || e.op === 'param') return e;
   if (e.op === 'index' && e.base.type.kind === 'vec')
     return lvalue(e.base) === undefined ? undefined : e;
-  // A component of a matrix column (`m[j].x`) is not taken as a path: the CPU oracle does not
-  // write through one, so the column is accumulated whole instead.
+  // Why: the CPU oracle does not write through a matrix column, so a component of one
+  // (`m[j].x`) is no path and the column is accumulated whole.
   if (
     e.op === 'member' &&
     e.base.type.kind === 'vec' &&
@@ -1735,7 +1597,6 @@ function containsBreak(body: readonly Stmt[]): boolean {
   );
 }
 
-/** The parameters the body assigns to, which the derivative copies into locals. */
 function collectWrittenParams(
   body: readonly Stmt[],
   params: ReadonlySet<string>,
@@ -1764,7 +1625,6 @@ function collectWrittenParams(
   void shadowed;
 }
 
-/** `nodes` without the writes of the return flag, when no guard reads it. */
 function dropDone(nodes: readonly Node[], done: string): Node[] {
   const out: Node[] = [];
   for (const n of nodes) {
@@ -1796,7 +1656,6 @@ const forLoop = (init: Stmt, cond: Expr, update: Stmt, body: Stmt[]): Stmt => ({
   body,
 });
 
-/** The roots `nodes` write, at any depth. */
 function writtenRoots(nodes: readonly Node[], into: Set<string>): void {
   for (const n of nodes) {
     switch (n.k) {
@@ -1825,13 +1684,11 @@ function writtenRoots(nodes: readonly Node[], into: Set<string>): void {
   }
 }
 
-/** The names `e` reads. */
 function readNames(e: Expr, into: Set<string>): void {
   if (e.op === 'varref' || e.op === 'param') into.add(e.name);
   forChildren(e, (c) => readNames(c, into));
 }
 
-/** Whether `g`, or a function it calls, writes a module variable or a binding. */
 function writesOutside(
   g: FuncDecl,
   funcs: ReadonlyMap<string, FuncDecl>,
@@ -1899,7 +1756,6 @@ function writesOutside(
   return found;
 }
 
-/** The 32-bit words a value of `t` takes in function memory. */
 function words(t: ShaderType, structs: ReadonlyMap<string, StructDecl>): number {
   switch (t.kind) {
     case 'scalar':

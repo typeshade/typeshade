@@ -1,5 +1,5 @@
 // ═══ The derivative rewrite: an implicit-LOD sample or a derivative in non-uniform control flow ═══
-//
+// Implements: Rule 8.5 (docs/language-design.md; traced in reqs/).
 // Change 0132, item 3; Rule 8.5. WGSL refuses `textureSample`, `textureSampleBias`,
 // `textureSampleCompare` and the screen-space derivatives in non-uniform control flow, and
 // `uniformity.ts` finds each such call. This pass rewrites the calls it can reach, so that the
@@ -112,7 +112,7 @@ function planOf(c: Call): TargetPlan | undefined {
   const tex = c.args[0]?.type;
   switch (c.fn) {
     case 'textureSample':
-      // WGSL gives a texture_1d no textureSampleGrad (wgsl.txt, textureSampleGrad overloads).
+      // Why: WGSL gives a texture_1d no textureSampleGrad (wgsl.txt, textureSampleGrad overloads).
       return tex?.kind === 'texture' && tex.dim === '1d'
         ? { kind: 'whole', what: '1d' }
         : { kind: 'grad', gradFn: 'textureSampleGrad', layered: false };
@@ -127,8 +127,7 @@ function planOf(c: Call): TargetPlan | undefined {
     case 'textureSampleBiasCubeArray':
       return { kind: 'grad', gradFn: 'textureSampleGradCubeArray', layered: true, bias: 4 };
     default:
-      // Every textureSampleCompare form: a depth texture has no gradient form in WGSL
-      // (§17.7.12 lists only the f32 texture types).
+      // Why: a depth texture has no gradient form in WGSL (§17.7.12 lists only the f32 texture types).
       return c.fn.startsWith('textureSampleCompare') ? { kind: 'whole', what: 'depth' } : undefined;
   }
 }
@@ -175,8 +174,7 @@ function replacementOf(c: Call, plan: TargetPlan, handles: readonly Expr[]): Exp
       let [gx, gy] = handles as [Expr, Expr];
       const args = [...c.args];
       if (plan.bias !== undefined) {
-        // WGSL clamps the bias to [-16.0, 15.99]; a gradient scaled by 2^bias gives the same
-        // level of detail (change 0132, an assumption to measure).
+        // Why: WGSL clamps the bias to [-16.0, 15.99]; that a gradient scaled by 2^bias gives the same level of detail is an assumption to measure (change 0132).
         const bias = args.splice(plan.bias, 1)[0]!;
         const scale: Expr = {
           op: 'call',

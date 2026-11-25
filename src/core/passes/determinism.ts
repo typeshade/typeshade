@@ -1,48 +1,3 @@
-// ═══ Shader DSL — determinism report (roadmap 0.7 item 22) ═══
-//
-// Which operations in a module may give a different answer on a different driver, and so a
-// different answer from the CPU oracle. WGSL §15.7.4 gives every floating-point operation one
-// of five accuracies: a correct result, a correctly rounded result, an absolute error bound,
-// a bound in ULP, or "inherited from" a formula the driver may evaluate in any way at least
-// as accurate, and §15.7.5 lets it reassociate and fuse while doing so. The report treats the
-// first two as one answer and lists everything else: the other three name the room two
-// conforming drivers have to disagree in, with the spec's own bound in words, how often the
-// operation occurs and where.
-//
-// The report reads one operation at a time. §15.7.5 also lets a driver regroup a chain of
-// operations, with no condition ("An implementation may reassociate operations"), and a chain
-// of correctly rounded ones may then answer otherwise: SwiftShader computed `3.5 + (0.001 - x)`
-// as `(3.5 + 0.001) - x` (#378). A chain is not listed, since nearly every float expression is
-// one; surface §38 says so.
-//
-// "One answer" is the report's assumption, not the spec's words. WGSL fixes no rounding mode
-// (a correctly rounded result may be either neighbour, §15.7.4) and lets any operation flush
-// a subnormal to zero (§15.7.3); every shipping driver rounds to nearest even, so the report
-// counts a correctly rounded result as one value and leaves the subnormal corners alone.
-//
-// GLSL ES 3.00 §4.5.1 bounds the arithmetic operators, `a * b + c`, `pow`, `exp`, `exp2`,
-// `log`, `log2`, `sqrt`, `inversesqrt` and the explicit conversions with the numbers WGSL gives
-// them, lets every builtin the spec defines by an equation (the geometric and common
-// functions) inherit those bounds, and leaves the trigonometric functions, `determinant` and
-// the derivatives with undefined precision. So the `inherited` rows mean the same on both
-// targets, and the `absolute`, `ulp` and `unbounded` rows are bounded by the driver alone on
-// GLSL. Where the two targets can differ on an input WGSL settles (the four `pack` builtins,
-// the `quantizeToF16` widths) the row's kind is `target` and its `note` says on which input.
-//
-// The report reads the IR the front end built, before either backend lowers it, so it names
-// what the author wrote: `fma`, not the `a * b + c` GLSL spells it as; `mod`, not
-// `x - y * floor(x / y)`. Emulated doubles (`f64`, `vecNf64`, `matNf64`) are their own kind:
-// an f64 operation lowers to f32 steps whose error terms hold only while the driver neither
-// reassociates nor fuses them, which §15.7.5 allows and the `_fp64` guard texture exists to
-// prevent (fp64/df64-lib.ts). A `raw` statement is opaque WGSL and is not read.
-//
-// `accuracyOf` answers for EVERY builtin the compiler can emit: determinism.test.ts walks
-// INTRINSICS, PORTABLE_INTRINSICS and the CPU BUILTINS and fails on a name it does not place,
-// so a new builtin has to be put in one column or the other. The exact column agrees with
-// const-fold's EXACT_BUILTINS except for `fract`: the spec words it as inherited from
-// `x - floor(x)` and its own note says `fract` of a tiny negative may be 1.0, so it has two
-// allowed answers; the fold picks one of them, which is const-fold's matter, not this table's.
-//
 // Implements: Rule 11.5 (docs/language-design.md; traced in reqs/).
 
 import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js';
@@ -141,19 +96,9 @@ const GATHERED: DeterminismAccuracy = {
 };
 const EXACT: DeterminismAccuracy = { kind: 'exact' };
 
-/** Where `pow` parts from the CPU tiers past the bound it inherits: the pairs outside WGSL's
- *  domain, and on GLSL ES 3.00 also x = 0 with y <= 0, where the CPU tiers give ECMA-262's
- *  table (the owner's decision of 2026-11-10). Measured 2026-11-10 on Tint and on WebGL2,
- *  both over SwiftShader: eleven special pairs part (Amendment A4 of change 0042). */
 const POW_NOTE =
   "outside WGSL's domain (x < 0; x = 1 with y infinite; x infinite with y = 0), on GLSL ES 3.00 also at x = 0 with y <= 0, at an infinite result, which the bound inherited from exp2(y * log2(x)) does not hold, and in the sign of a zero, which no target is held to, a driver may give another value than the CPU tiers, which give ECMA-262's: measured on Tint and on WebGL2 over SwiftShader, eleven special pairs part: (-2)^3 was 8 (CPU -8), (-2)^0.5 was 1.4142138 (CPU NaN), 1^Infinity, 1^-Infinity, 1^NaN and (-1)^Infinity were +Infinity (CPU NaN), Infinity^0 was +Infinity (CPU 1), (-0)^3 was +0 (CPU -0), 0^-1 and (-0)^-1 were 2^127 (CPU +Infinity and -Infinity), and (-Infinity)^3 was +Infinity (CPU -Infinity)";
 
-/** Every `bitcast` id (change 0045): one answer for an `f32` that is finite and normal. WGSL lets
- *  an implementation assume no NaN is present, which leaves a NaN's result indeterminate, and
- *  lets a bit reinterpretation flush a subnormal (§15.7.2); GLSL ES 3.00 lets a driver flush any
- *  denormal (§2.1.1). The CPU oracle holds an `f32` as a JavaScript number and gives a NaN as
- *  `0x7fc00000` on the engines measured. The report lists no `exact` operation, so the note is
- *  `accuracyOf`'s alone. */
 const BITCAST_EXACT: DeterminismAccuracy = {
   kind: 'exact',
   note:
@@ -176,11 +121,6 @@ const SNORM_HALF_NOTE =
 const QUANTIZE_NOTE =
   'GLSL ES 3.00 has no such builtin and the backend spells it as packHalf2x16 then unpackHalf2x16, one component at a time; measured against a WGSL driver, the two part in three places — a value exactly halfway between two binary16 neighbours (the GLSL round trip rounds to nearest even, the driver moved), a magnitude above the largest finite binary16 (WGSL gives an infinity, the GLSL round trip a NaN), and a magnitude below the smallest normal one (the driver flushed it to zero, the GLSL round trip kept the subnormal)';
 
-/** WGSL §15.7.4.1, the rows that are not "correctly rounded" or "correct result", keyed by the
- *  IR's name for the operation, plus the `target` rows where the GLSL ES 3.00 spelling can
- *  answer differently on an input WGSL settles. `degrees` and `radians` are inherited rows
- *  and stay: the product with the constant is not representable, and a driver may carry the
- *  constant at a precision the two-step spelling does not. */
 const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   '/': ulp('2.5 ULP for a divisor with magnitude in [2^-126, 2^126]'),
   '%': inherited('x - y * trunc(x / y)'),
@@ -220,12 +160,6 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   fwidthCoarse: UNBOUNDED,
   fwidthFine: UNBOUNDED,
   inverseSqrt: ulp('2 ULP'),
-  // Was a `target` row, on a GLSL spelling that built 2^e from ONE biased exponent (#141). That
-  // spelling disagreed with WGSL on 22 of the 278 legal exponents, measured by sweeping -149 to
-  // 128 on a WebGL2 driver against Tint with x = 1.0 and x = 0.75: +Inf at e = 128 where WGSL
-  // gives the finite 2^127, and a large NEGATIVE float below e = -127, where the biased sum
-  // goes negative (`ldexp(1.0, -149)` was -1.6225928e32 against WGSL's 0). The scale is now
-  // built in two halves, which the same sweep found agrees on all 278 for both mantissas.
   ldexp: EXACT,
   length: inherited('sqrt(dot(x, x)) for a vector, sqrt(x * x) for a scalar'),
   log: absolute('2^-21 absolute error for x in [0.5, 2], 3 ULP outside it'),
@@ -239,24 +173,11 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   pack2x16snorm: target('correct result', HALF_NOTE),
   pack2x16unorm: target('correct result', HALF_NOTE),
   pack4x8unorm: target('correct result', UNORM_HALF_NOTE),
-  // The signed twin (#150). It was first recorded EXACT, on the reasoning that its GLSL inline
-  // spells WGSL's own `floor(0.5 + x)` where the unorm one spells `round()`. Measured on a
-  // real driver, that is not enough: WGSL's `pack4x8snorm` is a native builtin there too, and
-  // the driver rounded the tie to EVEN while the inline rounds it up, so the two targets part
-  // on exactly the inputs the unorm row already records.
   pack4x8snorm: target('correct result', SNORM_HALF_NOTE),
-  // The four `quantizeToF16` widths (#150). WGSL converts to IEEE-754 binary16 and back with
-  // one rounding, and the CPU oracle implements round-to-nearest-even, the conversion real
-  // GPUs do. GLSL ES 3.00 has no such builtin, so the backend spells it as the
-  // packHalf2x16/unpackHalf2x16 round trip, and THAT spec does not pin the rounding of the
-  // f32 → binary16 conversion. A value exactly halfway between two binary16 neighbours may
-  // therefore come back one step apart on the two targets; every other value is one answer.
   quantizeToF16: target('correct result', QUANTIZE_NOTE),
   quantizeToF16Vec2: target('correct result', QUANTIZE_NOTE),
   quantizeToF16Vec3: target('correct result', QUANTIZE_NOTE),
   quantizeToF16Vec4: target('correct result', QUANTIZE_NOTE),
-  // The special pairs, measured on Tint and on WebGL2 (Rule 11.2): the comment on `pow` in
-  // `PORTABLE_INTRINSICS` (`core/intrinsics.ts`) holds the measured text.
   pow: inherited('exp2(y * log2(x))', POW_NOTE),
   radians: inherited('x * 0.017453292519943295474'),
   reflect: inherited('x - 2 * dot(x, y) * y'),
@@ -275,22 +196,13 @@ const F32_ACCURACY: Readonly<Record<string, DeterminismAccuracy>> = {
   unpack4x8unorm: ulp('3 ULP'),
 };
 
-/** The matrix products, which the IR spells as `binop '*'` like the component-wise product
- *  but which WGSL §8.8 defines through `dot`, an inherited row. */
 const MATRIX_PRODUCT: Readonly<Record<string, DeterminismAccuracy>> = {
   'mat * vec': inherited('dot(transpose(m)[i], v) for component i'),
   'vec * mat': inherited('dot(v, m[i]) for component i'),
   'mat * mat': inherited('the matrix product, each element a sum of products'),
 };
 
-/** Every id whose name begins with one of these has one answer: a texel fetch, a size, a
- *  store, an atomic, the storage emulation's fetches, a bit cast and the f64 plumbing (`f64`,
- *  `f64Guard`, `f64FromParts`, `f64Parts`). `textureSample` and `textureGather` are checked
- *  first, so the `texture` prefixes here never reach a filtered read. */
 const EXACT_PREFIXES: readonly string[] = [
-  // The subgroup family (change 0117): `min`, `max`, the bit folds, the votes, the ballot and
-  // the election have one answer in any order; a float fold and a read of another lane are
-  // answered by `hitOf` before this column is consulted (`order`, `target`).
   'subgroup',
   'textureLoad',
   'textureDimensions',
@@ -302,11 +214,6 @@ const EXACT_PREFIXES: readonly string[] = [
   'f64',
 ];
 
-/** The correctly rounded and correct-result rows of §15.7.4.1 that the compiler can emit and
- *  both targets agree on, the integer and bit builtins (a correct result), the conversions
- *  (correctly rounded), the vector predicates, `select`, the barriers, `arrayLength`, `push` and `pushCount`, and the
- *  arithmetic operators that are correctly rounded on `f32` (`+`, `-`, the component-wise `*`)
- *  or integral. */
 const EXACT_OPS: ReadonlySet<string> = new Set([
   '+',
   '-',
@@ -335,27 +242,15 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'i32',
   'u32',
   '__fround',
-  // The internal operations of the libm's source (change 0042), which only the CPU engines
-  // carry. The shader writers refuse one (`core/cpu-only-ids.ts`), so no driver computes one,
-  // and on the CPU each has one answer.
   '__f64Hi',
   '__f64Lo',
   '__f64FromWords',
   '__f64ToI32',
   'pack2x16float',
   'unpack2x16float',
-  // The integer `abs` and `dot` (#154). Integer arithmetic is exact on every target: `abs` on
-  // an unsigned value is the identity, the signed one wraps at the minimum on all three, and
-  // the dot is a sum of products that wraps the same way. They have their own ids only because
-  // GLSL ES 3.00 has no `abs(uint)` and no integer `dot` at all.
   'absU',
   'dotI',
   'dotU',
-  // The packed 4x8 integer family (#152). Every one is integer bit manipulation with one
-  // answer: a byte extract, a byte pack (truncating or saturating), or a sum of four byte
-  // products that wraps at 32 bits. Each was DISPATCHED on a real device and the buffer read
-  // back, and the CPU oracle returns the same values, so `exact` is measured rather than
-  // argued. WGSL-only, so there is no second target for one of them to differ on.
   'dot4U8Packed',
   'dot4I8Packed',
   'pack4xU8',
@@ -365,7 +260,6 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'unpack4xU8',
   'unpack4xI8',
   'countOneBits',
-  // `~x` (§52): one answer on every driver — it is the bit pattern, not an approximation.
   '~',
   'reverseBits',
   'countLeadingZeros',
@@ -375,11 +269,7 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'extractBits',
   'insertBits',
   'arrayLength',
-  // A kernel function's append and its count (change 0078): they move a value and count, and
-  // compute nothing that rounds.
   ...['push', 'pushCount', 'pushedReadAt', 'pushedStoreAt'],
-  // A kernel function's Map and Set (change 0080): they compare keys by SameValueZero and move
-  // values, and compute nothing that rounds.
   'collectionAdd',
   'collectionSet',
   'collectionHas',
@@ -392,7 +282,6 @@ const EXACT_OPS: ReadonlySet<string> = new Set([
   'workgroupUniformLoad',
 ]);
 
-/** A gather's id: `textureGather` and its array, depth and comparison forms. */
 const isGather = (op: string): boolean => op.startsWith('textureGather');
 
 /** What WGSL §15.7.4 allows the result of one operation to be, for a builtin id, a binary
@@ -433,7 +322,6 @@ function floatElemOf(t: ShaderType): 'f32' | 'f64' | undefined {
 const isMat = (t: ShaderType): boolean => t.kind === 'mat';
 const isVector = (t: ShaderType): boolean => t.kind === 'vec' || t.kind === 'vec64';
 
-/** The report's name for a `binop`: the operator, or the matrix product it spells. */
 function binopName(e: Extract<Expr, { op: 'binop' }>): string {
   if (e.bop !== '*') return e.bop;
   const a = e.a.type;
@@ -446,20 +334,8 @@ function binopName(e: Extract<Expr, { op: 'binop' }>): string {
 
 type Hit = Omit<DeterminismEntry, 'count' | 'where'>;
 
-/** On `f64` every arithmetic operator is an error-free transformation, and so is `floor`,
- *  whose df64 twin renormalises through one; `abs`, `min`, `max`, `select` and the casts are
- *  selections and stay exact on a double. */
 const F64_EMULATED: ReadonlySet<string> = new Set(['+', '-', '*', '/', '%', 'floor']);
 
-/** The builtins whose float kind is the ARGUMENT's, because the result is a `u32` of bytes.
- *
- *  `floatElemOf` reads a node's RESULT type, which is what "one row per operation and float"
- *  means everywhere else. A pack takes a float vector and answers a word, so every one of these
- *  rows was unreachable: the walk asked the `u32` result for a float kind, got `undefined`, and
- *  dropped the node before `accuracyOf` was ever consulted. Measured on a module calling all
- *  four and nothing else, the report came back EMPTY, so the four `target` rows this table
- *  carries — two of them older than the 4x8 pair — described a divergence the report could not
- *  report. The float kind that matters for a pack is the one it READS. */
 const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack4x8unorm',
   'pack4x8snorm',
@@ -467,18 +343,6 @@ const PACK_FLOAT_ARG: ReadonlySet<string> = new Set([
   'pack2x16snorm',
 ]);
 
-/** The type a call's float kind is read from: its result's, except where the result has none, and
- *  then the float the call READS.
- *
- *  A pack reads its argument (`PACK_FLOAT_ARG`). A `textureGather` on an integer texture answers
- *  a `vec4<u32>` or a `vec4<i32>`, which has no float either (#175), and it reads an `f32`
- *  coordinate. The coordinate is what its `filtered` row is about: which four texels the
- *  footprint selects follows from where the coordinate falls, whatever the texels hold. It is the
- *  first float argument of a gather, since the component and the layer are integers and a
- *  texture and a sampler have no element, and it is always `f32`, the only coordinate WGSL and
- *  the front end take. So the row reads `elem: 'f32'`, and is the row a float texture's gather
- *  gets, from the same `accuracyOf`. The depth and comparison forms answer a `vec4<f32>` and are
- *  read from their result like everything else. */
 function floatReadOf(op: string, e: Extract<Expr, { op: 'call' }>): ShaderType {
   if (PACK_FLOAT_ARG.has(op)) return e.args[0]?.type ?? e.type;
   if (isGather(op) && floatElemOf(e.type) === undefined)
@@ -493,12 +357,6 @@ function hitOf(e: Expr): Hit | undefined {
   else return undefined;
   const elem = floatElemOf(e.op === 'call' ? floatReadOf(op, e) : e.type);
   if (elem === undefined) return undefined;
-  // The subgroup family (change 0117, Rule 11.21): a float fold or scan has the order the
-  // device's subgroup gives it, and the oracle and GLSL ES 3.00 fold one lane; a broadcast or a
-  // shuffle whose lane argument is not 0 reads a lane the two tiers do not have (lane 0 is the
-  // one lane they have, and `subgroupBroadcastFirst` reads it). An integer fold has one value in
-  // any order and is not listed; the report is by float kind, so an integer lane read is not
-  // either, which the proposal's record carries as an open deviation (§77).
   if (SUBGROUP_FOLDS.has(op)) return { op, elem, kind: 'order', accuracy: SUBGROUP_ORDER_BOUND };
   if (SUBGROUP_LANE_READS.has(op) && e.op === 'call') {
     const lane = e.args[1];
@@ -520,29 +378,19 @@ function hitOf(e: Expr): Hit | undefined {
     : { op, elem, kind: acc.kind, accuracy: acc.bound, note: acc.note };
 }
 
-/** The bound of a subgroup fold's `order` row (change 0117): the device folds its subgroup in
- *  its own order, and the oracle and GLSL ES 3.00 fold one lane. */
 const SUBGROUP_ORDER_BOUND =
   "the order the device folds its subgroup in, which differs by device and by subgroup size; on the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation (Rule 11.21), so the fold is the lane's own value";
-/** The bound of a subgroup broadcast's or shuffle's `target` row (change 0117). */
 const SUBGROUP_LANE_BOUND =
   "the named lane's value on WebGPU; on the CPU oracle and on GLSL ES 3.00 a subgroup is one invocation (Rule 11.21), so the call gives the lane's own value";
 const SUBGROUP_LANE_NOTE =
   'a program that reads another lane computes something else on a subgroup of one; a read of lane 0 is not listed, since that is the lane the two tiers have, and an integer read differs the same way and is not listed, since this report is by float kind';
 
-/** The bound of an `order` row (surface §38). */
 const ORDER_BOUND =
   "one answer on every tier: the 256-wide tree of Rule 7.2, which may differ from the loop's sequential order in the last places";
 
-/** The bound of an `f32` scatter's `order` row (surface §38): the CPU tier alone runs it. */
 const SCATTER_BOUND =
   "one answer on the CPU tier: the 256-wide tree of Rule 7.2 over the iterations, which may differ from the loop's sequential order in the last places; no GPU tier lowers it yet, so the answer holds only where it runs";
 
-/** The floating-point reductions of a kernel function's accepted loops, one hit per reduced
- *  variable: `+` and `*`, which round at each step, so their order is their answer. `min`,
- *  `max` and the integer reductions are exact in any order and are not listed. An `f32` scatter
- *  with `+=` at a computed index (change 0056, option C) is an `order` hit too: the CPU tier folds
- *  its contributions per element in the tree order, and the GPU tiers do not lower it. */
 function orderHits(m: ModuleDecl): ReadonlyMap<string, readonly Hit[]> {
   const out = new Map<string, Hit[]>();
   for (const proof of proveKernels(m, { cpuScatterF32: true }))

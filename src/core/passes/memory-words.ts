@@ -1,24 +1,3 @@
-// ═══ A phase function's memory, as 32-bit words (change 0054, the WebGL2 execution model) ═══
-//
-// On WebGL2 a storage buffer and a workgroup variable are textures of 32-bit words, laid out as
-// std430 lays the binding out, so a texel holds the same bits a WebGPU buffer would. A pass reads
-// a word from the texture as it was when the pass began, or from the invocation's own write log;
-// it writes a word to that log, and the scatter applies the log once every invocation has run.
-//
-// This pass rewrites a split entry (`phase-split.ts`) to that model, so an executor sees memory
-// only as words:
-//
-//   - every read of memory becomes `_phLoad(root, word)` calls, one per 32-bit lane, assembled
-//     into the value's type (a `bitcastF32` for an `f32` lane, an `i32` conversion for an `i32`
-//     one, which reinterprets the bits as WGSL's does);
-//   - every write becomes one `_phStore(root, word, bits)` statement per lane;
-//   - `arrayLength(root)` becomes the private `_phx_len_<root>`, which the executor sets;
-//   - each atomic request becomes a root, a word and the operands, over state variables.
-//
-// `root` is the index of the memory name in `WordPlan.roots`. A word is the lane's byte offset
-// over four. The two calls exist only between this pass and an executor: the CPU model of the GL
-// executor (`core/testing/gl-model.ts`) runs them, and the GLSL writer spells them.
-
 import type { Expr, FuncDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import { f32T, f64T, u32T, type ShaderType } from '../ir/types.js';
 import { mapChildren } from '../ir/visit.js';
@@ -26,32 +5,25 @@ import { collectLocals } from './opt/expr-utils.js';
 import { typeLayout, wgslLayout } from '../reflect.js';
 import type { PhaseCut, PhasePlan } from './phase-split.js';
 
-/** One memory name: a storage binding, or a workgroup variable (one copy per workgroup). */
 export interface WordRoot {
   readonly name: string;
   readonly space: 'storage' | 'workgroup';
   readonly type: ShaderType;
-  /** The words one element of a runtime-sized array takes, and the words before it; for a
-   *  fixed size, the whole value's words in `fixed`. */
   readonly fixed: number;
   readonly stride: number;
 }
 
-/** An atomic request in words. */
 export interface WordRequest {
   readonly fn: string;
   readonly root: number;
-  /** The word, an expression over state variables and literals. */
   readonly word: Expr;
   readonly elem: 'u32' | 'i32';
   readonly operands: readonly Expr[];
   readonly result: string | undefined;
 }
 
-/** A split entry whose memory is words. */
 export interface WordPlan extends PhasePlan {
   readonly roots: readonly WordRoot[];
-  /** The atomic request of each resume point an atomic cut leads to. */
   readonly requests: ReadonlyMap<number, WordRequest>;
 }
 
@@ -84,7 +56,6 @@ const asU32 = (e: Expr): Expr =>
 
 const FIELD = 'xyzw';
 
-/** Rewrite the memory of `plan`'s module to words. */
 export function lowerMemoryWords(plan: PhasePlan): WordPlan {
   const m = plan.module;
   const structs = new Map(m.structs.map((s) => [s.name, s]));
@@ -97,7 +68,6 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     roots.push({ name, space, type, fixed, stride });
   };
   const byName = new Map(m.funcs.map((f) => [f.name, f]));
-  // The entry and what it still calls: a function the splitter inlined has no caller left.
   const reached = new Set<string>([plan.entry]);
   const pending = [plan.entry];
   while (pending.length > 0) {
@@ -114,9 +84,6 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
     };
     visit(f.body);
   }
-  // Memory is what the entry and its callees name: a binding only another entry reaches has no
-  // root, so the host gives it no words.
-  // An atomic operation the splitter cut out names its location in the cut's request.
   const named = referenced(
     m.funcs.filter((f) => reached.has(f.name)),
     [...plan.cuts.values()],
@@ -164,8 +131,6 @@ export function lowerMemoryWords(plan: PhasePlan): WordPlan {
 
 class Words {
   private temps = 0;
-  /** The names the function being lowered declares, which hide a binding of the same name: the
-   *  `out` an array method's helper fills is its own array, not the storage `out`. */
   private shadowed: ReadonlySet<string> = new Set();
   constructor(
     private readonly structs: ReadonlyMap<string, StructDecl>,
@@ -177,13 +142,11 @@ class Words {
     return typeLayout(t, 'std430', this.structs);
   }
 
-  /** The words between consecutive elements of an array of `t`. */
   stride(t: ShaderType): number {
     const { size, align } = this.layout(t);
     return (Math.ceil(size / align) * align) / 4;
   }
 
-  /** How many words a value of `t` takes; for a runtime-sized array, its element stride. */
   extent(t: ShaderType): { fixed: number; stride: number } {
     if (t.kind === 'array' && t.size === undefined)
       return { fixed: 0, stride: this.stride(t.elem) };
@@ -206,9 +169,6 @@ class Words {
     return f.offset / 4;
   }
 
-  /** The root and word of a memory place, or undefined when `e` is not one. The word holds the
-   *  place's indices, lowered by `lowerExpr`, so `lengths` takes the root of each length they
-   *  read. */
   place(e: Expr, lengths: Set<string>): { root: number; word: Expr; loStep?: number } | undefined {
     if (e.op === 'varref' || e.op === 'param') {
       const root = this.shadowed.has(e.name) ? undefined : this.roots.get(e.name);
@@ -251,7 +211,6 @@ class Words {
     return undefined;
   }
 
-  /** The value of type `t` at `word` of `root`, from its lanes. */
   private load(t: ShaderType, root: number, word: Expr, loStep = 1): Expr {
     const lane = (w: Expr): Expr => ({
       op: 'call',
@@ -340,8 +299,6 @@ class Words {
     }
   }
 
-  /** `e` with every read of memory as words, and `arrayLength` of a root as its length, which
-   *  it adds to `lengths`. */
   lowerExpr(e: Expr, lengths: Set<string>): Expr {
     if (e.op === 'call' && e.declRef === undefined && e.fn === 'arrayLength') {
       const a = e.args[0]!;
@@ -351,7 +308,6 @@ class Words {
         return { op: 'varref', type: u32T, name: `_phx_len_${r}` };
       }
     }
-    // A swizzle of a memory vector reads each lane it names.
     if (
       e.op === 'member' &&
       e.field.length > 1 &&
@@ -376,7 +332,6 @@ class Words {
     return mapChildren(e, (c) => this.lowerExpr(c, lengths));
   }
 
-  /** The statements that write `value` (a lane-sized value) to the memory place `target`. */
   private stores(target: Expr, value: Expr, lengths: Set<string>): Stmt[] {
     const p = this.place(target, lengths);
     if (p === undefined)
@@ -390,8 +345,6 @@ class Words {
     ];
   }
 
-  /** The `_phStore` statements that write the value `v` of type `t` at `word` of `root`, one per
-   *  lane: a struct field by field, an array element by element, a matrix column by column. */
   private storeValue(root: number, word: Expr, t: ShaderType, v: Expr, loStep = 1): Stmt[] {
     const bits = (x: Expr, s: string): Expr =>
       s === 'u32'
@@ -405,10 +358,8 @@ class Words {
     });
     switch (t.kind) {
       case 'f64': {
-        // The normalized pair used by the emulation: the nearest f32 and its residual.
         const hi: Expr = { op: 'call', type: f32T, fn: 'f32', args: [v] };
         const hiBits = bits(hi, 'f32');
-        // Re-read the stored bits before subtracting, including on the f64 CPU oracle.
         const roundedHi: Expr = { op: 'call', type: f32T, fn: 'bitcastF32', args: [hiBits] };
         const lo: Expr = {
           op: 'call',
@@ -492,9 +443,6 @@ class Words {
     }
   }
 
-  /** Each call in `s`'s own expressions whose `inout` argument is memory takes a local copy
-   *  instead: the copy is loaded before `s` and stored back after it, as GLSL's copy-in,
-   *  copy-out `inout` does. */
   private inoutCopies(s: Stmt, lengths: Set<string>): { pre: Stmt[]; s: Stmt; post: Stmt[] } {
     const pre: Stmt[] = [];
     const post: Stmt[] = [];
@@ -546,7 +494,6 @@ class Words {
           s.s === 'assign'
             ? E(s.expr)
             : { op: 'binop', type: s.target.type, bop: s.bop, a: E(s.target), b: E(s.expr) };
-        // The place's indices are read once, before the stores, as the backends evaluate them.
         return this.stores(this.lowerPlace(s.target, lengths), value, lengths);
       }
       case 'let':
@@ -589,7 +536,6 @@ class Words {
     }
   }
 
-  /** A place that is memory, with its indices lowered (they may read memory too). */
   private lowerPlace(e: Expr, lengths: Set<string>): Expr {
     if (e.op === 'index')
       return { ...e, base: this.lowerPlace(e.base, lengths), idx: this.lowerExpr(e.idx, lengths) };
@@ -597,7 +543,6 @@ class Words {
     return e;
   }
 
-  /** An assignment target that is not memory: its indices may still read memory. */
   private lowerTarget(e: Expr, lengths: Set<string>): Expr {
     if (e.op === 'index')
       return { ...e, base: this.lowerTarget(e.base, lengths), idx: this.lowerExpr(e.idx, lengths) };
@@ -617,8 +562,6 @@ class Words {
   }
 }
 
-/** The module-scope names the expressions of `funcs`, and of `more`, refer to (`varref`): a name
- *  a function declares itself, a parameter or a local, hides the binding of that name there. */
 export function referenced(funcs: readonly FuncDecl[], more: readonly unknown[] = []): Set<string> {
   const names = new Set<string>();
   const visit = (x: unknown, own: ReadonlySet<string>): void => {

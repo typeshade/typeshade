@@ -1,53 +1,3 @@
-// ═══ Host resources: uniforms and storage arrays in typed views of one region (change 0138) ═══
-//
-// Milestone 1 of proposal 0138 (R7 to R9, R17): data typed by a shader `class` is a resource.
-//
-//   - `uniform(Camera, { … })` is one struct laid out by Rule 6.8's uniform rules (std140).
-//   - `zeros(Particle, n)` and `array(Particle, data)` are `n` structs laid out as a storage array
-//     with no size (std430), a `Buffer<Particle>`.
-//
-// Each uniform and storage resource is a byte range of the one region of `runtime/region.ts`.
-// A field is reached through its accessor: `camera.pos.set(0, 2, 5)`, `ps.at(i).vel.set(v)`,
-// `camera.set({ view, proj })`. `set` checks each number, compares it with what the view holds,
-// writes only a changed one, and then marks its bytes dirty: a uniform widens its one dirty range
-// (R8), and a storage array keeps a dirty range for each element written, joined into one past
-// `DIRTY_RANGE_LIMIT` (R9; Amendment A5, D2). It allocates nothing. `get` returns a scalar field's
-// number (an `f64` its joined number), and the typed view of a vector, a matrix or an array field,
-// `Readonly` (R8; Amendment A5, D1); a host that writes through a view sets `needsUpdate = true`.
-// Each accessor makes its typed view once, and again only when the region's generation moved (a
-// compaction or a replaced buffer, Amendment A1).
-//
-// The layout is the compiler's: the generated module puts each exported class's layouts on the
-// class under `Symbol.for('typeshade.layout')` (`classModule` in `compiler/ts/host-module.ts`), so
-// the runtime computes no layout itself.
-//
-// A call of a kernel function or a `@compute` entry takes a resource (milestone 3, R2): a uniform
-// as the value it holds at the call, and a storage array through a device copy of its own, a
-// `RegionState` behind a hidden `Resident` handle. At the call, the array's dirty ranges are
-// copied out of the region and the resource is marked clean; when the call runs, the copy is
-// written to the device copy: on WebGPU each range is one `writeBuffer`, and on the CPU tier each
-// element is read into the tier's value (Amendment A5, default 3: each call sees the values of its
-// own call). A call that writes the array leaves its values on the device until `read()`, which
-// lands them in the array's range of the region (R17). Until then `get`, `set`, `set(data)`,
-// `resize` and `needsUpdate` throw, since the region does not hold what the device holds (the
-// owner's decision of 2026-11-11, "그 구간의 set()을 거부"). A call that writes the array and fails
-// leaves its error on the array: each later call that takes it, and its `read()`, throw that error
-// until `set(data)` or `resize()` gives the array new values (the same day, "set(data)나 resize()로
-// 복구").
-//
-// Data decides the device (R3). A storage array belongs to the device in use when it is made
-// (`using _ = device.use()`), or to the default owner when none is in use; a call on it runs on
-// that device, and a call that mixes devices is a `TypeError`. A uniform belongs to it too, but
-// takes no part in the choice (Amendment A8). An exported binding belongs
-// to no one device: a storage array keeps a device copy for each device whose call reads it, and
-// the dirty ranges one copy takes stay pending for the others, which take them at their own next
-// call. Between a call that wrote it and `read()`, a call on another device is refused, and a
-// device disposed in that time lands the values first and drops its copy. A `Uniform` joins a call
-// on any device, since its value is copied at each call (D-b; the owner's decision of 2026-11-11).
-// On WebGL2 a `read()` waits on a fence (Amendment A5, default 6).
-//
-// Like the rest of `typeshade/runtime` it imports no compiler.
-
 import type { Layout, LayoutNumber } from '../core/host-entry.js';
 import { describe, pack } from '../core/host-entry.js';
 import { handleOf, kernelQueue, makeResident, type ZeroedElement } from '../core/resident.js';
@@ -66,21 +16,14 @@ import {
 } from './resource-state.js';
 import type { Texture } from './resources.js';
 export { DIRTY_RANGE_LIMIT } from './resource-state.js';
-// Loads the module the declaration of `ScratchBuffers` below adds to, for a type only.
+// Why: the `declare module` below augments `ScratchBuffers`, and TypeScript resolves an augmentation only for a module this file imports.
 import type {} from '../core/fuse-plan.js';
 import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
 import { type CallOwner } from '../core/owner.js';
 import { noteFailure, throwFailure } from '../core/submission.js';
 
-// ─── the layouts a generated class carries ───────────────────────────────────────────────────
-
-/** The key the generated module puts a class's layouts under. A registered symbol, so a second
- *  copy of the runtime in one page reads the same key. */
 export const LAYOUT_KEY: unique symbol = Symbol.for('typeshade.layout') as never;
 
-/** The layouts of an exported class, as the generated module writes them: `u` the struct under
- *  the uniform rules, `s` an array with no size of it under the storage rules, and for each the
- *  reason it has none (`un`, `sn`). `a` marks an abstract class. */
 export interface ClassLayouts {
   readonly u?: Layout;
   readonly un?: string;
@@ -89,10 +32,8 @@ export interface ClassLayouts {
   readonly a?: 1;
 }
 
-/** A class of a shader module a host imports: a constructor of `T`. */
 type ShaderClass<T> = abstract new (...args: never) => T;
 
-/** The layouts of `cls`, or a `TypeError` that says why `at` cannot take it. */
 function layoutsOf(cls: unknown, at: string): ClassLayouts & { readonly name: string } {
   const name =
     typeof cls === 'function' && typeof cls.name === 'string' && cls.name !== ''
@@ -112,9 +53,6 @@ function layoutsOf(cls: unknown, at: string): ClassLayouts & { readonly name: st
   return { ...layouts, name };
 }
 
-/** The bytes of a resource from its first dirty byte to its last, relative to its own start, and
- *  the resource's offset into the region's buffer, or undefined when it is clean. Not API.
- *  @throws `TypeError` for a value that is no resource, and for a disposed one. */
 export function dirtyRange(
   resource: object,
 ): { readonly from: number; readonly to: number; readonly offset: number } | undefined {
@@ -125,11 +63,6 @@ export function dirtyRange(
   return span === undefined ? undefined : { ...span, offset: core.range.offset };
 }
 
-/** The dirty byte ranges of a resource, each `[from, to)` relative to its own start, sorted and
- *  apart (D2): one for a uniform, and for a storage array one for each run of elements written,
- *  joined into one past {@link DIRTY_RANGE_LIMIT}. Empty when it is clean. Not API: the upload of
- *  milestone 3 reads it.
- *  @throws `TypeError` for a value that is no resource, and for a disposed one. */
 export function dirtyRanges(resource: object): (readonly [number, number])[] {
   const core = cores.get(resource);
   if (core === undefined) throw new TypeError('dirtyRanges(): takes a Uniform or a Buffer.');
@@ -137,25 +70,20 @@ export function dirtyRanges(resource: object): (readonly [number, number])[] {
   return core.ranges();
 }
 
-/** Mark a resource clean, after its dirty ranges were uploaded. Not API. */
 export function markClean(resource: object): void {
   cores.get(resource)?.clean();
 }
 
-/** The region a resource is a range of, and its range. Not API. */
 export function rangeOf(resource: object): { readonly region: Region; readonly range: Range } {
   const core = cores.get(resource);
   if (core === undefined) throw new TypeError('rangeOf(): takes a Uniform or a Buffer.');
   return { region: core.region, range: core.range };
 }
 
-// ─── the accessors ───────────────────────────────────────────────────────────────────────────
-
 type Typed = Float32Array | Int32Array | Uint32Array;
 
 const VIEW = { f32: Float32Array, f64: Float32Array, i32: Int32Array, u32: Uint32Array } as const;
 
-/** The number `v` as lane type `t`, or a `TypeError` naming `path` and lane `i` (-1: none). */
 function numberOf(t: LayoutNumber, v: unknown, path: string, i: number): number {
   if (typeof v === 'number') {
     if (t === 'f32') return Math.fround(v);
@@ -174,13 +102,11 @@ function numberOf(t: LayoutNumber, v: unknown, path: string, i: number): number 
   );
 }
 
-/** A scalar, a vector or a matrix field: one typed view over its lanes. */
 class Leaf {
   readonly #core: Core;
   readonly #at: number;
   readonly #l: Layout & { k: 's' | 'v' | 'm' };
   readonly #path: string;
-  /** The lanes a value has: 1, a vector's `n`, a matrix's `c * r`. */
   readonly #count: number;
   readonly #t: LayoutNumber;
   #view: Typed | undefined;
@@ -197,8 +123,6 @@ class Leaf {
     this.#t = l.k === 'm' ? 'f32' : l.t;
   }
 
-  /** The view, made again after the region moved (Amendment A1) and after a resize gave the
-   *  resource another range (Amendment A3). */
   #lanes(): Typed {
     const core = this.#core;
     core.live();
@@ -220,7 +144,6 @@ class Leaf {
               ? (l.lo ?? 0) / 4 + l.n
               : l.n
             : (l.c * l.cs) / 4 - (l.cs / 4 - l.r);
-      // An accessor of an element that a resize removed lies past the range the resource has now.
       if (this.#at + 4 * n > core.bytes) {
         this.#view = undefined;
         throw new TypeError(
@@ -235,14 +158,11 @@ class Leaf {
     return this.#view;
   }
 
-  /** The index in the view of lane `i` (for an `f64`, its `hi` half). */
   #index(i: number): number {
     const l = this.#l;
     return l.k === 'm' ? Math.floor(i / l.r) * (l.cs / 4) + (i % l.r) : i;
   }
 
-  /** The word of lane `i` of a value `v` the host gives a `bool` or a key field (Amendment A12,
-   *  Q4 and Q7), or the number of any other field. */
   #word(v: unknown, i: number): number {
     const l = this.#l;
     const at = i < 0 ? this.#path : `${this.#path}[${i}]`;
@@ -262,7 +182,6 @@ class Leaf {
     return numberOf(this.#t, v, this.#path, i);
   }
 
-  /** Write `x` to lane `i` of `view`; whether a number changed. */
   #put(view: Typed, i: number, x: number): boolean {
     if (this.#t === 'f64') {
       const hi = Math.fround(x);
@@ -280,16 +199,12 @@ class Leaf {
     return true;
   }
 
-  /** The byte span of the field in the resource. */
   #span(view: Typed): void {
     this.#core.mark(this.#at, this.#at + view.byteLength);
   }
 
-  /** Set the field: a scalar from a number, a vector from its components or from one array of
-   *  them, a matrix from one array of its components, column-major. Allocates nothing. */
   set(): void {
-    // `arguments`, not a rest parameter: a rest parameter makes an array at every call, and `set`
-    // allocates nothing (R7).
+    // Why: `arguments`, not a rest parameter, because an engine makes an array of a rest parameter at every call, and `set` allocates nothing (R7).
     /* eslint-disable prefer-rest-params */
     const view = this.#lanes();
     this.#core.current(`${this.#path}.set()`);
@@ -312,13 +227,9 @@ class Leaf {
           ? `${this.#path}.set(): takes one number, got ${n} arguments.`
           : `${this.#path}.set(): takes ${count} numbers or one array of ${count}, got ${n} arguments.`,
       );
-    /* eslint-enable prefer-rest-params */
     if (changed) this.#span(view);
   }
 
-  /** The field's value: a scalar's number, and the typed view of a vector or a matrix, read-only
-   *  (a matrix's view holds each column at its stride). An `f64` field is two `f32` halves in the
-   *  region (Rule 4.4), so its `get` joins them: a number, or a new `Float64Array`. */
   get(): unknown {
     const view = this.#lanes();
     this.#core.current(`${this.#path}.get()`);
@@ -330,7 +241,6 @@ class Leaf {
       return out;
     }
     const l = this.#l;
-    // A `bool` field reads as a `boolean`, and a key's id as its member (Amendment A12, Q4, Q7).
     if (l.k !== 'm' && l.b === 1)
       return l.k === 's' ? view[0] !== 0 : Array.from(view, (w) => w !== 0);
     if (l.k === 's' && l.m !== undefined) return l.m[view[0]!];
@@ -338,14 +248,12 @@ class Leaf {
   }
 }
 
-/** An array with a size: `at(i)` reaches element `i`. */
 class ArrayField {
   readonly #core: Core;
   readonly #at: number;
   readonly #l: Layout & { k: 'a' };
   readonly #path: string;
   readonly #items: Field[] = [];
-  /** How many elements it holds. */
   readonly length: number;
 
   constructor(core: Core, at: number, l: Layout & { k: 'a' }, path: string) {
@@ -356,7 +264,6 @@ class ArrayField {
     this.length = l.n ?? 0;
   }
 
-  /** Element `index`. @throws `RangeError` for an index outside the array. */
   at(index: number): Field {
     this.#core.live();
     if (!Number.isInteger(index) || index < 0 || index >= this.length)
@@ -371,7 +278,6 @@ class ArrayField {
     ));
   }
 
-  /** Set every element, from an array of their values. */
   set(values: unknown): void {
     this.#core.live();
     this.#core.current(`${this.#path}.set()`);
@@ -383,8 +289,6 @@ class ArrayField {
     for (let i = 0; i < this.length; i++) (this.at(i).set as (v: unknown) => void)(xs[i]);
   }
 
-  /** The typed view of an array of scalars or vectors, read-only, each element at its stride.
-   *  @throws `TypeError` for an array of structs, matrices or `f64`, which has no one view. */
   get(): Typed {
     const core = this.#core;
     core.live();
@@ -402,15 +306,11 @@ class ArrayField {
   }
 }
 
-/** The key of a struct accessor's own lookup, which no field name can hide. */
 const FIELD = Symbol('field');
 
-/** The names a struct field cannot take, since they are the accessor's own. */
 const STRUCT_OWN = ['set', 'constructor'];
-/** The names a field of a uniform's struct cannot take besides. */
 const ROOT_OWN = [...STRUCT_OWN, 'needsUpdate', 'dispose'];
 
-/** A struct: a getter for each field, and `set` from an object of some of its fields. */
 class StructField {
   readonly #core: Core;
   readonly #at: number;
@@ -425,7 +325,6 @@ class StructField {
     this.#path = path;
   }
 
-  /** The accessor of field `name`, made on first use. */
   [FIELD](name: string): Field {
     this.#core.live();
     let kid = this.#kids.get(name);
@@ -437,7 +336,6 @@ class StructField {
     return kid;
   }
 
-  /** Set the fields `value` names; the others keep what they hold. */
   set(value: unknown): void {
     this.#core.live();
     this.#core.current(`${this.#path}.set()`);
@@ -463,7 +361,6 @@ class StructField {
 
 type Field = Leaf | ArrayField | StructField;
 
-/** A subclass of `Base` for each struct layout, with a getter for each field. */
 const subclasses = new Map<typeof StructField, WeakMap<object, typeof StructField>>();
 
 function structClass(
@@ -494,7 +391,6 @@ function structClass(
   return Sub;
 }
 
-/** The accessor of the value laid out by `l` at byte `at` of the resource. */
 function fieldOf(core: Core, at: number, l: Layout, path: string): Field {
   switch (l.k) {
     case 'a':
@@ -508,22 +404,12 @@ function fieldOf(core: Core, at: number, l: Layout, path: string): Field {
   }
 }
 
-// ─── the types ───────────────────────────────────────────────────────────────────────────────
-
 type AnyFunction = (...args: never) => unknown;
-/** The keys of `T` that hold data, not methods. */
 type DataKeys<T> = { [K in keyof T]-?: T[K] extends AnyFunction ? never : K }[keyof T];
-/** The value `set` takes for a struct: some of its fields. */
 type Some<T> = { readonly [K in DataKeys<T>]?: T[K] };
 
-/** `Path` and field `K`, as a host reads them: `inner.set`. */
 type Join<Path extends string, K> = Path extends '' ? K & string : `${Path}.${K & string}`;
 
-/** A field of `T`, through nested structs, named one of `Own` on `T` itself or `set` on a struct
- *  it holds, as `"set"` or `"inner.set"`; `never` when it has none (change 0138, Amendment A5,
- *  D3). `D` counts the structs walked: a struct nests at most {@link ReservedDepth} deep here,
- *  which keeps the type finite for a `T` the checker has not resolved yet. The host's editor
- *  shows `TS8079` with it, from {@link Refuse}. */
 type Reserved<
   T,
   Own extends string,
@@ -537,10 +423,8 @@ type Reserved<
         : ReservedWithin<T[K], Join<Path, K>, [...D, 0]>;
     }[DataKeys<T>];
 
-/** How deep {@link Reserved} reads nested structs. The runtime refuses a deeper one all the same. */
 type ReservedDepth = 4;
 
-/** {@link Reserved} of a field's type: a struct's `set`, also through an array of structs. */
 type ReservedWithin<F, Path extends string, D extends 0[]> = F extends number | boolean
   ? never
   : F extends readonly (infer E)[]
@@ -549,20 +433,14 @@ type ReservedWithin<F, Path extends string, D extends 0[]> = F extends number | 
       ? Reserved<F, 'set', Path, D>
       : never;
 
-/** Nothing where `Name` is `never`; else a property no class has, so a call that passes the class
- *  is refused by the host's editor with the code and the field (change 0138, Amendment A5, D3).
- *  The runtime refuses the same class with a `TypeError`. */
 type Refuse<Name> = [Name] extends [never]
   ? unknown
   : {
       readonly TS8079: `the field "${Name & string}" has the name of a member of the host accessor, so a host cannot reach it; rename the field in the shader`;
     };
 
-/** The class a host resource takes: a class of a shader module, whose fields are not named like
- *  the accessor's own members (`set`, and on a uniform's struct `needsUpdate` and `dispose`). */
 type ResourceClass<T, Own extends string> = ShaderClass<T> & Refuse<Reserved<T, Own>>;
 
-/** The typed array a lane of `E` is viewed through. */
 type ViewOf<E> = [E] extends [f32]
   ? Float32Array
   : [E] extends [f64]
@@ -573,35 +451,21 @@ type ViewOf<E> = [E] extends [f32]
         ? Uint32Array
         : Float32Array;
 
-/** A scalar field. */
 interface ScalarField<T> {
-  /** Write `value` if it differs from what the field holds. Allocates nothing. */
   set(value: T): void;
-  /** The number the field holds: a number, not a view (R8; Amendment A5, D1). An `f64` field's
-   *  two `f32` halves are joined into one number. */
   get(): T;
 }
 
-/** A vector or a matrix field. */
 interface TupleField<T extends readonly number[]> {
-  /** Write the components that differ from what the field holds. Allocates nothing. */
   set(...components: T): void;
-  /** Write the components of one array, column-major for a matrix. Allocates nothing. */
   set(components: ArrayLike<number>): void;
-  /** The field's typed view of the region, read-only. A host that writes through it sets the
-   *  resource's `needsUpdate`. */
   get(): Readonly<ViewOf<T[number]>>;
 }
 
-/** A field of an array with a size. */
 interface ArrayFieldOf<E> {
-  /** How many elements it holds. */
   readonly length: number;
-  /** Element `index`'s accessor. */
   at(index: number): FieldOf<E>;
-  /** Set every element. */
   set(values: readonly E[]): void;
-  /** The typed view of an array of scalars or vectors, each element at its stride. */
   get(): E extends number
     ? Readonly<ViewOf<E>>
     : E extends readonly number[]
@@ -609,7 +473,6 @@ interface ArrayFieldOf<E> {
       : never;
 }
 
-/** The accessor of a field of type `T`. */
 type FieldOf<T> = T extends boolean
   ? ScalarField<boolean>
   : T extends readonly boolean[]
@@ -628,9 +491,7 @@ type FieldOf<T> = T extends boolean
             ? StructOf<T>
             : never;
 
-/** The accessor of a struct: one accessor for each field, and `set` from some of them. */
 type StructOf<T> = { readonly [K in DataKeys<T>]: FieldOf<T[K]> } & {
-  /** Write the fields `value` names, each only where it differs. */
   set(value: Some<T>): void;
 };
 
@@ -656,12 +517,8 @@ export type Uniform<T> = StructOf<T> &
     dispose(): void;
   };
 
-/** The typed arrays a `Buffer` of scalars is made from (Rule 8.21; change 0138, Amendment A10,
- *  Q-I). Not exported from a barrel. */
 export type ScalarArray = Float32Array | Int32Array | Uint32Array | Float64Array;
 
-/** The element of the `Buffer` that `array(xs)` makes from the typed array `T`: `f32` for a
- *  `Float32Array`, and so on (Amendment A10, Q-I). Not exported from a barrel. */
 export type ElementOfTyped<T> = T extends Float32Array
   ? f32
   : T extends Int32Array
@@ -672,17 +529,12 @@ export type ElementOfTyped<T> = T extends Float32Array
         ? f64
         : never;
 
-/** The element of the zeroed `Buffer` that `array(length, element)` makes. Not exported from a
- *  barrel. */
 export type ZeroedBufferElement<E> = E extends 'f32' ? f32 : E extends 'i32' ? i32 : u32;
 
-/** Any `Buffer`, of any element: what `device.release()` takes. Not exported from a barrel. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyBuffer = Buffer<any>;
 
-// What `scope.scratch()` of a `fuse` scope returns (`ScratchBuffers` in `core/fuse-plan.ts`), added
-// here so that `typeshade/fuse` imports no type of the program runtime (change 0138, Amendment
-// A10, slice 1).
+// Why: `typeshade/fuse` may import no type of the program runtime, so the type of what `scope.scratch()` returns is added to `ScratchBuffers` of `core/fuse-plan.ts` from here.
 declare module '../core/fuse-plan.js' {
   interface ScratchBuffers {
     readonly f32: Buffer<f32>;
@@ -692,9 +544,6 @@ declare module '../core/fuse-plan.js' {
   }
 }
 
-/** Whether `T` is `number` itself, the element of a `Buffer` that `array()` made of a `number[]`,
- *  which its first use fixes (Amendment A12, decision 3): `number` is an `f32`, an `i32` and a
- *  `u32` at once, which no name of the family is. */
 type IsOpen<T> = [T] extends [f32]
   ? [T] extends [u32]
     ? [T] extends [i32]
@@ -703,11 +552,6 @@ type IsOpen<T> = [T] extends [f32]
     : false
   : false;
 
-/** What `read()` of a `Buffer<T>` gives: the typed array of the scalar for a scalar, a vector or a
- *  matrix `T`, the components one after another (Amendment A11, Q2 and Q5; Amendment A12, Q2);
- *  any of the four for an element no use has fixed (A12, Q8; `Float64Array` by the owner's
- *  decision of 2026-11-11, recorded in Amendment A13); a `boolean[]` for a `bool` or a
- *  `vecN<bool>` (A12, Q1); the member strings for a key (A12, Q4); `T[]` for a struct (R9). */
 type BufferRead<T> =
   IsOpen<T> extends true
     ? Float32Array | Int32Array | Uint32Array | Float64Array
@@ -719,17 +563,12 @@ type BufferRead<T> =
           ? T[]
           : NumberRead<T>;
 
-/** {@link BufferRead} of a number, a vector, a matrix or a struct, one member of a union at a
- *  time: a `Buffer<f32 | u32>` reads a `Float32Array | Uint32Array`. */
 type NumberRead<T> = T extends number
   ? ViewOf<T>
   : T extends readonly number[]
     ? ViewOf<T[number]>
     : T[];
 
-/** What `set(data)` of a `Buffer<T>` takes: numbers for a scalar, a vector or a matrix `T`, the
- *  components one after another; booleans for a `bool`, member strings for a key (Amendment A12,
- *  Q1 and Q4); some of each struct's fields for a struct. */
 type BufferData<T> = [T] extends [boolean]
   ? readonly boolean[]
   : [T] extends [readonly boolean[]]
@@ -740,19 +579,12 @@ type BufferData<T> = [T] extends [boolean]
         ? ScalarArray | readonly number[]
         : readonly Some<T>[];
 
-/** A `vecN<bool>` element or field: its components as booleans (Amendment A12, Q1 and Q7). */
 interface BoolTupleField<T extends readonly boolean[]> {
-  /** Write its components. */
   set(...components: T): void;
-  /** Write the components of one array. */
   set(components: readonly boolean[]): void;
-  /** Its components, a new `boolean[]`. */
   get(): boolean[];
 }
 
-/** What `at(i)` of a `Buffer<T>` gives: the element view of a scalar, a vector or a matrix
- *  (Amendment A11, Q1), of a `bool` or a key (Amendment A12, Q1 and Q4), or the struct's
- *  accessor. */
 type BufferElement<T> = [T] extends [boolean]
   ? ScalarField<boolean>
   : [T] extends [readonly boolean[]]
@@ -761,8 +593,6 @@ type BufferElement<T> = [T] extends [boolean]
       ? ScalarField<T>
       : NumberElement<T>;
 
-/** {@link BufferElement} of a number, a vector, a matrix or a struct, one member of a union at a
- *  time. */
 type NumberElement<T> = T extends number
   ? ScalarField<T>
   : T extends readonly number[]
@@ -830,9 +660,6 @@ export interface Buffer<T> extends Disposable {
  */
 export type array<T, N extends number = number> = HostArray<T, N>;
 
-// ─── the resource classes ────────────────────────────────────────────────────────────────────
-
-/** What a uniform root adds to its struct accessor. */
 class UniformRoot extends StructField {
   get needsUpdate(): boolean {
     const core = cores.get(this)!;
@@ -850,23 +677,17 @@ class UniformRoot extends StructField {
   }
 }
 
-/** How a storage array's length is decided (Amendment A3). */
 interface Sizing {
-  /** The length a shader file states (`storage<array<T, N>>`), which the host cannot change. */
   readonly fixed?: { readonly length: number; readonly module: string };
-  /** The module of an exported storage array with no size, whose length the host has not set
-   *  yet. */
   readonly unset?: string;
 }
 
-/** A storage array of structs. */
 class BufferRoot {
   readonly #core: Core;
   readonly #l: Layout & { k: 'a' };
   readonly #Element: typeof StructField;
   readonly #proto: object;
   readonly #fixed: Sizing['fixed'];
-  /** The module of a binding whose length the host has not set yet (Amendment A3). */
   #unset: string | undefined;
   #length: number;
 
@@ -881,12 +702,10 @@ class BufferRoot {
     adopt(this, core);
   }
 
-  /** How many elements it holds; 0 while the host has not set the length. */
   get length(): number {
     return this.#length;
   }
 
-  /** Throw when the host has not set the length of a storage array with no size. */
   #sized(at: string): void {
     this.#core.live();
     if (this.#unset !== undefined) {
@@ -897,7 +716,6 @@ class BufferRoot {
     }
   }
 
-  /** Throw when `length` is not the one the shader file states. */
   #fits(at: string, length: number): void {
     const fixed = this.#fixed;
     if (fixed !== undefined && length !== fixed.length) {
@@ -908,7 +726,6 @@ class BufferRoot {
     }
   }
 
-  /** Element `index`'s accessor. */
   at(index: number): StructField {
     this.#sized('at()');
     if (!Number.isInteger(index) || index < 0 || index >= this.#length)
@@ -923,9 +740,6 @@ class BufferRoot {
     );
   }
 
-  /** Every element, each an instance of the class. A read submits every call recorded before it
-   *  (change 0138, Amendment A5, Q4 and default 2), and waits for the calls that took the array;
-   *  what they wrote lands in the array's range of the region (R17). */
   read(): Promise<unknown[]> {
     const core = this.#core;
     this.#sized('read()');
@@ -942,7 +756,6 @@ class BufferRoot {
       throwFailure();
       const error = core.error();
       if (error !== undefined) throw error;
-      // No call wrote the array since the last read: the region holds what the device holds.
       const state = core.ahead;
       if (state === undefined) return this.#decode(core.region.buffer, core.range.offset);
       const back = await this.#land(state);
@@ -950,11 +763,8 @@ class BufferRoot {
     })();
   }
 
-  /** Bring back what a call wrote into the device copy `state`, and land it in the array's range
-   *  of the region (R17). Gives the values brought back. */
   async #land(state: RegionState): Promise<ArrayBuffer> {
     const core = this.#core;
-    // On WebGL2 the read waits on a fence (Amendment A5, default 6).
     await state.fenced();
     await state.sync(true);
     core.live();
@@ -962,25 +772,17 @@ class BufferRoot {
     const bytes = state.length * st;
     const back = new ArrayBuffer(Math.max(4, bytes));
     pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
-    // A `set` made while the read waited is newer than the device's value: then the read lands
-    // nothing, and the array stays ahead of the region until a later read.
+    // Why: a `set` made while the read waited is newer than the device's value, so the read then lands nothing and the array stays ahead of the region until a later read; no call of the API reaches this guard.
     if (!core.dirty && state.length === this.#length && core.ahead === state) {
       new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
         new Uint8Array(back, 0, bytes),
       );
       core.ahead = undefined;
-      // The values landed are newer than each other device's copy: it takes all of them at its
-      // next call (an exported binding, R3).
       for (const other of core.states.values()) if (other !== state) other.captured = -1;
     }
     return back;
   }
 
-  /** The device of `owner` is disposed (S2 of the review of #1238): land what its last call wrote
-   *  into its copy, while the device still holds it, and drop the copy, so the array is never left
-   *  waiting on a device that is gone, and no later call joins dirty ranges into a dead copy. A
-   *  failed landing keeps its error as a failed call's: thrown at the next `read()` or call, and
-   *  kept by the array until `set(data)` or `resize()` (the owner's decision (b)). */
   async forget(owner: CallOwner): Promise<void> {
     const core = this.#core;
     const state = core.states.get(owner);
@@ -999,7 +801,6 @@ class BufferRoot {
     state.handle?.dispose();
   }
 
-  /** Every element laid out at `offset` of `buffer`, each an instance of the class. */
   #decode(buffer: ArrayBuffer, offset: number, length = this.#length): unknown[] {
     const dv = new DataView(buffer, offset, length * this.#l.st);
     const out: unknown[] = [];
@@ -1008,13 +809,6 @@ class BufferRoot {
     return out;
   }
 
-  /** What a call takes for the array (change 0138, R2): the hidden handle of its device copy and
-   *  the element layout, with no change to the array yet, so that a call refused by a later check
-   *  leaves it as it was. `commit` copies out the values the call sees, once every check passed;
-   *  `done` ends the check. `writes`: the call writes the array. `owner`: the device the call
-   *  runs on, whose device copy it takes (R3).
-   *  @throws the error of an earlier call that wrote the array and failed; a `TypeError` when a
-   *    call on another device wrote it and the host has not read it back. */
   prepare(writes: boolean, owner: CallOwner): RecordedBuffer {
     const core = this.#core;
     this.#sized('a call');
@@ -1027,8 +821,6 @@ class BufferRoot {
     state.handle ??= handleOf(state);
     const error = core.error();
     if (error !== undefined) throw error;
-    // Only an exported binding has copies on two devices. Its values are on the device whose call
-    // wrote it until read() lands them in the region (R3, R17).
     if (core.ahead !== undefined && core.ahead !== state) {
       const name = core.name;
       throw new TypeError(
@@ -1052,7 +844,6 @@ class BufferRoot {
     };
   }
 
-  /** Give the array `length` elements: the ones that fit keep their values. */
   resize(length: unknown): void {
     const core = this.#core;
     core.live();
@@ -1074,8 +865,6 @@ class BufferRoot {
     this.#rewritten();
   }
 
-  /** The array holds new values in all its range: the next call writes all of them to the device
-   *  copy, and the failure of an earlier call is gone (the owner's decision of 2026-11-11). */
   #rewritten(): void {
     this.#core.kept = undefined;
     for (const state of this.#core.states.values()) {
@@ -1084,7 +873,6 @@ class BufferRoot {
     }
   }
 
-  /** Give the array the length of `data` and its values. */
   set(data: unknown): void {
     const core = this.#core;
     core.live();
@@ -1103,7 +891,6 @@ class BufferRoot {
       );
     const length = xs.length;
     this.#fits('set()', length);
-    // The values are written into a new range, and the array takes it only when every one fits.
     const old = core.slot.range;
     const bytes = core.bytes;
     const next = core.region.allocate(length * this.#l.st);
@@ -1138,14 +925,11 @@ class BufferRoot {
   }
   dispose(): void {
     dispose(this.#core);
-    // The device copy goes after the calls recorded before (`Resident.destroy()`).
     for (const state of this.#core.states.values()) state.handle?.dispose();
   }
 }
 
 declare global {
-  /** The `lib`'s `Disposable` (`[Symbol.dispose](): void`) where it declares one, and nothing
-   *  where it does not, as `runtime/device.ts` declares it (change 0138, Amendment A5, D4). */
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface Disposable {}
 }
@@ -1159,9 +943,6 @@ if (typeof disposeKey === 'symbol')
       },
     });
 
-// ─── the functions ───────────────────────────────────────────────────────────────────────────
-
-/** A uniform of `cls` in `region`. Not API: {@link uniform} uses the global region. */
 export function makeUniform(
   region: Region,
   cls: unknown,
@@ -1185,8 +966,6 @@ export function makeUniform(
   return root;
 }
 
-/** A storage array of `length` elements of `cls` in `region`, from `data` when given. `sizing`
- *  says whether a shader file states the length or the host has yet to set it. Not API. */
 export function makeBuffer(
   region: Region,
   cls: unknown,
@@ -1308,26 +1087,12 @@ export function array(...args: unknown[]): unknown {
       'array()',
     );
   }
-  // A `Buffer` of scalars belongs to the device in use, as `device.array()` makes one (R3); with
-  // none in use, to the default owner.
   const device = defaultDevice() as
     { arrayAs(at: string, a: readonly unknown[]): unknown } | undefined;
   if (device !== undefined) return device.arrayAs('array()', args);
   return makeResident('array()', args);
 }
 
-/**
- * The resource of a binding a shader module exports (change 0138, R10; Rule 6.1):
- * `export declare const camera: uniform<Camera>` is a `Uniform<Camera>` of the global region, and
- * `export declare const ps: storage<array<Particle, 64>>` a `Buffer<Particle>` of 64 elements,
- * which `length` gives, and `export declare const all: storage<array<Particle>>` a
- * `Buffer<Particle>` whose length the host sets with `resize` or `set` (Amendment A3), for which
- * `length` is `null`.
- * The generated module makes it once, when the module is evaluated, under the name the module
- * exports it as, which its errors name. It lives as long as its module: an import is a read-only
- * binding, and a host that freed it could make no other, so `dispose()` is refused with a
- * `TypeError`. Not API: what a generated module calls (`typeshade/runtime/internal`).
- */
 export function exportedBinding(
   name: string,
   module: string,
@@ -1347,7 +1112,6 @@ export function exportedBinding(
       `${name}.dispose(): ${name} is a binding that ${module} exports, which lives as long as its module; it is not disposed.`,
     );
   };
-  // It belongs to no one device: each device whose call reads it takes its own copy (R3).
   cores.get(resource as object)!.owner = undefined;
   if (resource instanceof BufferRoot) exported.add(resource);
   Object.defineProperty(resource, 'dispose', { value: refuse });
@@ -1380,14 +1144,10 @@ export function texture(options: {
   return device.texture(options);
 }
 
-/** What a call takes for a storage array, with its layout (`core/host-record.ts`). Not API. */
 export interface RecordedBuffer extends Recorded {
   readonly layout: Layout & { readonly k: 'a' };
 }
 
-/** What a call takes for `v` when it is a resource (change 0138, R2): a uniform's value as it is
- *  now, or a storage array recorded for the call; undefined for any other value. Not API: the call
- *  layer reads it. */
 export function resourceOf(v: unknown):
   | {
       readonly kind: 'uniform';
@@ -1417,10 +1177,6 @@ export function resourceOf(v: unknown):
   return {
     kind: 'uniform',
     name: core.name,
-    // A Uniform takes no part in the choice of a call's device (the owner's decision of 2026-11-11
-    // on Q-a): its value is copied at each call (deviation D-b), so it joins a call on any device.
-    // When D-b is fixed and a Uniform gets a device copy, it needs one copy for each device, as an
-    // exported storage array has.
     owner: undefined,
     value: () => {
       core.live();
@@ -1429,21 +1185,15 @@ export function resourceOf(v: unknown):
   };
 }
 
-// A call with plain data names a `Buffer` of structs or a `Uniform` it refuses (Rule 12.5),
-// through the probes that `toShader` in `core/host-values.ts` reads.
 resourceProbes.push((v) => {
   const r = resourceOf(v);
   return r === undefined ? undefined : r.kind === 'uniform' ? 'Uniform' : 'Buffer';
 });
 
-/** The struct layout of each uniform, which a call reads its value by. */
 const uniformLayouts = new WeakMap<object, Layout & { k: 'o' }>();
 
-// The call layer reads resources through this, and imports no resource itself.
 resources.of = resourceOf;
 
-/** The words a copy of the region holds for host value `v` laid out by `l`: a `bool` is 0 or 1
- *  and a key its id (Amendment A12, Q4 and Q7), as a call takes them; a number stays a number. */
 function rawOf(l: Layout, v: unknown): unknown {
   switch (l.k) {
     case 's':
@@ -1462,8 +1212,6 @@ function rawOf(l: Layout, v: unknown): unknown {
   }
 }
 
-// The result `Buffer<S>` of an `array<S, N>` (change 0138, Amendment A12, Q6 and Q7): a `Buffer`
-// of the region, written by the call that returns it, so it is ahead of the region until `read()`.
 resources.structs = (layout, proto, name, length, owner) => {
   const core = new Core(globalRegion(), length * layout.st, name, `array(Class, data)`, layout.st);
   const buffer = new BufferRoot(core, layout, length, proto, {});
@@ -1483,19 +1231,12 @@ resources.structs = (layout, proto, name, length, owner) => {
   };
 };
 
-/** The storage arrays a shader module exports, which keep a copy for each device (R3). They live
- *  as long as their module, so the set holds them. */
 const exported = new Set<BufferRoot>();
 
-/** The device of `owner` is disposed: each exported storage array lands what a call of that device
- *  wrote and drops its copy (S2 of the review of #1238). `Device.dispose()` calls it after the
- *  calls queued before it, and before it destroys its WebGPU device. Not API. */
 export async function forgetOwner(owner: CallOwner): Promise<void> {
   for (const b of exported) await b.forget(owner);
 }
 
-/** How many device copies a storage array holds: one for each device whose call took it and that
- *  is not disposed (change 0138, R3). Not API: a test reads it. */
 export function deviceCopies(resource: object): number {
   return cores.get(resource)?.states.size ?? 0;
 }

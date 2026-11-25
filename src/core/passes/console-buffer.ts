@@ -1,27 +1,3 @@
-// ═══ Shader DSL — the console buffer (changes/0014, surface §66) ═══
-//
-// A `console.*` call computes nothing a shader reads, so WGSL drops it by default: the optimizer
-// removes a call with no effect and keeps its arguments' writes. When a compile asks for GPU
-// recording (`compile(src, { console: 'gpu' })`), this pass rewrites each call a compute or
-// fragment entry reaches into writes to one storage buffer the compiler adds, `_console`, which
-// the host copies back and `decodeConsole` turns into the events the CPU sink receives.
-//
-// IR to IR, before every backend pass, so nothing new reaches the shared walk (Rule 11.1): the
-// reservation is an `atomicAdd` and the entry is plain stores into a storage binding, both effects
-// every optimizer pass already keeps. The CPU oracle never runs this pass; it delivers each call
-// to its sink directly. `console-buffer.test.ts` runs the LOWERED module on the oracle with the
-// buffer bound to an array and holds the decoded events equal to the sink's.
-//
-// The layout (measured on Tint and SwiftShader in Chromium 141; changes/0014 "Why"):
-//
-//   struct _Console { cursor: atomic<u32>, dropped: atomic<u32>, words: array<u32> }
-//
-// An entry is [site, invocation.x, invocation.y, invocation.z, value words...]. The call reserves
-// its words with one atomicAdd on `cursor`; an entry that does not fit `arrayLength(words)` is
-// dropped and counted in `dropped`, never written in part, except that one straddling the end
-// writes its site word, which is how the decoder finds where the written entries stop. The host
-// resets the two header words before each dispatch or draw, and sizes the buffer as it likes.
-//
 // Implements: Rule 6.11, Rule 11.9 (docs/language-design.md; traced in reqs/).
 
 import type { Expr, FuncDecl, ModuleDecl, Stmt, StructDecl } from '../ir/index.js';
@@ -31,7 +7,6 @@ import { stageOf } from '../ir/index.js';
 import { reachFrom } from './stage-bindings.js';
 import type { ConsoleLog, ConsoleShape, ConsoleSite, ConsoleMethod } from '../console.js';
 
-/** The names this pass declares. A module that already declares one is not recorded. */
 export const CONSOLE_NAMES = {
   binding: '_console',
   struct: '_Console',
@@ -39,26 +14,18 @@ export const CONSOLE_NAMES = {
   reserve: '_console_reserve',
 } as const;
 
-/** The words an entry takes before its values: the site and the three invocation words. */
 export const CONSOLE_ENTRY_HEADER = 4;
 
-/** WebGPU's default `maxStorageBuffersPerShaderStage`: a stage that already binds this many has
- *  no room for the console buffer. */
 export const DEFAULT_STORAGE_BUFFERS_PER_STAGE = 8;
 
-/** A console call the WGSL does not record, and why, for the `TS8071` warning. */
 export interface ConsoleNotRecorded {
   readonly span?: SourceSpan;
   readonly method: string;
   readonly reason: string;
 }
 
-/** What {@link consoleBuffer} returns. */
 export interface ConsoleBufferResult {
-  /** The module with the buffer, the helper and each recorded call rewritten. The same object
-   *  when nothing is recorded. */
   readonly module: ModuleDecl;
-  /** The slot and the site table, or `undefined` when no call is recorded. */
   readonly log?: ConsoleLog;
   readonly notRecorded: readonly ConsoleNotRecorded[];
 }
@@ -99,7 +66,6 @@ const isReason = (
   s: ConsoleShape | { readonly reason: string },
 ): s is { readonly reason: string } => typeof s === 'object' && 'reason' in s;
 
-/** The shape of a value the buffer carries, or the reason it carries none. */
 export function consoleShapeOf(
   t: ShaderType,
   structs: ReadonlyMap<string, StructDecl>,
@@ -139,7 +105,6 @@ export function consoleShapeOf(
   }
 }
 
-/** How many words a value of `shape` takes. */
 export function consoleWordsOf(shape: ConsoleShape): number {
   if (typeof shape === 'string') return shape === 'f64' ? 2 : 1;
   if ('vec' in shape) return shape.vec * (shape.of === 'f64' ? 2 : 1);
@@ -150,21 +115,18 @@ export function consoleWordsOf(shape: ConsoleShape): number {
 
 const COMPONENTS = ['x', 'y', 'z', 'w'] as const;
 
-/** The u32 words of `e`, a value of `shape`, in the order the decoder reads them. */
 function wordsOfValue(e: Expr, shape: ConsoleShape): Expr[] {
   if (typeof shape === 'string') {
     switch (shape) {
       case 'u32':
         return [e];
       case 'i32':
-        // WGSL's u32(i32) keeps the bits.
         return [call('u32', u32T, [e])];
       case 'f32':
         return [call('bitcastU32', u32T, [e])];
       case 'bool':
         return [{ op: 'select', type: u32T, cond: e, ifTrue: lit(1), ifFalse: lit(0) }];
       case 'f64': {
-        // The two halves, hi and lo, with the emulation's own narrowing and widening.
         const hi = call('f32', f32T, [e]);
         const lo = call('f32', f32T, [
           {
@@ -208,7 +170,6 @@ function wordsOfValue(e: Expr, shape: ConsoleShape): Expr[] {
   );
 }
 
-/** A struct field's type, read back from the declaration when the pass has it. */
 let structTable: ReadonlyMap<string, StructDecl> = new Map();
 function fieldType(_s: ConsoleShape, struct: string, field: string): ShaderType {
   const f = structTable.get(struct)?.fields.find((x) => x.name === field);
@@ -216,7 +177,6 @@ function fieldType(_s: ConsoleShape, struct: string, field: string): ShaderType 
   return f.type;
 }
 
-/** The reserve helper: returns where the entry's values start, or 0xffffffff when dropped. */
 function reserveFn(): FuncDecl {
   const at = ref('at', u32T);
   const len = ref('len', u32T);
@@ -228,7 +188,6 @@ function reserveFn(): FuncDecl {
   const body: Stmt[] = [
     { s: 'let', name: 'at', expr: call('atomicAdd', u32T, [cursor, n]) },
     { s: 'let', name: 'len', expr: call('arrayLength', u32T, [words()]) },
-    // The straddling entry writes its site word: the decoder stops there.
     {
       s: 'if',
       arms: [{ cond: cmp('<', at, len), body: [{ s: 'assign', target: word(at), expr: site }] }],
@@ -272,15 +231,12 @@ function reserveFn(): FuncDecl {
 const isConsoleCall = (e: Expr): e is Extract<Expr, { op: 'call' }> =>
   e.op === 'call' && e.declRef === undefined && e.fn.startsWith('console.');
 
-/** Whether any function of `m` makes a `console.*` call. */
 export function hasConsoleCall(m: ModuleDecl): boolean {
   return m.funcs.some((f) =>
     JSON.stringify(f.body, (k, v) => (k === 'declRef' ? undefined : v)).includes('"fn":"console.'),
   );
 }
 
-/** Rewrite each console call a compute or fragment entry reaches into writes to the console
- *  buffer, and describe the buffer. Pure; `m` is not changed. */
 export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
   structTable = new Map(m.structs.map((s) => [s.name, s]));
   const notRecorded: ConsoleNotRecorded[] = [];
@@ -301,7 +257,6 @@ export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
     m.bindings.filter((b) => b.space === 'storage' && reach.get(e.name)!.bindings.has(b.name))
       .length;
 
-  /** Why the calls in `fn` are not recorded, or undefined when they are. */
   const fnReason = (fn: string): string | undefined => {
     if (taken !== undefined)
       return `the module declares "${taken}", the name the console buffer takes`;
@@ -352,7 +307,6 @@ export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
     });
     const k = temp++;
     const out: Stmt[] = [];
-    // Each argument once, in order (Rule 7.9, Rule 11.9), before the reservation.
     const values = c.args.map((a, i): Expr => {
       const name = `_console_${k}_${i}`;
       out.push({ s: 'let', name, expr: a });
@@ -424,7 +378,6 @@ export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
 
   if (sites.length === 0) return { module: m, notRecorded };
 
-  // Each compute and fragment entry that reaches a recorded call sets the invocation id first.
   funcs = funcs.map((f) => {
     const stage = stageOf(f);
     if (stage !== 'compute' && stage !== 'fragment') return f;
@@ -469,8 +422,6 @@ export function consoleBuffer(m: ModuleDecl): ConsoleBufferResult {
   });
 
   const g0 = m.bindings.filter((b) => b.group === 0);
-  // The `_fp64` guard takes the same slot by the same rule, after this pass (fp64Lower runs in
-  // the emit), so the console buffer comes first and the guard one past it.
   const binding = g0.length ? Math.max(...g0.map((b) => b.binding)) + 1 : 0;
   const module: ModuleDecl = {
     ...m,

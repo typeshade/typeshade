@@ -139,6 +139,17 @@ describe('one array as two parameters of one call', () => {
     );
   });
 
+  it('reads it when either parameter reads it, in either order of the parameters', () => {
+    const [readsFirst, readsSecond] = [
+      faceOf('twice', [arrayParam('p', false), arrayParam('q', false)], loopOf([at('p', 'read')])),
+      faceOf('twice', [arrayParam('p', false), arrayParam('q', false)], loopOf([at('q', 'read')])),
+    ];
+    for (const k of [readsFirst, readsSecond])
+      expect(groupCalls([call(k, [t, t]), call(producer, [t])], 8).map((g) => g.why)[1]).toBe(
+        'twice and produce run as two dispatches because produce writes an array twice reads',
+      );
+  });
+
   it('is named without an index when either parameter is', () => {
     const k = faceOf(
       'twice',

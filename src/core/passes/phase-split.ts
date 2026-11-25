@@ -1,93 +1,42 @@
-// ═══ A compute entry split into phases (change 0054, the WebGL2 execution model) ═══
-//
-// WebGL2 has no compute stage. Change 0054 runs a dispatch there as a sequence of passes: each
-// pass runs every live invocation once, reads memory as it was when the pass began (plus the
-// invocation's own writes, from its write log), and writes through a log that a scatter pass
-// applies once every invocation has run. A pass cannot wait for another invocation, so the
-// entry is cut wherever WGSL makes it wait or makes it depend on an order:
-//
-//   - at a barrier (`workgroupBarrier`, `storageBarrier`, `textureBarrier`, and either side of
-//     `workgroupUniformLoad`), which the executor releases when every live invocation of the
-//     workgroup has reached it;
-//   - before an atomic operation, which the executor's resolve pass performs for every
-//     invocation that requested one, in invocation index order, before the next pass;
-//   - where the write log could be full: before a write that would make more than
-//     `logEntries` entries since the pass began.
-//
-// This pass turns the entry into one function that runs from a resume point to the next cut.
-// The statements that hold a cut, a write to memory, a `return`, or a `break` or `continue`
-// that leaves them are taken apart into blocks; every other statement stays as it is, inside
-// its block. The function is a loop over a `switch` on the resume point, `_phx_pc`: a block
-// sets the next resume point and either falls back into the loop or, at a cut, returns. A
-// local that lives in a taken-apart region becomes a private variable, which is the state the
-// executor keeps from one pass to the next (on WebGL2, the state texture). A function the
-// entry calls that holds a cut or a write is inlined, so its cuts are the entry's.
-//
-// The CPU executor of the result is `core/debug/phased.ts`; the GL executor (step 2 of the
-// change) reads the same plan.
-
 import type { Expr, FuncDecl, ModuleDecl, ModuleVarDecl, Stmt, StructDecl } from '../ir/nodes.js';
 import { boolT, f64T, i32T, u32T, type ShaderType } from '../ir/types.js';
 import { stageOf } from '../ir/index.js';
 import { mapChildren } from '../ir/visit.js';
 import { isAtomicIntrinsic, isBarrierIntrinsic } from '../intrinsics.js';
 
-/** Why a pass ends at a resume point, and what the executor does before the next pass. */
 export type PhaseCut =
   | {
-      /** A barrier: the invocation waits until every live invocation of its workgroup has
-       *  reached the same resume point. `stmt` is the barrier, for the message a divergent
-       *  workgroup gets. */
       readonly kind: 'barrier';
       readonly fn: string;
       readonly stmt: Stmt | undefined;
     }
   | {
-      /** An atomic operation: the resolve pass evaluates `request`, an atomic call whose
-       *  location and operands read only private variables, for each invocation in index
-       *  order, and stores its value in the private variable `result`, if any. */
       readonly kind: 'atomic';
       readonly request: Expr & { readonly op: 'call' };
       readonly result: string | undefined;
       readonly stmt: Stmt | undefined;
     }
   | {
-      /** The write log could be full: the next pass starts with an empty one. */
       readonly kind: 'log';
     };
 
-/** An entry split into phases: what an executor runs and what it keeps between passes. */
 export interface PhasePlan {
-  /** The module with the entry replaced by its phase function, which has the entry's name,
-   *  parameters and attributes, and with the state added as `private` variables. */
   readonly module: ModuleDecl;
   readonly entry: string;
-  /** The private variable that holds the resume point: 0 at the start, {@link done} at the
-   *  end. */
   readonly pc: string;
   readonly done: number;
-  /** Each resume point a pass can stop at, with the cut that stops it there. */
   readonly cuts: ReadonlyMap<number, PhaseCut>;
-  /** The variables this pass added, the resume point first: with the module's own private
-   *  variables, the state an invocation keeps between passes. */
   readonly state: readonly ModuleVarDecl[];
-  /** The write log's size, in entries of at most four lanes. */
   readonly logEntries: number;
 }
 
-/** Thrown for an entry this pass cannot split yet; the message says what and where. */
 export class PhaseSplitError extends Error {}
 
 const PC = '_phx_pc';
 
-/** The four lanes of one write log entry hold a scalar, a vector or a matrix column.
- *  An emulated double uses two of those lanes. */
 const isLaneSized = (t: ShaderType): boolean =>
   t.kind === 'scalar' || t.kind === 'vec' || t.kind === 'atomic' || t.kind === 'f64';
 
-/** Split the `@compute` entry `entry` of `m` into phases. `m` is a module the CPU oracle runs:
- *  validated, with `autoVars` applied. `logEntries` is the write log's size (change 0054,
- *  decision 4: four). */
 export function splitPhases(
   m: ModuleDecl,
   entry: string,
@@ -130,9 +79,6 @@ export function splitPhases(
   };
 }
 
-// ── Which functions must be inlined ──
-
-/** The names a function declares: its parameters and every `let` and `var` in its body. */
 function localsOf(f: FuncDecl): Set<string> {
   const out = new Set(f.params.map((p) => p.name));
   const walk = (body: readonly Stmt[]): void => {
@@ -152,7 +98,6 @@ function localsOf(f: FuncDecl): Set<string> {
   return out;
 }
 
-/** The variable a write lands in: `buf` for `buf[i].x`. */
 function rootOf(target: Expr): string | undefined {
   let e = target;
   for (;;) {
@@ -168,7 +113,6 @@ const isCutIntrinsic = (fn: string): boolean =>
 const isIntrinsicCall = (e: Expr): e is Expr & { op: 'call' } =>
   e.op === 'call' && e.declRef === undefined;
 
-/** Every expression a statement holds directly (not those of nested statements). */
 function ownExprs(s: Stmt): Expr[] {
   switch (s.s) {
     case 'let':
@@ -193,7 +137,6 @@ function ownExprs(s: Stmt): Expr[] {
   }
 }
 
-/** The statements nested in `s`, one level down. */
 function childStmts(s: Stmt): readonly Stmt[] {
   switch (s.s) {
     case 'if':
@@ -217,8 +160,6 @@ function someExpr(e: Expr, test: (e: Expr) => boolean): boolean {
   return hit;
 }
 
-/** The functions an entry must inline: those that reach a cut or write memory, directly or
- *  through a call. */
 function heavyFunctions(m: ModuleDecl, memory: ReadonlySet<string>): Set<string> {
   const heavy = new Set<string>();
   const direct = (f: FuncDecl): boolean => {
@@ -254,8 +195,6 @@ function heavyFunctions(m: ModuleDecl, memory: ReadonlySet<string>): Set<string>
   return heavy;
 }
 
-// ── The control-flow graph ──
-
 type Term =
   | { readonly t: 'goto'; readonly to: number }
   | { readonly t: 'branch'; readonly cond: Expr; readonly then: number; readonly else: number }
@@ -273,14 +212,10 @@ interface Block {
   term: Term | undefined;
 }
 
-/** Where `break`, `continue` and `return` go inside the region being taken apart. */
 interface Targets {
   readonly brk: number | undefined;
   readonly cont: number | undefined;
-  /** In an inlined function: the variable its value goes to and the block after the call. In
-   *  the entry: undefined, and a `return` ends the invocation. */
   readonly ret: { readonly value: string | undefined; readonly to: number } | undefined;
-  /** The names of the function being lowered, mapped to their names in the phase function. */
   readonly names: Map<string, string>;
 }
 
@@ -312,13 +247,11 @@ class Builder {
     this.blocks[this.cur]!.stmts.push(s);
   }
 
-  /** End the current block at `cut` and continue in a new block, where the next pass resumes. */
   private cutTo(cut: PhaseCut): void {
     const next = this.block();
     this.end({ t: 'cut', cut, to: next }, next);
   }
 
-  /** End the current block with `term` and continue in `next`. */
   private end(term: Term, next: number): void {
     const b = this.blocks[this.cur]!;
     if (b.term === undefined) b.term = term;
@@ -341,8 +274,6 @@ class Builder {
     this.lowerBody(decl.body, t);
     this.end({ t: 'done' }, this.block());
   }
-
-  // ── Names ──
 
   private rename(e: Expr, names: ReadonlyMap<string, string>): Expr {
     if ((e.op === 'varref' || e.op === 'param') && names.has(e.name)) {
@@ -387,8 +318,6 @@ class Builder {
     }
   }
 
-  // ── What must be taken apart ──
-
   private writesMemory(target: Expr, names: ReadonlyMap<string, string>): boolean {
     const r = rootOf(target);
     return r !== undefined && !names.has(r) && this.memory.has(r);
@@ -403,9 +332,6 @@ class Builder {
     );
   }
 
-  /** Whether `s` must be taken apart rather than kept whole inside a block. `escapes` says
-   *  whether a `break` or `continue` at this level leaves the statement being asked about,
-   *  for a loop or a switch that is itself taken apart. */
   private needsCfg(s: Stmt, names: ReadonlyMap<string, string>, escapes: boolean): boolean {
     switch (s.s) {
       case 'return':
@@ -437,8 +363,6 @@ class Builder {
     return childStmts(s).some((c) => this.needsCfg(c, names, escapes));
   }
 
-  /** {@link needsCfg} for a statement inside a loop or a switch that is kept whole: its own
-   *  `break` (and, in a loop, `continue`) stays inside. */
   private needsCfgInLoop(
     s: Stmt,
     names: ReadonlyMap<string, string>,
@@ -448,7 +372,6 @@ class Builder {
     if (s.s === 'continue') return owner === 'switch';
     if (s.s === 'for') return this.needsCfg(s, names, false);
     if (s.s === 'switch' && owner === 'loop') {
-      // A `continue` in a switch inside the loop still belongs to the loop.
       return (
         ownExprs(s).some((e) => this.hasCutCall(e) || this.inoutWrites(e, names) > 0) ||
         childStmts(s).some((c) => this.needsCfgInLoop(c, names, 'loop'))
@@ -463,7 +386,6 @@ class Builder {
     return this.needsCfg(s, names, false);
   }
 
-  /** How many log entries the `inout` arguments of the calls in `e` write back to memory. */
   private inoutWrites(e: Expr, names: ReadonlyMap<string, string>): number {
     let n = 0;
     someExpr(e, (x) => {
@@ -481,7 +403,6 @@ class Builder {
     return n;
   }
 
-  /** How many log entries a write of a value of type `t` takes. */
   entriesOf(t: ShaderType): number {
     switch (t.kind) {
       case 'vec64':
@@ -498,8 +419,6 @@ class Builder {
         return 1;
     }
   }
-
-  // ── Lowering ──
 
   private lowerBody(body: readonly Stmt[], t: Targets): void {
     for (const s of body) this.lowerStmt(s, t);
@@ -523,7 +442,7 @@ class Builder {
       }
       case 'assign':
       case 'assignOp': {
-        // The value first, then the place, in the order the CPU backends evaluate them.
+        // Why: the CPU backends evaluate the value first, then the place.
         const value = this.hoist(s.expr, t);
         const target = this.hoistPlace(s.target, t);
         if (
@@ -624,10 +543,8 @@ class Builder {
     }
   }
 
-  /** A statement with nothing to take apart: renamed, and kept whole in the current block. */
   private keepWhole(s: Stmt, t: Targets): void {
     if (s.s === 'let' || s.s === 'var') {
-      // A local of a region that is taken apart can live across a cut, so it becomes state.
       const type = s.s === 'let' ? s.expr.type : s.type;
       const name = this.stateVar(this.hoistedName(s.name, t), type);
       const init = s.s === 'let' ? s.expr : s.init;
@@ -639,11 +556,6 @@ class Builder {
     this.emitStmt(this.renameStmt(s, t.names));
   }
 
-  /** The state variable a local becomes: the name an inlined function's locals were given, or
-   *  a numbered name of the hoisted family, `_phv<k>_<name>`. The number keeps two locals of the
-   *  same name apart; dropping the name's leading and doubled underscores keeps it a GLSL name
-   *  (GLSL keeps every name with `__` in it), and the family never meets the pass's own
-   *  `_phx` names. */
   private hoistedName(name: string, t: Targets): string {
     return t.names.get(name) ?? hoisted(this.hoists++, name);
   }
@@ -652,8 +564,6 @@ class Builder {
     return (e.declRef === undefined && isCutIntrinsic(e.fn)) || this.heavy.has(e.fn);
   }
 
-  /** Rewrite `e` so it holds no cut: each atomic, barrier or inlined call it makes is lowered
-   *  first, in evaluation order, and replaced by the variable that holds its value. */
   private hoist(e: Expr, t: Targets): Expr {
     if (!this.hasCutCall(e)) return this.rename(e, t.names);
     if (e.op === 'logical' || e.op === 'select' || e.op === 'matchExpr') {
@@ -667,8 +577,6 @@ class Builder {
     return mapChildren(e, (c) => this.hoist(c, t));
   }
 
-  /** The place an assignment writes, with each index that is not a literal evaluated once
-   *  into state, so a write taken apart into pieces, or past a cut, lands where it started. */
   private hoistPlace(target: Expr, t: Targets): Expr {
     if (target.op === 'index') {
       const base = this.hoistPlace(target.base, t);
@@ -683,7 +591,6 @@ class Builder {
     return this.rename(target, t.names);
   }
 
-  /** Write `value` to the memory place `target` one log entry at a time. */
   private writePieces(target: Expr, value: Expr, type: ShaderType): void {
     if (isLaneSized(type)) {
       this.emitStmt({ s: 'assign', target, expr: value });
@@ -696,8 +603,8 @@ class Builder {
       src = varref(tmp, type);
     }
     if (type.kind === 'vec64') {
-      // A vector is stored as hi and lo planes. Each scalar write is one pair; the memory
-      // pass maps its two words to those planes before fp64 lowering sees these places.
+      // Why: the memory pass maps the two words of each scalar write to the hi and lo planes of a vector,
+      // and it must do so before fp64 lowering sees these places.
       for (const field of 'xyzw'.slice(0, type.n)) {
         this.writePieces(
           { op: 'member', type: f64T, base: target, field },
@@ -737,8 +644,6 @@ class Builder {
     throw new PhaseSplitError(`a write of a ${type.kind} cannot be split into log entries`);
   }
 
-  /** Lower one atomic, barrier or inlined call. Returns the variable that holds its value when
-   *  `wantValue`. */
   private lowerCutCall(
     e: Expr & { op: 'call' },
     t: Targets,
@@ -750,7 +655,7 @@ class Builder {
       return undefined;
     }
     if (e.declRef === undefined && e.fn === 'workgroupUniformLoad') {
-      // A read with a barrier on each side (wgsl.txt:26057).
+      // Why: WGSL defines workgroupUniformLoad as a read with a barrier on each side (wgsl.txt:26057).
       const loc = this.hoist(e.args[0]!, t);
       const barrier: PhaseCut = { kind: 'barrier', fn: e.fn, stmt };
       this.cutTo(barrier);
@@ -770,7 +675,6 @@ class Builder {
     return this.inline(e, t, wantValue);
   }
 
-  /** An atomic's location, with each index that is not a literal saved to state. */
   private requestPlace(loc: Expr, t: Targets): Expr {
     if (loc.op === 'index') {
       return { ...loc, base: this.requestPlace(loc.base, t), idx: this.requestValue(loc.idx, t) };
@@ -779,7 +683,6 @@ class Builder {
     return this.rename(loc, t.names);
   }
 
-  /** An atomic's operand, saved to state unless it is a literal or a constant. */
   private requestValue(e: Expr, t: Targets): Expr {
     const v = this.hoist(e, t);
     if (v.op === 'lit' || v.op === 'constref' || v.op === 'overrideref') return v;
@@ -788,15 +691,11 @@ class Builder {
     return varref(tmp, v.type);
   }
 
-  /** Inline a call to a function that reaches a cut or writes memory. */
   private inline(e: Expr & { op: 'call' }, t: Targets, wantValue: boolean): Expr | undefined {
     const callee = this.funcs.get(e.fn);
     if (callee === undefined) throw new PhaseSplitError(`unknown function '${e.fn}'`);
     const k = this.inlines++;
     const names = new Map<string, string>();
-    // An `inout` argument is a place: its indices are evaluated once, here, as WGSL evaluates a
-    // pointer argument, and kept in the state, since the callee's cuts may end the pass before
-    // the place is written back.
     const args = e.args.map((a, i) =>
       callee.params[i]?.mode === 'inout' ? this.pinPlace(a, t) : this.hoist(a, t),
     );
@@ -821,15 +720,13 @@ class Builder {
     };
     this.lowerBody(callee.body, inner);
     this.end({ t: 'goto', to: after }, after);
-    // Copied in and copied out: WGSL lets no other name reach a place a pointer argument names
-    // (aliasing, wgsl.txt "Alias Analysis"), so the callee sees what a pointer would show it.
+    // Why: copied in and copied out. WGSL lets no other name reach a place a pointer argument
+    // names (aliasing, wgsl.txt "Alias Analysis"), so the callee sees what a pointer would show.
     for (const o of outs)
       this.emitStmt({ s: 'assign', target: o.place, expr: varref(o.name, o.type) });
     return wantValue && value !== undefined ? varref(value, callee.ret) : undefined;
   }
 
-  /** `e`, a place, with each index it computes evaluated now into the state, so the place names
-   *  the same location in a later pass. */
   private pinPlace(e: Expr, t: Targets): Expr {
     if (e.op === 'varref' || e.op === 'param') return this.rename(e, t.names);
     if (e.op === 'member') return { ...e, base: this.pinPlace(e.base, t) };
@@ -844,7 +741,6 @@ class Builder {
     throw new PhaseSplitError(`an inout argument is a ${e.op}, not a place`);
   }
 
-  /** The zero value of `type`, as an expression. */
   private zero(type: ShaderType): Expr {
     switch (type.kind) {
       case 'scalar':
@@ -880,9 +776,6 @@ class Builder {
     }
   }
 
-  // ── The write log ──
-
-  /** How many log entries `s` writes. */
   private writesOf(s: Stmt): number {
     if ((s.s === 'assign' || s.s === 'assignOp') && this.writesMemory(s.target, new Map())) {
       return 1;
@@ -898,8 +791,6 @@ class Builder {
     return ownExprs(s).reduce((n, e) => n + this.inoutWrites(e, new Map()), 0);
   }
 
-  /** Cut before every write that would make more than `logEntries` entries since the pass
-   *  began, on any path. */
   insertLogCuts(): void {
     for (;;) {
       const n = this.blocks.length;
@@ -952,8 +843,6 @@ class Builder {
       if (!split) return;
     }
   }
-
-  // ── The phase function ──
 
   emit(): { body: Stmt[]; cuts: Map<number, PhaseCut>; done: number } {
     const done = this.blocks.length;
@@ -1008,7 +897,6 @@ class Builder {
   }
 }
 
-/** The blocks a terminator leads to, each with whether a pass ends on the way. */
 function successors(term: Term | undefined): [number, boolean][] {
   if (term === undefined) return [];
   switch (term.t) {
@@ -1028,7 +916,6 @@ function successors(term: Term | undefined): [number, boolean][] {
   }
 }
 
-/** A hoisted local's name: see `Builder.hoistedName`. */
 function hoisted(k: number, name: string): string {
   const clean = name.replace(/_+/g, '_').replace(/^_|_$/g, '');
   return `_phv${String(k)}_${clean === '' ? 'v' : clean}`;

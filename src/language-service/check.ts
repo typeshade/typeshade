@@ -227,9 +227,20 @@ export function checkDocuments(
   docs: readonly CheckDocument[],
   options: CheckOptions = {},
 ): CheckReport {
-  const service = createTypeshadeLanguageService(
-    options.readDocument === undefined ? {} : { readDocument: options.readDocument },
+  return checkDocumentsIn(
+    createTypeshadeLanguageService(
+      options.readDocument === undefined ? {} : { readDocument: options.readDocument },
+    ),
+    docs,
+    options,
   );
+}
+
+export function checkDocumentsIn(
+  service: TypeshadeLanguageService,
+  docs: readonly CheckDocument[],
+  options: CheckOptions = {},
+): CheckReport {
   const diagnostics: CheckDiagnostic[] = [];
   const queue = [...docs];
   const queued = new Set(docs.map((d) => d.uri));
