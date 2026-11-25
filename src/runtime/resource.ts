@@ -66,7 +66,7 @@ import {
 } from './resource-state.js';
 import type { Texture } from './resources.js';
 export { DIRTY_RANGE_LIMIT } from './resource-state.js';
-// Loads the module the declaration of `ScratchBuffers` below adds to, for a type only.
+// Why: the `declare module` below augments `ScratchBuffers`, and TypeScript resolves an augmentation only for a module this file imports.
 import type {} from '../core/fuse-plan.js';
 import { resources, type RecordedBuffer as Recorded } from '../core/host-record.js';
 import { type CallOwner } from '../core/owner.js';
@@ -288,8 +288,7 @@ class Leaf {
   /** Set the field: a scalar from a number, a vector from its components or from one array of
    *  them, a matrix from one array of its components, column-major. Allocates nothing. */
   set(): void {
-    // `arguments`, not a rest parameter: a rest parameter makes an array at every call, and `set`
-    // allocates nothing (R7).
+    // Why: `arguments`, not a rest parameter, because an engine makes an array of a rest parameter at every call, and `set` allocates nothing (R7).
     /* eslint-disable prefer-rest-params */
     const view = this.#lanes();
     this.#core.current(`${this.#path}.set()`);
@@ -680,9 +679,7 @@ export type ZeroedBufferElement<E> = E extends 'f32' ? f32 : E extends 'i32' ? i
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyBuffer = Buffer<any>;
 
-// What `scope.scratch()` of a `fuse` scope returns (`ScratchBuffers` in `core/fuse-plan.ts`), added
-// here so that `typeshade/fuse` imports no type of the program runtime (change 0138, Amendment
-// A10, slice 1).
+// Why: `typeshade/fuse` may import no type of the program runtime, so the type of what `scope.scratch()` returns is added to `ScratchBuffers` of `core/fuse-plan.ts` from here.
 declare module '../core/fuse-plan.js' {
   interface ScratchBuffers {
     readonly f32: Buffer<f32>;
@@ -962,8 +959,7 @@ class BufferRoot {
     const bytes = state.length * st;
     const back = new ArrayBuffer(Math.max(4, bytes));
     pack(new DataView(back), 0, { ...this.#l, n: state.length }, state.host, '');
-    // A `set` made while the read waited is newer than the device's value: then the read lands
-    // nothing, and the array stays ahead of the region until a later read.
+    // Why: a `set` made while the read waited is newer than the device's value, so the read then lands nothing and the array stays ahead of the region until a later read; no call of the API reaches this guard.
     if (!core.dirty && state.length === this.#length && core.ahead === state) {
       new Uint8Array(core.region.buffer, core.range.offset, bytes).set(
         new Uint8Array(back, 0, bytes),

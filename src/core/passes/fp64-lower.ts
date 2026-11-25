@@ -319,14 +319,8 @@ function callHelper(ctx: LowerCtx, name: string, type: ShaderType, args: Expr[])
 const isHelperOutput = (x: Expr): boolean =>
   (x.op === 'call' && x.fn.startsWith('df64_')) || (isScaledPair(x) && isHelperOutput(x.a));
 
-/** Renorm a raw df64 pair through df64_add(x, 0) before it feeds a CANCELLING op
- *  (sub/div): the twoSum recomputes the pair, turning a loaded lo into a computed
- *  lo that survives fast-math. Idempotent (exact for a normalized pair → oracle /
- *  metamorphic / render value unchanged) and opaque (a df64_ call, not a `+ 0`
- *  binop the optimizer would fold). A helper-output operand is already computed-lo
- *  and left as-is. On-device validated: probe dg_launder0 (Apple sub) and the
- *  Blackwell WebGL2 `div` recovery (X-GIS #915); extended here to the distance()
- *  composition's per-lane sub, whose raw operand is a lane of a loaded vec64. */
+// Why: a driver's fast-math (Apple Metal, ANGLE over FXC) drops the loaded lo word of a pair before
+// a cancelling op; the twoSum of df64_add(x, 0) computes it again, and no test can run those drivers.
 const renormForCancel = (ctx: LowerCtx, x: Expr): Expr =>
   isHelperOutput(x) ? x : callHelper(ctx, 'df64_add', vec2fT, [x, RENORM_ZERO]);
 
@@ -509,8 +503,8 @@ function runtimeValue(x: Expr, ctx: LowerCtx): boolean {
   }
 }
 
-/** The scale `s` may be applied to the lowered operand `pair` without a constant overflowing
- *  at shader or pipeline creation: it cannot grow a word, or the operand is a run-time value. */
+// Why: WGSL evaluates a const-expression when it creates the shader module and an override-expression
+// when it creates the pipeline, and a result outside the f32 range is an error there, not an infinity.
 const scaleIsSafe = (pair: Expr, s: number, ctx: LowerCtx): boolean =>
   Math.abs(s) <= 1 || runtimeValue(pair, ctx);
 
@@ -762,12 +756,9 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
         isVec64(e.args[0]!.type)
       ) {
         const n = (e.args[0]!.type as Extract<ShaderType, { kind: 'vec64' }>).n;
-        // Each lane is squared by df64_sqr, which takes the lane once where df64_mul(li, li)
-        // took it twice ("Cheaper multiplies" above). That halves the copies of the vector
-        // operand, and does not remove them: every lane still spells the lowered vector in its
-        // hi and its lo swizzle, so a vector operand is written 2n times, and a call inside it
-        // runs 2n times wherever CSE does not merge the copies. For a call that writes, that is
-        // wrong, not just slow; it predates the square and is not fixed here.
+        // Why: df64_sqr takes a lane once where df64_mul(li, li) took it twice, but every lane still spells
+        // the lowered vector in its hi and its lo swizzle, so a call inside it runs 2n times unless CSE
+        // merges the copies, which is wrong for a call that writes. That predates the square; not fixed here.
         const sumSquares = (laneAt: (i: number) => Expr): Expr => {
           let acc: Expr | undefined;
           for (let i = 0; i < n; i++) {
@@ -1332,8 +1323,8 @@ function passGuard(e: Expr, users: ReadonlySet<string>, g: Expr): Expr {
   return { ...call, args: [...r.args, g] };
 }
 
-/** A registry helper with its guard chains folded and, when it is a guard user, its guard
- *  taken as the trailing `_fp64_g` parameter. */
+// Why: WGSL's uniformity analysis reads `var<private>` as non-uniform, and Tint then refuses an f64
+// comparison that decides a branch around `textureSample`; a parameter is as uniform as its arguments.
 function threadHelper(d: FuncDecl, users: ReadonlySet<string>): FuncDecl {
   if (!users.has(d.name)) return d;
   const g: Expr = { op: 'param', type: f32T, name: GUARD_VALUE };
@@ -1474,11 +1465,9 @@ function injectGuard(bindings: BindingDecl[]): void {
       binding: slot,
       name: FP64_GUARD_NAME,
       space: 'uniform',
+      // Why: a texture, since a driver (Windows, NVIDIA) specializes a pipeline on a uniform's value and folds the guard away.
       type: FP64_GUARD_TYPE,
-      // GLSL ES 3.00 gives `sampler2D` a DEFAULT precision of lowp, in both stages, and a
-      // texel fetch returns its sampler's precision. 1.0 is exact at lowp, so the guard
-      // reads correctly without this; it is what keeps it correct if the guard ever holds
-      // a value lowp cannot, and under a host preamble that lowers the default.
+      // Why: GLSL ES 3.00 gives `sampler2D` a default precision of lowp in both stages.
       precision: 'highp',
     });
   }
@@ -1670,11 +1659,8 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     ...plan.helpers.get(d.name)!,
     opaque: true,
   }));
-  // Only a module that READS the guard gets the binding. The comparisons (df64_lt/le/gt/ge/
-  // eq/ne) and df64_narrow carry no error term and never read it, and a binding the shader
-  // never reads is stripped from a WebGPU `layout: 'auto'` bind-group layout by Tint/Dawn:
-  // a bind-group mismatch, and a no-op draw on D3D12/NVIDIA (WebKit keeps the unused binding
-  // and GLSL has no such layout, hence the WGSL-only, vendor-specific break).
+  // Why: Tint and Dawn drop a binding the shader never reads from a `layout: 'auto'` bind-group layout,
+  // and the bind group then no longer matches (a draw that does nothing on D3D12 with NVIDIA).
   if (helpers.some((d) => plan.users.has(d.name))) injectGuard(bindings);
   // The module's own functions pass the FETCH to a guarded helper; hoistGuardFetch reads it
   // into one `let` per function after the optimizer has run (see "The guard" above).

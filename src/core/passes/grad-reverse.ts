@@ -1352,8 +1352,8 @@ class Reverse {
             `"${this.f.name}" reads an element of a ${shown(B)} that depends on the parameter; grad carries a derivative through f32, float-vector and float-matrix values only`,
           );
         if (B.kind === 'mat') {
-          // The column `a` lands in a matrix that is zero elsewhere, built whole: the CPU oracle
-          // does not write through a matrix column.
+          // Why: the CPU oracle does not write through a matrix column, so the column `a` lands
+          // in a matrix that is zero elsewhere, built whole.
           const col: ShaderType = { kind: 'vec', n: B.rows, elem: 'f32' };
           const cols: Expr[] = Array.from({ length: B.cols }, (_, j): Expr =>
             e.idx.op === 'lit'
@@ -1676,8 +1676,8 @@ function lvalue(e: Expr): Expr | undefined {
   if (e.op === 'varref' || e.op === 'param') return e;
   if (e.op === 'index' && e.base.type.kind === 'vec')
     return lvalue(e.base) === undefined ? undefined : e;
-  // A component of a matrix column (`m[j].x`) is not taken as a path: the CPU oracle does not
-  // write through one, so the column is accumulated whole instead.
+  // Why: the CPU oracle does not write through a matrix column, so a component of one
+  // (`m[j].x`) is no path and the column is accumulated whole.
   if (
     e.op === 'member' &&
     e.base.type.kind === 'vec' &&
