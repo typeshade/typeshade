@@ -82,9 +82,9 @@ describe('a matrix product takes the shape of its operands from their static typ
   };
 
   it('multiplies matrices of two different shapes in both orders', () => {
-    const { result } = bothTake(`"use typeshade"
-export function wide(x: mat3x2, y: mat2x3): mat2x2 { return x * y }
-export function tall(x: mat2x3, y: mat3x2): mat3x3 { return x * y }
+    const { result } = bothTake(`"use typeshade";
+export function wide(x: mat3x2, y: mat2x3): mat2x2 { return x * y; }
+export function tall(x: mat2x3, y: mat3x2): mat3x3 { return x * y; }
 `);
     const x = [1, 2, 3, 4, 5, 6];
     const y = [7, 8, 9, 10, 11, 12];
